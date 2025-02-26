@@ -14,20 +14,23 @@ import sys
 import threading
 import boto3
 from urllib.parse import urlparse
+from tempfile import NamedTemporaryFile
 
 @click.group()
 def cli():
 	pass
 
+
+
 # ==================================================
 # =            THINGS I STOLE FROM CLAUDE          =
 # ==================================================
+# Idk what any of these things do, I just asked claude for help lol -mj
 
 
 def stream_output(process):
     """Stream process output in real-time to stdout and stderr.
 		
-		Idk what this does, I just asked claude for help lol -mj
     """
     def stream_pipe(pipe, std_pipe):
         for line in iter(pipe.readline, b''):
@@ -80,7 +83,7 @@ def run_command(command):
         shell=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        bufsize=1,  # Line buffered
+        bufsize=0,  # Unbuffered
         universal_newlines=False  # Use bytes for maximum compatibility
     )
     
@@ -143,16 +146,21 @@ def download(src, dst, part, num_parts):
 		# Create a text file to run `s5cmd run ...` on 
 
 		# So first get the list of files and sort them
-
+		files_to_download = sorted(list_s3_files(src))[part::num_parts]
 		# Then create a temp file with the files to download
+		f = NamedTemporaryFile('w')
+		for filename in files_to_download:
+			f.write('cp %s %s\n' % (filename, dst))
+		f.flush()
 
 		# and build the s5cmd and cleanup
+		command = 's5cmd run %s' % f.name
 
 	run_command(command)
 	
 
 
-@cli.commmand()
+@cli.command()
 @click.option('--src', required=True)
 @click.option('--dst', required=False)
 def upload(src, dst):
@@ -168,9 +176,6 @@ def upload(src, dst):
 # ====================================================
 # =                       MAIN                       =
 # ====================================================
-
-
-
 
 if __name__ == '__main__':
 	cli()
