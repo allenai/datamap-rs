@@ -94,7 +94,8 @@ fn parse_config(config: &PathBuf) -> Result<serde_json::Value, Error> {
 ============================================================*/
 
 static MAP_FXNS : phf::Map<&'static str, fn(String, &serde_json::Value) -> Result<String, Error>> = phf_map! {
-    "subsample" => subsample_line
+    "subsample" => subsample_line,
+    "len_filter" => len_filter_line,
 };
 
 
@@ -164,6 +165,35 @@ fn subsample_line(line: String, config: &serde_json::Value) -> Result<String, Er
 
     Ok(output)
 }
+
+
+/*============================================================
+=                            LEN FILTER                      =
+============================================================*/
+
+fn len_filter_line(line: String, config: &serde_json::Value) -> Result<String, Error> {
+    let min_len = match config.get("min_len") {
+        Some(min_len) => min_len.as_u64().unwrap() as usize,
+        None => 0
+    };
+
+    let max_len = match config.get("max_len") {
+        Some(max_len) => max_len.as_u64().unwrap() as usize,
+        None => usize::MAX
+    };
+
+    let json_obj : serde_json::Value = serde_json::from_str(&line).unwrap();
+    let textlen = json_obj.get("text").unwrap().as_str().unwrap().len();
+
+    let output = if textlen <= max_len && textlen >= min_len {
+        line
+    } else {
+        String::new()
+    };
+    Ok(output)
+
+}
+
 
 
 /*============================================================
