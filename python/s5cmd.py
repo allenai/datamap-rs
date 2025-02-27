@@ -198,7 +198,7 @@ class S5CMD:
         # Parse the output
         files = []
         while os.path.basename(path) and '*' in os.path.basename(path):
-            path = os.path.dirname()
+            path = os.path.dirname(path)
 
         for line in result.stdout.strip().split('\n'):
             if not line:
