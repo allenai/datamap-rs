@@ -18,7 +18,7 @@ use mj_io::{expand_dirs, read_pathbuf_to_mem, write_mem_to_pathbuf, build_pbar};
 use rand::Rng;
 use phf::phf_map;
 use uuid::Uuid;
-
+use indicatif::ProgressBar;
 /*
 Map Config layout:
 
@@ -149,7 +149,7 @@ fn gen_map(input_dir: &PathBuf, output_dir: &PathBuf, config: &PathBuf) -> Resul
     });
 
 
-    println!("Finishing map({:?}) in {:?} seconds", json_config.get("function").unwrap().as_str().unwrap(), start_main.elapsed().as_secs());
+    println!("Finishing map in {:?} seconds", start_main.elapsed().as_secs());
 
     Ok(())    
 }
@@ -344,11 +344,12 @@ fn reshard(input_dir: &PathBuf, output_dir: &PathBuf, max_lines: usize, max_size
 
     let num_threads = current_num_threads();    
     let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
+    let pbar = build_pbar(all_files.len(), "Files");
     let chunk_size = (all_files.len() + num_threads - 1) / num_threads;
     let chunks: Vec<Vec<PathBuf>> = all_files.chunks(chunk_size).map(|c| c.to_vec()).collect();
     let out_num = AtomicUsize::new(0);
     chunks.par_iter().for_each(|chunk| {
-        reshard_chunk(chunk, output_dir, &out_num, max_lines, max_size).unwrap();
+        reshard_chunk(chunk, output_dir, &out_num, max_lines, max_size, &pbar).unwrap();
     });
 
     println!("Finished reshard in {:?} seconds | Wrote {:?} new shards", start_main.elapsed().as_secs(), out_num.fetch_add(0, Ordering::SeqCst));
@@ -356,7 +357,7 @@ fn reshard(input_dir: &PathBuf, output_dir: &PathBuf, max_lines: usize, max_size
 }
 
 
-fn reshard_chunk(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUsize, max_lines: usize, max_size: usize) -> Result<(), Error> {
+fn reshard_chunk(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUsize, max_lines: usize, max_size: usize, pbar: &ProgressBar) -> Result<(), Error> {
 
     let mut cur_data: Vec<u8> = Vec::new();
     let mut cur_lines = 0;
@@ -377,6 +378,7 @@ fn reshard_chunk(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUsi
                 cur_size = 0;
             }
         }
+        pbar.inc(1);
     }
     if cur_data.len() > 0 {
         write_new_shard(cur_data, output_dir, out_num).unwrap();
