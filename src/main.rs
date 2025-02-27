@@ -19,7 +19,15 @@ use rand::Rng;
 use phf::phf_map;
 use uuid::Uuid;
 
+/*
+Config layout:
 
+pipeline: list with:
+    [{name, 
+     kwargs: {arg1: val1, ...}},
+    ]
+
+*/
 /*============================================================
 =                            ARGS                            =
 ============================================================*/
@@ -143,12 +151,10 @@ fn gen_map_single(input_file: &PathBuf, output_file: &PathBuf, json_config: &ser
     let data = read_pathbuf_to_mem(input_file).unwrap();
     let mut output_bytes: Vec<u8> = Vec::new();
 
-    let fxn_name = json_config.get("function").unwrap().as_str().unwrap();
-    let process_line = MAP_FXNS[fxn_name];
 
     for line in data.lines() {
         let line = line.unwrap();
-        let output_line = process_line(line, json_config).unwrap();
+        let output_line = map_pipeline(line, json_config).unwrap();
         if output_line.len() > 0 {
             output_bytes.extend(output_line.as_bytes());
             output_bytes.push(b'\n');
@@ -162,6 +168,21 @@ fn gen_map_single(input_file: &PathBuf, output_file: &PathBuf, json_config: &ser
     Ok(())
 }
 
+
+
+fn map_pipeline(line: String, config: &serde_json::Value) -> Result<String, Error> {
+    let pipeline = config["pipeline"].as_array().unwrap().clone();
+
+    for map_fxn in pipeline {
+        let fxn_name = map_fxn.get("name").unwrap().as_str().unwrap();
+        let process_line = MAP_FXNS[fxn_name];
+        let line = process_line(line.clone(), &map_fxn.get("kwargs").unwrap()).unwrap();
+        if line.len() == 0 {
+            return Ok(String::new());
+        }
+    }
+    Ok(line)
+}
 
 
 /*============================================================
