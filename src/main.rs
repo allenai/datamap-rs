@@ -20,7 +20,7 @@ use phf::phf_map;
 use uuid::Uuid;
 
 /*
-Config layout:
+Map Config layout:
 
 pipeline: list with:
     [{name, 
@@ -58,6 +58,17 @@ enum Commands {
         config: PathBuf
     },
 
+    Tag {
+        #[arg(required=true, long)]
+        input_dir: PathBuf,
+
+        #[arg(required=true, long)]
+        output_dir: PathBuf,
+
+        #[arg(required=true, long)]
+        config: PathBuf
+    },
+
     Reshard {
         #[arg(required=true, long)]
         input_dir: PathBuf,
@@ -70,9 +81,7 @@ enum Commands {
 
         #[arg(long, default_value_t=0)]
         max_size: usize,
-    }
-
-
+    },
 
 }
 
@@ -170,8 +179,8 @@ fn gen_map_single(input_file: &PathBuf, output_file: &PathBuf, json_config: &ser
 
 
 
-fn map_pipeline(line: String, config: &serde_json::Value) -> Result<String, Error> {
-    let pipeline = config["pipeline"].as_array().unwrap().clone();
+fn map_pipeline(line: String, json_config: &serde_json::Value) -> Result<String, Error> {
+    let pipeline = json_config["pipeline"].as_array().unwrap().clone();
 
     for map_fxn in pipeline {
         let fxn_name = map_fxn.get("name").unwrap().as_str().unwrap();
@@ -183,11 +192,6 @@ fn map_pipeline(line: String, config: &serde_json::Value) -> Result<String, Erro
     }
     Ok(line)
 }
-
-
-/*============================================================
-=                            SUBSAMPLE                       =
-============================================================*/
 
 
 
@@ -205,10 +209,6 @@ fn subsample_line(line: String, config: &serde_json::Value) -> Result<String, Er
     Ok(output)
 }
 
-
-/*============================================================
-=                            LEN FILTER                      =
-============================================================*/
 
 fn len_filter_line(line: String, config: &serde_json::Value) -> Result<String, Error> {
     let min_len = match config.get("min_len") {
@@ -233,11 +233,6 @@ fn len_filter_line(line: String, config: &serde_json::Value) -> Result<String, E
 
 }
 
-
-/*============================================================
-=                            ADD ID                          =
-============================================================*/
-
 fn add_id_line(line: String, config: &serde_json::Value) -> Result<String, Error> {
     let mut json_obj : serde_json::Value = serde_json::from_str(&line).unwrap();
     let id_key = match config.get("id_key") {
@@ -252,6 +247,80 @@ fn add_id_line(line: String, config: &serde_json::Value) -> Result<String, Error
 }
 
 
+/*============================================================
+=                            GENERAL TAG                     =
+============================================================*/
+
+static TAG_FXNS : phf::Map<&'static str, fn(&serde_json::Value, &serde_json::Value) -> Result<serde_json::Value, Error>> = phf_map! {
+    // Put tag functions here
+};
+
+
+fn gen_tag(input_dir: &PathBuf, output_dir: &PathBuf, config: &PathBuf) -> Result<(), Error> {
+    let start_main = Instant::now();
+    let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
+    let json_config = parse_config(config).unwrap();
+
+    let pbar = build_pbar(all_files.len(), "Files");
+    all_files.par_iter().for_each(|p| {
+        let output_file = get_output_file_name(input_dir, output_dir, p).unwrap();
+        gen_tag_single(p, &output_file, &json_config).unwrap();
+        pbar.inc(1);
+    });
+
+    println!("Finished tagging in {:?} seconds", start_main.elapsed().as_secs());
+    Ok(())
+}
+
+fn gen_tag_single(input_file: &PathBuf, output_file: &PathBuf, json_config: &serde_json::Value) -> Result<(), Error> {
+    let data = read_pathbuf_to_mem(input_file).unwrap();
+    let mut output_bytes: Vec<u8> = Vec::new();
+
+
+    for line in data.lines() {
+        let line = line.unwrap();
+        let attributes = tag_pipeline(&line, json_config).unwrap();
+        if attributes.len() > 0 {
+            output_bytes.extend(attributes.as_bytes());
+            output_bytes.push(b'\n');
+        }
+    }
+
+    if output_bytes.len() > 0 {
+        write_mem_to_pathbuf(&output_bytes, output_file).unwrap();
+    }
+
+
+    Ok(())
+}
+
+
+fn tag_pipeline(line: &String, json_config: &serde_json::Value) -> Result<String, Error> {
+    let data: serde_json::Value = serde_json::from_str(line.as_str()).unwrap();
+    let pipeline = json_config["pipeline"].as_array().unwrap().clone();
+
+
+    let mut attributes = serde_json::json!({});
+
+
+    let id_key = match json_config.get("id_key") {
+        Some(id_key) => id_key.to_string(),
+        None => "id".to_string()
+    };
+    attributes[id_key] = data.get(&id_key).unwrap().clone();
+    for tag_fxn in pipeline {
+        let fxn_name = tag_fxn.get("name").unwrap().as_str().unwrap();
+        let attr_name = tag_fxn.get("attr_name").unwrap().as_str().unwrap();
+
+
+        let process_line = TAG_FXNS[fxn_name];
+        let attr = process_line(&data, &tag_fxn.get("kwargs").unwrap()).unwrap();
+        attributes[attr_name] = attr;
+    
+    }
+
+    Ok(attributes.to_string())
+}
 
 /*============================================================
 =                            RESHARD                         =
@@ -342,6 +411,11 @@ fn main() {
         Commands::Map{input_dir, output_dir, config} => {
             gen_map(input_dir, output_dir, config)
         },
+
+        Commands::Tag{input_dir, output_dir, config} => {
+            gen_tag(input_dir, output_dir, config)
+        },
+
         Commands::Reshard{input_dir, output_dir, max_lines, max_size} => {
             reshard(input_dir, output_dir, *max_lines, *max_size)
         }
