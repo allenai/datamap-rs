@@ -9,6 +9,7 @@ use std::cmp::max;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde_json;
+use serde_json::json;
 use serde_yaml;
 use anyhow::{Error, Result, ensure};
 use clap::{Parser, Subcommand};
@@ -82,6 +83,17 @@ enum Commands {
         #[arg(long, default_value_t=0)]
         max_size: usize,
     },
+
+    Stats {
+        #[arg(required=true, long)]
+        input_dir: PathBuf,
+
+        #[arg(required=true, long)]
+        output_file: PathBuf,
+
+        #[arg(required=true, long)]
+        config: PathBuf
+    }
 
 }
 
@@ -323,6 +335,137 @@ fn tag_pipeline(line: &String, json_config: &serde_json::Value) -> Result<String
 }
 
 /*============================================================
+=                            STATS                           =
+============================================================*/
+
+static STATS_FXNS : phf::Map<&'static str, fn(&serde_json::Value, serde_json::Value, &str, &serde_json::Value) -> Result<serde_json::Value, Error>> = phf_map! {
+    // Put stats functions here
+
+    "COUNT_EMPTY" => count_empty,
+    "COUNT_TOTAL" => count_total
+};
+
+
+fn stats(input_dir: &PathBuf, output_file: &PathBuf, config: &PathBuf) -> Result<(), Error> {
+    // General flow: make thread-wise stats dicts and then aggregate via sum at the end
+    let start_main = Instant::now();
+
+    let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
+
+    let json_config = parse_config(config).unwrap();
+    let pbar = build_pbar(all_files.len(), "Files");
+    let num_threads = current_num_threads();
+    let chunk_size = (all_files.len() + num_threads - 1) / num_threads;
+    let chunks: Vec<Vec<PathBuf>> = all_files.chunks(chunk_size).map(|c| c.to_vec()).collect();
+
+    let chunk_outs: Vec<serde_json::Value> = chunks.par_iter().map(|chunk| {
+        stats_chunk(&chunk, &json_config, &pbar).unwrap()
+    }).collect();
+
+    let agg = stats_aggregate(chunk_outs, &json_config).unwrap();
+
+    println!("AGG {:?}", agg);
+    let agg_bytes = serde_json::to_vec(&agg).unwrap();
+    write_mem_to_pathbuf(&agg_bytes.as_slice(), output_file).unwrap();
+    println!("OUTPUT IS {:?}", agg);
+    println!("FINISHED STATS IN {:?} SECONDS", start_main.elapsed().as_secs());
+
+    Ok(())
+}
+
+
+fn stats_chunk(chunk: &Vec<PathBuf>, json_config: &serde_json::Value, pbar: &ProgressBar) -> Result<serde_json::Value, Error> {
+    let mut chunk_stats = json!({});
+
+    for path in chunk {
+        let data = read_pathbuf_to_mem(path).unwrap();
+        for line in data.lines() {
+            let line = line.unwrap();
+            chunk_stats = stats_pipeline(&line, chunk_stats, json_config).unwrap();
+        }
+        pbar.inc(1);
+    }
+    Ok(chunk_stats)
+}
+
+fn stats_pipeline(line: &String, mut chunk_stats: serde_json::Value, json_config: &serde_json::Value) -> Result<serde_json::Value, Error> {
+    let pipeline = json_config["pipeline"].as_array().unwrap().clone();
+    let json_line: serde_json::Value = serde_json::from_str(line).unwrap();
+
+    for stat_fxn in pipeline {
+        let fxn_name = stat_fxn.get("name").unwrap().as_str().unwrap();
+        let process_json = STATS_FXNS[fxn_name];
+        let stat_name = stat_fxn.get("stat_name").unwrap().as_str().unwrap();
+        chunk_stats = process_json(&json_line, chunk_stats, stat_name, &stat_fxn.get("kwargs").unwrap()).unwrap();    
+    }
+
+    Ok(chunk_stats)
+}
+
+
+fn count_empty(json_line: &serde_json::Value, mut chunk_stats: serde_json::Value, stat_name: &str, kwargs: &serde_json::Value) -> Result<serde_json::Value, Error> {
+    let mut cur_val = match chunk_stats.get(stat_name) {
+        Some(serde_json::Value::Number(n)) => {
+            n.as_u64().unwrap()
+        },
+        _ => 0
+    };
+    if json_line.get(kwargs.get("text_field").unwrap().as_str().unwrap()).unwrap().as_str().unwrap().len() == 0 {
+        cur_val += 1
+    }
+
+    chunk_stats[stat_name] = json!(cur_val);
+
+    Ok(chunk_stats)
+}
+
+
+fn count_total(_json_line: &serde_json::Value, mut chunk_stats: serde_json::Value, stat_name: &str, _kwargs: &serde_json::Value) -> Result<serde_json::Value, Error> {
+    let cur_val = match chunk_stats.get(stat_name) {
+        Some(serde_json::Value::Number(n)) => {
+            n.as_u64().unwrap()
+        },
+        _ => 0
+    };
+
+    chunk_stats[stat_name] = json!(cur_val + 1);
+
+    Ok(chunk_stats)
+}
+
+
+fn stats_aggregate(chunk_stats: Vec<serde_json::Value>, json_config: &serde_json::Value) -> Result<serde_json::Value, Error> {
+
+    // Pipelines have aggregators
+    let mut agg = json!({});
+    let pipeline = json_config["pipeline"].as_array().unwrap().clone();
+
+    for chunk_stat in chunk_stats {
+        for el in pipeline.iter() {
+            let agg_fxn = el.get("agg_fxn").unwrap().as_str().unwrap();
+            let stat_name = el.get("stat_name").unwrap().as_str().unwrap();
+            match agg_fxn {
+                "sum" => {
+                    let chunk_value = chunk_stat.get(stat_name).unwrap().as_u64().unwrap();
+        
+                    let cur_agg_value: u64 = match agg.get(stat_name) {
+                        Some(serde_json::Value::Number(n)) => n.as_u64().unwrap(),
+                        _ => 0
+                    };
+                    agg[stat_name] = (cur_agg_value + chunk_value).into();
+                },
+                _ => return Err(Error::msg("Only sum stats supported for now!"))
+            }
+
+        }
+    }
+
+    Ok(agg)
+
+}
+
+
+/*============================================================
 =                            RESHARD                         =
 ============================================================*/
 
@@ -420,6 +563,10 @@ fn main() {
 
         Commands::Reshard{input_dir, output_dir, max_lines, max_size} => {
             reshard(input_dir, output_dir, *max_lines, *max_size)
+        },
+
+        Commands::Stats{input_dir, output_file, config} => {
+            stats(input_dir, output_file, config)
         }
         _ => {Ok(())}
     };
