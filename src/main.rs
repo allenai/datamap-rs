@@ -142,7 +142,8 @@ fn parse_config(config: &PathBuf) -> Result<serde_json::Value, Error> {
 static MAP_FXNS : phf::Map<&'static str, fn(String, &serde_json::Value) -> Result<String, Error>> = phf_map! {
     "subsample" => subsample_line,
     "len_filter" => len_filter_line,
-    "add_id" => add_id_line
+    "add_id" => add_id_line,
+    "santacoder_pl_filter" => santacoder_pl_filter
 };
 
 
@@ -258,6 +259,18 @@ fn add_id_line(line: String, config: &serde_json::Value) -> Result<String, Error
     Ok(new_line)
 }
 
+
+fn santacoder_pl_filter(line: String, _config: &serde_json::Value) -> Result<String, Error> {
+    let json_obj : serde_json::Value = serde_json::from_str(&line).unwrap();
+
+    let pl = json_obj.get("metadata").and_then(|m| m.get("language")).and_then(|l| l.as_str()).unwrap();
+    let output = if pl == "Python" || pl == "Java" || pl == "Javascript" {
+        line
+    } else {
+        String::new()
+    };
+    Ok(output)
+}
 
 /*============================================================
 =                            GENERAL TAG                     =
