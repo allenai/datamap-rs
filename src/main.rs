@@ -264,7 +264,7 @@ fn santacoder_pl_filter(line: String, _config: &serde_json::Value) -> Result<Str
     let json_obj : serde_json::Value = serde_json::from_str(&line).unwrap();
 
     let pl = json_obj.get("metadata").and_then(|m| m.get("language")).and_then(|l| l.as_str()).unwrap();
-    let output = if pl == "Python" || pl == "Java" || pl == "Javascript" {
+    let output = if pl == "Python" || pl == "Java" || pl == "JavaScript"{
         line
     } else {
         String::new()
