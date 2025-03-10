@@ -31,6 +31,15 @@ def set_non_blocking(file_obj):
     fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
 
 
+def weka_endpoint_args(weka_profile=None):
+    if weka_profile == None:
+        weka_profile = "WEKA"
+    cmd_str = (
+        "--profile %s --endpoint-url https://weka-aus.beaker.org:9000" % weka_profile
+    )
+    return cmd_str.split(" ")
+
+
 class S5CMD:
     """
     Python bindings for s5cmd
@@ -68,6 +77,7 @@ class S5CMD:
         destination: str,
         include: Optional[str] = None,
         exclude: Optional[str] = None,
+        weka_profile: Optional[str] = None,
     ) -> int:
         """
         Copy files from source to destination
@@ -91,6 +101,17 @@ class S5CMD:
 
         if exclude:
             cmd.extend(["--exclude", exclude])
+
+        if any("weka://" in [source, destination]):
+            cmd.extend(weka_endpoint_args(weka_profile))
+            source = source.replace("weka://", "s3://")
+            destination = destination.replace("weka://", "s3://")
+
+        assert not all(
+            "s3://" in [source, destination]
+        ), "Only s3/weka<->local permitted!"
+
+        # some checks:
 
         cmd.extend([source, destination])
 
@@ -177,7 +198,7 @@ class S5CMD:
         pbar.update(round(delta, 2))
         pbar.set_postfix_str(postfix)
 
-    def ls(self, path: str, recursive: bool = False) -> List[Dict]:
+    def ls(self, path: str, recursive: bool = False, weka_profile=None) -> List[Dict]:
         """
         List files and objects
 
@@ -195,11 +216,7 @@ class S5CMD:
 
         if path.startswith("weka://"):
             path = path.replace("weka://", "s3://")
-            cmd.extend(
-                "--profile WEKA --endpoint-url https://weka-aus.beaker.org:9000".split(
-                    " "
-                )
-            )
+            cmd.extend(weka_endpoint_args(weka_profile))
 
         cmd.append("ls")
         cmd.append(path)
