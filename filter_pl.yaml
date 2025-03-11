@@ -1,0 +1,5 @@
+map_name: filter_pl
+pipeline:
+  - name: santacoder_pl_filter
+    kwargs:
+      foo: bar
