@@ -220,7 +220,7 @@ fn reshard_chunk2(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUs
     for path in chunk {
         let data = read_pathbuf_to_mem(path).unwrap();
         for line in data.lines() {
-            if subsample > 0.0 &&  subsample < rng.random::<f32>() {
+            if subsample == 0.0 || (subsample > 0.0 &&  subsample < rng.random::<f32>()) {
                 let line = line.unwrap();
                 let line = line.as_bytes();
                 cur_lines += 1;
