@@ -40,6 +40,13 @@ def weka_endpoint_args(weka_profile=None):
     return cmd_str.split(" ")
 
 
+def gs_endpoint_args(gs_profile=None):
+    if gs_profile == None:
+        gs_profile = "GS"
+    cmd_str = "--profile %s --endpoint-url https://storage.googleapis.com" % gs_profile
+    return cmd_str.split(" ")
+
+
 class S5CMD:
     """
     Python bindings for s5cmd
@@ -78,6 +85,7 @@ class S5CMD:
         include: Optional[str] = None,
         exclude: Optional[str] = None,
         weka_profile: Optional[str] = None,
+        gs_profile: Optional[str] = None,
     ) -> int:
         """
         Copy files from source to destination
@@ -106,6 +114,11 @@ class S5CMD:
             cmd.extend(weka_endpoint_args(weka_profile))
             source = source.replace("weka://", "s3://")
             destination = destination.replace("weka://", "s3://")
+
+        if any("gs://" in [source, destination]):
+            cmd.extend(gs_endpoint_args(gs_profile))
+            source = source.replace("gs://", "s3://")
+            destination = destination.replace("gs://", "s3://")
 
         assert not all(
             "s3://" in [source, destination]
@@ -198,7 +211,9 @@ class S5CMD:
         pbar.update(round(delta, 2))
         pbar.set_postfix_str(postfix)
 
-    def ls(self, path: str, recursive: bool = False, weka_profile=None) -> List[Dict]:
+    def ls(
+        self, path: str, recursive: bool = False, weka_profile=None, gs_profile=None
+    ) -> List[Dict]:
         """
         List files and objects
 
@@ -217,6 +232,9 @@ class S5CMD:
         if path.startswith("weka://"):
             path = path.replace("weka://", "s3://")
             cmd.extend(weka_endpoint_args(weka_profile))
+        if path.startswith("gs://"):
+            path = path.replace("gs://", "s3://")
+            cmd.extend(gs_endpoint_args(gs_profile))
 
         cmd.append("ls")
         cmd.append(path)
@@ -344,6 +362,12 @@ class S5CMD:
 @click.option("--num-parts", type=int, default=1)
 def download(src, dst, part, num_parts):
     assert part < num_parts
+    assert not any(
+        "weka://" in _ for _ in [src, dst]
+    ), "Weka stuff should be manually handled!"
+    assert not any(
+        "gs://" in _ for _ in [src, dst]
+    ), "GS stuff should be manually handled!"
 
     s5 = S5CMD()
     if num_parts == 1:
