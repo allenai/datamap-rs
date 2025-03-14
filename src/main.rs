@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 use std::cmp::max;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use rand::Rng;
 
 use serde_json;
 use serde_yaml;
@@ -71,6 +72,9 @@ enum Commands {
 
         #[arg(long, default_value_t=0)]
         max_size: usize,
+
+        #[arg(long, default_value_t=0.0)]
+        subsample: f32,
     },
 
 }
@@ -138,7 +142,7 @@ fn gen_map(input_dir: &PathBuf, output_dir: &PathBuf, config: &PathBuf) -> Resul
 =                            RESHARD                         =
 ============================================================*/
 
-fn reshard(input_dir: &PathBuf, output_dir: &PathBuf, max_lines: usize, max_size: usize) -> Result<(), Error> {
+fn reshard(input_dir: &PathBuf, output_dir: &PathBuf, max_lines: usize, max_size: usize, subsample: f32) -> Result<(), Error> {
     let start_main = Instant::now();
 
     ensure!(max(max_lines, max_size) > 0, "Either max_lines or max_size must be provided!");
@@ -160,7 +164,7 @@ fn reshard(input_dir: &PathBuf, output_dir: &PathBuf, max_lines: usize, max_size
     let chunks: Vec<Vec<PathBuf>> = all_files.chunks(chunk_size).map(|c| c.to_vec()).collect();
     let out_num = AtomicUsize::new(0);
     chunks.par_iter().for_each(|chunk| {
-        reshard_chunk2(chunk, output_dir, &out_num, max_lines, max_size, &pbar).unwrap();
+        reshard_chunk2(chunk, output_dir, &out_num, max_lines, max_size, &pbar, subsample).unwrap();
     });
 
     println!("Finished reshard in {:?} seconds | Wrote {:?} new shards", start_main.elapsed().as_secs(), out_num.fetch_add(0, Ordering::SeqCst));
@@ -168,7 +172,7 @@ fn reshard(input_dir: &PathBuf, output_dir: &PathBuf, max_lines: usize, max_size
 }
 
 
-fn reshard_chunk(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUsize, max_lines: usize, max_size: usize, pbar: &ProgressBar) -> Result<(), Error> {
+fn reshard_chunk(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUsize, max_lines: usize, max_size: usize, pbar: &ProgressBar, subsample: f32) -> Result<(), Error> {
 
     let mut cur_data: Vec<u8> = Vec::new();
     let mut cur_lines = 0;
@@ -178,6 +182,8 @@ fn reshard_chunk(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUsi
         for line in data.lines() {
             let line = line.unwrap();
             let line = line.as_bytes();
+
+
             cur_lines += 1;
             cur_size += line.len();
             cur_data.extend(line);
@@ -198,7 +204,7 @@ fn reshard_chunk(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUsi
     Ok(())
 }
 
-fn reshard_chunk2(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUsize, max_lines: usize, max_size: usize, pbar: &ProgressBar) -> Result<(), Error> {
+fn reshard_chunk2(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUsize, max_lines: usize, max_size: usize, pbar: &ProgressBar, subsample: f32) -> Result<(), Error> {
     // faster strat: keep an open writer and append until full
     let get_new_writer = |out_num: &AtomicUsize| -> Result<BufWriter<File>, Error> {
         let shard_id = out_num.fetch_add(1, Ordering::SeqCst);
@@ -206,7 +212,7 @@ fn reshard_chunk2(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUs
         let writer = make_shard_writer(shard).unwrap();        
         Ok(writer)
     };
-
+    let mut rng = rand::rng();
     let mut writer = get_new_writer(out_num).unwrap();
 
     let mut cur_lines = 0;
@@ -214,15 +220,17 @@ fn reshard_chunk2(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUs
     for path in chunk {
         let data = read_pathbuf_to_mem(path).unwrap();
         for line in data.lines() {
-            let line = line.unwrap();
-            let line = line.as_bytes();
-            cur_lines += 1;
-            cur_size += line.len();
-            writer.write_all(&line).unwrap();
-            writer.write(vec![b'\n'].as_slice()).unwrap();
-            if cur_lines >= max_lines || cur_size >= max_size {
-                writer.flush().unwrap();
-                writer = get_new_writer(out_num).unwrap();
+            if subsample > 0.0 &&  rng.random::<f32>() < subsample {
+                let line = line.unwrap();
+                let line = line.as_bytes();
+                cur_lines += 1;
+                cur_size += line.len();
+                writer.write_all(&line).unwrap();
+                writer.write(vec![b'\n'].as_slice()).unwrap();
+                if cur_lines >= max_lines || cur_size >= max_size {
+                    writer.flush().unwrap();
+                    writer = get_new_writer(out_num).unwrap();
+                }
             }
         }
         pbar.inc(1);
@@ -288,8 +296,8 @@ fn main() {
         },
 
 
-        Commands::Reshard{input_dir, output_dir, max_lines, max_size} => {
-            reshard(input_dir, output_dir, *max_lines, *max_size)
+        Commands::Reshard{input_dir, output_dir, max_lines, max_size, subsample} => {
+            reshard(input_dir, output_dir, *max_lines, *max_size, *subsample)
         },
 
 
