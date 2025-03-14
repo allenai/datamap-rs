@@ -220,7 +220,7 @@ fn reshard_chunk2(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUs
     for path in chunk {
         let data = read_pathbuf_to_mem(path).unwrap();
         for line in data.lines() {
-            if subsample > 0.0 &&  rng.random::<f32>() < subsample {
+            if subsample > 0.0 &&  subsample < rng.random::<f32>() {
                 let line = line.unwrap();
                 let line = line.as_bytes();
                 cur_lines += 1;
@@ -258,8 +258,6 @@ fn make_shard_writer(shard_name: PathBuf) -> Result<BufWriter<File>, Error> {
             create_dir_all(parent_dir).unwrap()
          }    
     }
-
-    println!("SHARD NAME {:?}", shard_name);
     let writer = BufWriter::new(
             OpenOptions::new()
             .append(true)
