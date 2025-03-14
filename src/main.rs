@@ -18,6 +18,8 @@ use rayon::prelude::*;
 use rayon::current_num_threads;
 use mj_io::{expand_dirs, read_pathbuf_to_mem, write_mem_to_pathbuf, build_pbar};
 use indicatif::ProgressBar;
+use zstd::{Encoder};
+
 
 //use crate::map_fxn::{CompiledProcessor, precompile_processor};
 /*
@@ -206,7 +208,7 @@ fn reshard_chunk(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUsi
 
 fn reshard_chunk2(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUsize, max_lines: usize, max_size: usize, pbar: &ProgressBar, subsample: f32) -> Result<(), Error> {
     // faster strat: keep an open writer and append until full
-    let get_new_writer = |out_num: &AtomicUsize| -> Result<BufWriter<File>, Error> {
+    let get_new_writer = |out_num: &AtomicUsize| -> Result<Encoder<BufWriter<File>>, Error> {
         let shard_id = out_num.fetch_add(1, Ordering::SeqCst);
         let shard = get_reshard_name(output_dir, shard_id).unwrap();
         let writer = make_shard_writer(shard).unwrap();        
@@ -220,7 +222,7 @@ fn reshard_chunk2(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUs
     for path in chunk {
         let data = read_pathbuf_to_mem(path).unwrap();
         for line in data.lines() {
-            if subsample == 0.0 || (subsample > 0.0 &&  subsample < rng.random::<f32>()) {
+            if subsample == 0.0 || (subsample > 0.0 &&  rng.random::<f32>() < subsample) {
                 let line = line.unwrap();
                 let line = line.as_bytes();
                 cur_lines += 1;
@@ -229,6 +231,7 @@ fn reshard_chunk2(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUs
                 writer.write(vec![b'\n'].as_slice()).unwrap();
                 if cur_lines >= max_lines || cur_size >= max_size {
                     writer.flush().unwrap();
+                    writer.do_finish().unwrap();
                     writer = get_new_writer(out_num).unwrap();
                     cur_lines = 0; 
                     cur_size = 0;
@@ -239,6 +242,8 @@ fn reshard_chunk2(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUs
     }
 
     writer.flush().unwrap();
+    writer.do_finish().unwrap();
+
     Ok(())
 }
 
@@ -250,7 +255,7 @@ fn get_reshard_name(output_dir: &PathBuf, shard_id: usize) -> Result<PathBuf, Er
     Ok(output_file)
 }
 
-fn make_shard_writer(shard_name: PathBuf) -> Result<BufWriter<File>, Error> {
+fn make_shard_writer(shard_name: PathBuf) -> Result<Encoder<'static, BufWriter<File>>, Error> {
 
     // Make parent dir if not exists
     if let Some(parent_dir) = shard_name.parent() {
@@ -258,7 +263,7 @@ fn make_shard_writer(shard_name: PathBuf) -> Result<BufWriter<File>, Error> {
             create_dir_all(parent_dir).unwrap()
          }    
     }
-    let writer = BufWriter::new(
+    let buf_writer = BufWriter::new(
             OpenOptions::new()
             .append(true)
             .create(true)
@@ -266,6 +271,9 @@ fn make_shard_writer(shard_name: PathBuf) -> Result<BufWriter<File>, Error> {
             .open(shard_name)
             .unwrap()
     );
+
+    let writer = Encoder::new(buf_writer, 3)
+        .unwrap();
     Ok(writer)
 }
 
