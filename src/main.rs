@@ -230,6 +230,8 @@ fn reshard_chunk2(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUs
                 if cur_lines >= max_lines || cur_size >= max_size {
                     writer.flush().unwrap();
                     writer = get_new_writer(out_num).unwrap();
+                    cur_lines = 0; 
+                    cur_size = 0;
                 }
             }
         }
@@ -257,6 +259,7 @@ fn make_shard_writer(shard_name: PathBuf) -> Result<BufWriter<File>, Error> {
          }    
     }
 
+    println!("SHARD NAME {:?}", shard_name);
     let writer = BufWriter::new(
             OpenOptions::new()
             .append(true)
