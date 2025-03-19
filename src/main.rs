@@ -14,10 +14,14 @@ use anyhow::{Error, Result, ensure};
 use clap::{Parser, Subcommand};
 use rayon::prelude::*;
 use rayon::current_num_threads;
-use mj_io::{expand_dirs, read_pathbuf_to_mem, write_mem_to_pathbuf, build_pbar};
+use mj_io::{expand_dirs, read_pathbuf_to_mem, write_mem_to_pathbuf, build_pbar, get_output_filename};
 use indicatif::ProgressBar;
 
+
 mod map_fxn; 
+mod dclm_mappers;
+mod map_fxn2; 
+mod utils;
 use crate::map_fxn::{CompiledProcessor, precompile_processor};
 /*
 Map Config layout:
@@ -80,13 +84,6 @@ enum Commands {
 =                            UTILITIES                       =
 ============================================================*/
 
-fn get_output_file_name(input_dir: &PathBuf, output_dir: &PathBuf, input_file: &PathBuf) -> Result<PathBuf, Error> {
-    let binding = input_file.clone();
-    let basename = binding.strip_prefix(input_dir).unwrap();
-    let output_file = output_dir.clone().join(basename);
-
-    Ok(output_file)
-}
 
 fn parse_config(config: &PathBuf) -> Result<serde_json::Value, Error> {
     // Handle either .yaml or .json config and return a Json value
@@ -133,7 +130,7 @@ fn gen_map(input_dir: &PathBuf, output_dir: &PathBuf, config: &PathBuf) -> Resul
 
     let pbar = build_pbar(all_files.len(), "Files");
     all_files.par_iter().for_each(|p| {
-        let output_file = get_output_file_name(input_dir, output_dir, p).unwrap();        
+        let output_file = get_output_filename(input_dir, output_dir, p).unwrap();        
         gen_map_single(p, &output_file, &processor).unwrap();
         pbar.inc(1);
     });
