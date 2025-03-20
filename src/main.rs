@@ -1,6 +1,7 @@
 // External crates
 
 
+use dashmap::DashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -19,10 +20,8 @@ use indicatif::ProgressBar;
 
 
 mod map_fxn; 
-mod dclm_mappers;
-mod map_fxn2; 
 mod utils;
-use crate::map_fxn::{CompiledProcessor, precompile_processor};
+use crate::map_fxn::{PipelineProcessor};
 /*
 Map Config layout:
 
@@ -104,7 +103,6 @@ fn parse_config(config: &PathBuf) -> Result<serde_json::Value, Error> {
             return Err(Error::msg(format!("Weird config format: {:?}", config)));
         }
     };
-
     Ok(parsed_config.into())
 }
 
@@ -126,40 +124,70 @@ fn gen_map(input_dir: &PathBuf, output_dir: &PathBuf, config: &PathBuf) -> Resul
 
     let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
     let json_config = parse_config(config).unwrap();
-    let processor = precompile_processor(&json_config).unwrap();
+    let processor = PipelineProcessor::new(&json_config).unwrap();
+    let global_timer: DashMap<usize, u128> = DashMap::new();
+    let global_filter: DashMap<usize, usize> = DashMap::new();
+    for i in 0..processor.pipeline.len() {
+        global_timer.insert(i, 0);
+        global_filter.insert(i,0);
+    }
+    global_filter.insert(usize::MAX, 0);
 
     let pbar = build_pbar(all_files.len(), "Files");
     all_files.par_iter().for_each(|p| {
-        let output_file = get_output_filename(input_dir, output_dir, p).unwrap();        
-        gen_map_single(p, &output_file, &processor).unwrap();
+        let output_file = get_output_filename(p, input_dir, output_dir).unwrap();        
+        gen_map_single(p, &output_file, &processor, &global_timer, &global_filter).unwrap();
         pbar.inc(1);
     });
 
 
+
     println!("Finishing map in {:?} seconds", start_main.elapsed().as_secs());
+    println!("---------------------------");
+    println!("Printouts: ");
+    for (i, el) in processor.pipeline.iter().enumerate() {
+        println!("Step: {:?}", el);
+        println!("\tRemoved {:?} documents", global_filter.get(&i).unwrap().value());
+        println!("\tTook {:?} seconds", *global_timer.get(&i).unwrap().value() as f64 / 1_000_000.0);
+        println!("~~~~~~~");
+    }
+    println!("FINAL");
+    println!("\t {:?} documents survived", global_filter.get(&usize::MAX).unwrap().value());
 
     Ok(())    
 }
 
 
 
-fn gen_map_single(input_file: &PathBuf, output_file: &PathBuf, processor: &CompiledProcessor) -> Result<(), Error> {
+fn gen_map_single(input_file: &PathBuf, output_file: &PathBuf, processor: &PipelineProcessor, 
+                  global_timer: &DashMap<usize, u128>, global_filter: &DashMap<usize, usize>) -> Result<(), Error> {
     /* Single-file mapping/filtration function
 
     Processes the contents of a single file, using file-centric mappers specified in the config and writes to output file
     */
     let data = read_pathbuf_to_mem(input_file).unwrap();
-
     let lines: Vec<_> = data.lines().map(|el| el.unwrap()).collect();
-    let output_lines = processor.process(lines).unwrap();
+
+    let (output_lines, timing_info, filter_info) = processor.process_lines(lines).unwrap();
     if output_lines.len() > 0 {
         let mut output_bytes: Vec<u8> = Vec::new();
         for line in output_lines.into_iter() {
-            output_bytes.extend(line.as_bytes());
+            output_bytes.extend(serde_json::to_vec(&line).unwrap());
             output_bytes.push(b'\n');
         }
         write_mem_to_pathbuf(&output_bytes, output_file).unwrap();
     }
+
+    timing_info.iter().for_each(|(k,v)| {
+        global_timer.entry(*k)
+            .and_modify(|gv| *gv += v);
+    });
+
+    filter_info.iter().for_each(|(k, v)| {
+        global_filter.entry(*k)
+            .and_modify(|gv| *gv += v);
+    });
+
 
 
 
