@@ -24,7 +24,7 @@ use fxhash::{FxHasher};
 
 
 use derivative::Derivative; 
-use mj_io::build_pbar;
+//use mj_io::build_pbar;
 
 /*================================================================================
 =                            PIPELINE PROCESSING                                 =
@@ -154,7 +154,7 @@ impl PipelineProcessor {
 		let mut timing_info = TimingInfo::new();
 		let mut filter_info = FilterInfo::new();
 		let mut output_lines: HashMap<usize, Vec<Value>> = HashMap::new();
-		let pbar = build_pbar(lines.len(), "lines");
+		//let pbar = build_pbar(lines.len(), "lines");
 		for line in lines {
 			let json_line = serde_json::from_str(&line).unwrap();
 			let (step_out, json_result) = self.process(json_line, &mut timing_info, &mut filter_info, debug).unwrap();
@@ -163,7 +163,7 @@ impl PipelineProcessor {
 					.or_insert_with(Vec::new)
 					.push(json_out);
 			}
-			pbar.inc(1);
+			//pbar.inc(1);
 		};
 
 		Ok((output_lines, timing_info, filter_info))

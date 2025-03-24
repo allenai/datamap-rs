@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 import time
+from tempfile import NamedTemporaryFile
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import boto3
