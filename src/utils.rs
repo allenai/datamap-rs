@@ -70,7 +70,9 @@ pub fn json_get<'a>(data: &'a serde_json::Value, key: &str) -> Option<&'a Value>
     for key in keys {
         match current.get(key) {
             Some(value) => current = value,
-            None => return None,
+            None => {
+                return None
+            }
         }
     }
     

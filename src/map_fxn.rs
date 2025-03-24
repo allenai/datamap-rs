@@ -22,6 +22,8 @@ use fasttext::FastText;
 use unicode_segmentation::UnicodeSegmentation;
 use regex::Regex;
 
+use derivative::Derivative; 
+
 /*================================================================================
 =                            PIPELINE PROCESSING                                 =
 ================================================================================*/
@@ -50,12 +52,12 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
     register_processor!(m, "subsample", SubsampleFilter);
     register_processor!(m, "santcoder_pl_filter", SantaCoderPLFilter);
     register_processor!(m, "add_id", AddIdModifier);
-    register_processor!(m, "url_filter", UrlSubstringFilterJson);
+    register_processor!(m, "url_substring_filter", UrlSubstringFilter);
     register_processor!(m, "newline_removal_modifier", NewlineRemovalModifier);
-    register_processor!(m, "fasttext_anno", FastTextAnnotator);
+    register_processor!(m, "fasttext_annotator", FastTextAnnotator);
     register_processor!(m, "float_filter", FloatFilter);
     register_processor!(m, "page_len_filter", PageLenFilter);
-    register_processor!(m, "word_len_filter", WordLengthFilter);
+    register_processor!(m, "word_len_filter", WordLenFilter);
     register_processor!(m, "symbol_ratio_filter", SymbolRatioFilter);
     register_processor!(m, "bullet_filter", BulletFilter);
     register_processor!(m, "ellipsis_line_ratio_filter", EllipsisLineRatioFilter);
@@ -65,7 +67,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
     register_processor!(m, "word_count_adder", WordCountAdder);
     register_processor!(m, "ratio_line_modifier", RatioLineModifier);
     register_processor!(m, "regex_line_modifier", RegexLineModifier);
-    register_processor!(m, "line_length_modifier", LineLengthModifier);
+    register_processor!(m, "line_len_modifier", LineLenModifier);
     register_processor!(m, "substring_line_modifier", SubstringLineModifier);
     register_processor!(m, "word_removal_ratio_filter", WordRemovalRatioFilter);
     // Add more processor types as needed
@@ -114,35 +116,50 @@ impl PipelineProcessor {
         Ok(Self { pipeline })
     }
 
-	pub fn process(&self, data: Value, timing_info: &mut TimingInfo, filter_info: &mut FilterInfo) -> Result<Option<Value>, Error> {
+	pub fn process(&self, data: Value, timing_info: &mut TimingInfo, filter_info: &mut FilterInfo, debug: bool) -> Result<(usize, Option<Value>), Error> {
+		/*
+		General data processor for the pipeline: 
+			Takes in a Value and some extra logging info. Will maybe modify the json and then spit it back out with a (usize, .) prefixing it
+			If the usize is less than usize::MAX, then this document got filtered and should not be included in outputs
+			else, the thing that gets output passes the map and should be included in outputs
+		*/
+
+		let og_copy = if debug {Some(data.clone())} else {None};
 	    let mut current_data = data;
 		
 		let mut filter_step = 0;
 	    for processor in &self.pipeline {
 	    	let start_step = Instant::now();
-	    	let proc_data = processor.process(current_data).unwrap();
+	    	let proc_result = processor.process(current_data).unwrap();
 	        *timing_info.entry(filter_step).or_insert(0 as u128) += start_step.elapsed().as_nanos();
 
-	        if let Some(data_value) = proc_data {
-	        	current_data = data_value;
-	        } else {
-	        	*filter_info.entry(filter_step).or_insert(0 as usize) += 1;
-	        	return Ok(None);
-	        }
+	    	match proc_result {
+	    		Some(data_value) => current_data = data_value,
+	    		None => {
+	    			*filter_info.entry(filter_step).or_insert(0 as usize) += 1;
+	    			return Ok((filter_step, og_copy));
+	    		}
+
+	    	}
+
 	        filter_step += 1;
 	    }
 	    *filter_info.entry(usize::MAX).or_insert(0 as usize) += 1;
-	    Ok(Some(current_data))
+	    Ok((usize::MAX, Some(current_data)))
 	}
 
-	pub fn process_lines(&self, lines: Vec<String>) -> Result<(Vec<Value>, TimingInfo, FilterInfo), Error> {
+	pub fn process_lines(&self, lines: Vec<String>, debug: bool) -> Result<(HashMap<usize, Vec<Value>>, TimingInfo, FilterInfo), Error> {
 		let mut timing_info = TimingInfo::new();
 		let mut filter_info = FilterInfo::new();
-		let mut output_lines: Vec<Value> = Vec::new();
+		let mut output_lines: HashMap<usize, Vec<Value>> = HashMap::new();
+
 		for line in lines {
 			let json_line = serde_json::from_str(&line).unwrap();
-			if let Some(json_out) = self.process(json_line, &mut timing_info, &mut filter_info).unwrap() {
-				output_lines.push(json_out);
+			let (step_out, json_result) = self.process(json_line, &mut timing_info, &mut filter_info, debug).unwrap();
+			if let Some(json_out) = json_result {
+				output_lines.entry(step_out)
+					.or_insert_with(Vec::new)
+					.push(json_out);
 			}
 		};
 
@@ -165,7 +182,7 @@ New plan:
 	- signatures are always a (json, config) -> Result<Option<Value>, Error>
 */
 
-trait DataProcessor {
+pub trait DataProcessor {
     // Initialize and return Self with cached data
     fn new(config: &Value) -> Result<Self, Error> 
     where
@@ -181,13 +198,13 @@ trait DataProcessor {
 =                            DATA PROCESSOR VARIANTS                             =
 ================================================================================*/
 #[derive(Serialize, Debug)]
-struct TextLenFilter {
+pub struct TextLenFilter {
 	// Filters to only keep docs that have text length in range [lower_bound, upper_bound]
 	text_field: String,	
 	lower_bound: usize,
 	upper_bound: usize,
 }
-impl DataProcessor for TextLenFilter {
+ impl DataProcessor for TextLenFilter {
 	fn new(config: &Value) -> Result<Self, Error> {
 		let lower_bound = get_default(config, "lower_bound", 0); 
 		let upper_bound = get_default(config, "upper_bound", usize::MAX);
@@ -209,9 +226,9 @@ impl DataProcessor for TextLenFilter {
 
 
 #[derive(Serialize, Debug)]
-struct AddIdModifier {
+pub struct AddIdModifier {
 	// Adds a uuidv4 value to the id_key field
-	id_key: String
+	pub id_key: String
 }
 impl DataProcessor for AddIdModifier {
 	fn new(config: &Value) -> Result<Self, Error> {
@@ -231,9 +248,9 @@ impl DataProcessor for AddIdModifier {
 
 
 #[derive(Serialize, Debug)]
-struct SantaCoderPLFilter {
+pub struct SantaCoderPLFilter {
 	// Filters to collect only documents tha have pl_key in [Python, Java, Javascript]
-	pl_key : String
+	pub pl_key : String
 }
 impl DataProcessor for SantaCoderPLFilter {
 	fn new(config: &Value) -> Result<Self, Error> {
@@ -277,9 +294,10 @@ impl DataProcessor for SubsampleFilter {
 	}
 }
 
-
-#[derive(Serialize, Debug)]
-struct UrlSubstringFilterJson {
+#[derive(Derivative)]
+#[derivative(Debug)]
+#[derive(Serialize)]
+pub struct UrlSubstringFilter {
 	/* Filters by the url. 
 	Stealing docs from DCLM:
     ignore_chars -- A list of characters to ignore (e.g., ['.', "-"]) as they are typically used to bypass
@@ -294,23 +312,20 @@ struct UrlSubstringFilterJson {
 
 	*/
 
-	url_key: String,
-	ignore_chars: Vec<String>,
-	num_banned_substrs: usize,
-	exact_domain_match: bool, 
-	match_substrings: bool,
-	case_sensitive: bool,
-	banlist: HashSet<String>, // Key for this is banlist_file
+	pub url_key: String,
+	pub ignore_chars: Vec<String>,
+	pub num_banned_substrs: usize,
+	pub exact_domain_match: bool, 
+	pub match_substrings: bool,
+	pub case_sensitive: bool,
+    #[derivative(Debug="ignore")]
+	pub banlist: HashSet<String>, // Key for this is banlist_file
+    #[derivative(Debug="ignore")]	
 	#[serde(skip)]
-	ac_banlist: Option<AhoCorasick>
+	pub ac_banlist: Option<AhoCorasick>
 }
-impl DataProcessor for UrlSubstringFilterJson {
+impl DataProcessor for UrlSubstringFilter {
 	fn new(config: &Value) -> Result<Self, Error> {
-		let url_key = config.get("url_key").unwrap().as_str().unwrap().to_string();
-		let ignore_chars = get_default(config, "ignore_chars", Vec::new()).into_iter().map(|el| el.as_str().unwrap().to_string()).collect();
-		let num_banned_substrs = get_default(config, "num_banned_substrs", 1);
-		let exact_domain_match = get_default(config, "exact_domain_match", false);
-		let match_substrings = get_default(config, "match_substrings", true);
 		let case_sensitive = get_default(config, "case_sensitive", false);
 
 		let banlist_file = PathBuf::from(config.get("banlist_file").unwrap().as_str().unwrap());
@@ -319,22 +334,17 @@ impl DataProcessor for UrlSubstringFilterJson {
 			.map(|line| if case_sensitive { line.unwrap().to_lowercase() } else {line.unwrap()})
 			.collect();
 
-		let ac_banlist = if !exact_domain_match {
-			let banlist_vec : Vec<String> = banlist.clone().into_iter().map(|v| v).collect();
-			Some(AhoCorasick::new(banlist_vec).unwrap())
-		} else {
-			None
-		};
+		UrlSubstringFilter::construct_w_explicit_banlist(config, banlist)		
 
-		Ok(Self {url_key, ignore_chars, num_banned_substrs, exact_domain_match, match_substrings, case_sensitive, banlist, ac_banlist})
+
 	}
 
 
 	fn process(&self, data: Value) -> Result<Option<Value>, Error> {
 		// Process url
 		let mut url = json_get(&data, &self.url_key).unwrap().as_str().unwrap().to_string();
-		url = if self.exact_domain_match {Url::parse(&url).unwrap().to_string()} else {url};
-		url = if self.case_sensitive { url.to_lowercase() } else { url };
+		url = if self.exact_domain_match {Url::parse(&url).unwrap().host_str().unwrap().to_string()} else {url};
+		url = if !self.case_sensitive { url.to_lowercase() } else { url };
 		for c in &self.ignore_chars {
 			url = url.replace(c, "");
 		}
@@ -361,14 +371,35 @@ impl DataProcessor for UrlSubstringFilterJson {
 }
 
 
+impl UrlSubstringFilter {
+	pub fn construct_w_explicit_banlist(config: &Value, banlist: HashSet<String>) -> Result<Self, Error> {
 
+		let url_key = config.get("url_key").unwrap().as_str().unwrap().to_string();
+		let ignore_chars = get_default(config, "ignore_chars", Vec::new()).into_iter().map(|el| el.as_str().unwrap().to_string()).collect();
+		let num_banned_substrs = get_default(config, "num_banned_substrs", 1);
+		let exact_domain_match = get_default(config, "exact_domain_match", false);
+		let match_substrings = get_default(config, "match_substrings", true);
+		let case_sensitive = get_default(config, "case_sensitive", false);
+
+
+
+		let ac_banlist = if !exact_domain_match {
+			let banlist_vec : Vec<String> = banlist.clone().into_iter().map(|v| v).collect();
+			Some(AhoCorasick::new(banlist_vec).unwrap())
+		} else {
+			None
+		};
+		Ok(Self {url_key, ignore_chars, num_banned_substrs, exact_domain_match, match_substrings, case_sensitive, banlist, ac_banlist})
+
+	}
+}
 
 
 #[derive(Serialize, Debug)]
-struct NewlineRemovalModifier {
+pub struct NewlineRemovalModifier {
 	// Modifies the doc by controlling for maximum number of consecutive newlines
-	text_field: String,
-	max_consecutive: usize
+	pub text_field: String,
+	pub max_consecutive: usize
 }
 impl DataProcessor for NewlineRemovalModifier {
 	fn new(config: &Value) -> Result<Self, Error> {
@@ -394,25 +425,25 @@ impl DataProcessor for NewlineRemovalModifier {
 
 
 #[derive(Serialize, Debug)]
-struct FastTextAnnotator {
+pub struct FastTextAnnotator {
 	// Enriches the data with the top k predictions from a fast text classifier
-	fast_text_file: String,
-	text_field: String,
-	output_field: String,
-	k: i32,
-	threshold: f32,
+	pub fast_text_file: String,
+	pub text_field: String,
+	pub output_field: String,
+	pub k: i32,
+	pub threshold: f32,
 	#[serde(skip)]
-	model: FastText
+	pub model: FastText
 }
 
 impl DataProcessor for FastTextAnnotator {
 	fn new(config: &Value) -> Result<Self, Error> {
+
 		let fast_text_file = config.get("fast_text_file").unwrap().as_str().unwrap().to_string();
 		let text_field = get_default(config, "text_field", String::from("text"));
 		let output_field = get_default(config, "output_field", String::from("metadata.fasttext"));
 		let k = get_default(config, "k", 10 as usize) as i32;
 		let threshold = get_default(config, "threshold", 0.0) as f32;
-
 		let mut model = FastText::new();
 		model.load_model(&fast_text_file).unwrap();
 		Ok(Self {fast_text_file, text_field, output_field, k, threshold, model})	
@@ -429,21 +460,21 @@ impl DataProcessor for FastTextAnnotator {
 			map.insert(pred.label.clone(), json!(pred.prob));
 		}
 		let pred_json = Value::Object(map);
-
+		//println!("DATA IN {:?}", data);
 		json_set(&mut data, &self.output_field, pred_json).unwrap();
-
+		//println!("DATA OUT {:?}", data);
 		Ok(Some(data))
 	}
 }
 
 
 #[derive(Serialize, Debug)]
-struct FloatFilter {
+pub struct FloatFilter {
 	// Filters to only keep docs that have float in doc.float_field in range [lower_bound, upper_bound]
-	float_field: String,
-	lower_bound: f32,
-	upper_bound: f32,
-	default: f32,
+	pub float_field: String,
+	pub lower_bound: f32,
+	pub upper_bound: f32,
+	pub default: f32,
 }
 
 impl DataProcessor for FloatFilter {
@@ -457,13 +488,12 @@ impl DataProcessor for FloatFilter {
 	}
 
 	fn process(&self, data: Value) -> Result<Option<Value>, Error> {
-
+		//println!("WHAT??? {:?} | {:?}", json_get())
 		let val = if let Some(json_val) = json_get(&data, &self.float_field) {
 			json_val.as_f64().unwrap() as f32
 		} else {
 			self.default
 		};
-
 		if self.lower_bound <= val && val <= self.upper_bound {
 			Ok(Some(data))
 		} else {
@@ -475,18 +505,18 @@ impl DataProcessor for FloatFilter {
 
 
 #[derive(Serialize, Debug)]
-struct PageLenFilter {
+pub struct PageLenFilter {
 	/*
     This function measures page length according to a specified atomic unit (e.g., char, word, sentence,
     line, paragraph).
     If the length is less than `min_length`, it returns None
     If the length is greater/equal to `min_length`, it returns the original JSON object.
     */	
-	text_field: String,
-	length_type: String,
-	lower_bound: usize,
-	upper_bound: usize,
-	ignore_punctuation: bool,
+	pub text_field: String,
+	pub length_type: String,
+	pub lower_bound: usize,
+	pub upper_bound: usize,
+	pub ignore_punctuation: bool,
 }
 
 impl DataProcessor for PageLenFilter {
@@ -509,7 +539,7 @@ impl DataProcessor for PageLenFilter {
 		let len = match self.length_type.as_str() {
 			"word" => {
 				text.as_str().split_word_bounds()
-					.filter(|v| v.len() > 0 && (v.chars().next().unwrap().is_alphanumeric() || !self.ignore_punctuation))
+					.filter(|v| v.trim().len() > 0 && (v.chars().next().unwrap().is_alphanumeric() || !self.ignore_punctuation))
 					.collect::<Vec<_>>().len()
 			},
 			_ => {
@@ -528,14 +558,14 @@ impl DataProcessor for PageLenFilter {
 
 
 #[derive(Serialize, Debug)]
-struct WordLengthFilter {
+pub struct WordLenFilter {
 	// Filters according to average word length
-	text_field: String,
-	lower_bound: f32,
-	upper_bound: f32
+	pub text_field: String,
+	pub lower_bound: f32,
+	pub upper_bound: f32
 }
 
-impl DataProcessor for WordLengthFilter {
+impl DataProcessor for WordLenFilter {
 	fn new(config: &Value) -> Result<Self, Error> {
 		let text_field = get_default(config, "text_field", String::from("text"));
 		let lower_bound = get_default(config, "lower_bound", 0.0 as f64) as f32;
@@ -559,10 +589,10 @@ impl DataProcessor for WordLengthFilter {
 
 
 #[derive(Serialize, Debug)]
-struct SymbolRatioFilter {
+pub struct SymbolRatioFilter {
 	// Filters the doc by how many symbols (see symbols var) appear relative to other words
-	text_field: String,
-	max_symbol_to_word_ratio: f32,
+	pub text_field: String,
+	pub max_symbol_to_word_ratio: f32,
 }
 
 impl DataProcessor for SymbolRatioFilter {
@@ -581,9 +611,8 @@ impl DataProcessor for SymbolRatioFilter {
 			num_symbols += text.matches(symbol).count();
 		}
 
-		let num_words = text.split_whitespace().collect::<Vec<_>>().len();
-
-		let symbol_to_word_ratio = num_symbols as f32 / num_words as f32;
+		let num_words = text.replace(". . .", "...").split_whitespace().collect::<Vec<_>>().len();
+		let symbol_to_word_ratio = num_symbols as f32 / std::cmp::max(num_words, 1) as f32;
 
 
 		if symbol_to_word_ratio <= self.max_symbol_to_word_ratio {
@@ -596,10 +625,10 @@ impl DataProcessor for SymbolRatioFilter {
 
 
 #[derive(Serialize, Debug)]
-struct BulletFilter {
-	// Filters the doc by how many symbols (see symbols var) appear relative to other words
-	text_field: String,
-	max_bullet_ratio: f32,
+pub struct BulletFilter {
+	// Filters the doc by how many lines starting with bullets appear relative to other lines
+	pub text_field: String,
+	pub max_bullet_ratio: f32,
 }
 
 impl DataProcessor for BulletFilter {
@@ -621,7 +650,6 @@ impl DataProcessor for BulletFilter {
 	            line.starts_with('-')
 	        })
 	        .count();		
-
 	    if bullet_count as f32 / lines.len() as f32 > self.max_bullet_ratio {
 	    	Ok(None)
 	    } else {
@@ -635,10 +663,10 @@ impl DataProcessor for BulletFilter {
 
 
 #[derive(Serialize, Debug)]
-struct EllipsisLineRatioFilter {
+pub struct EllipsisLineRatioFilter {
 	// Filters the doc by what fraction of lines end with an ellipsis
-	text_field: String,
-	max_ratio: f32,
+	pub text_field: String,
+	pub max_ratio: f32,
 }
 
 impl DataProcessor for EllipsisLineRatioFilter {
@@ -659,7 +687,7 @@ impl DataProcessor for EllipsisLineRatioFilter {
 	        .count();
 
 
-	    let ratio = ellipsis_count as f32 / lines.len() as f32;
+	    let ratio = ellipsis_count as f32 / std::cmp::max(lines.len(), 1) as f32;
 		if ratio <= self.max_ratio {
 			Ok(Some(data))
 		} else {
@@ -670,10 +698,10 @@ impl DataProcessor for EllipsisLineRatioFilter {
 
 
 #[derive(Serialize, Debug)]
-struct AlphabeticWordRatioFilter {
+pub struct AlphabeticWordRatioFilter {
 	// Filters the doc by what fraction of words are NOT alphanumeric
-	text_field: String,
-	max_ratio: f32,
+	pub text_field: String,
+	pub max_ratio: f32,
 }
 
 impl DataProcessor for AlphabeticWordRatioFilter {
@@ -684,8 +712,12 @@ impl DataProcessor for AlphabeticWordRatioFilter {
 	}
 
 	fn process(&self, data: Value) -> Result<Option<Value>, Error> {
+
 		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
 		let words = text.split_whitespace().collect::<Vec<_>>();
+		if words.len() == 1 {
+			return Ok(None);
+		}
 		let total_words = words.len() as f32;
 		let non_alpha_words = words.into_iter().filter(|w| !w.chars().any(|c| c.is_alphabetic())).collect::<Vec<_>>().len();
 
@@ -700,13 +732,13 @@ impl DataProcessor for AlphabeticWordRatioFilter {
 }
 
 #[derive(Serialize, Debug)]
-struct StopWordFilter {
+pub struct StopWordFilter {
 	// Filters to only include docs that have min_stop_words stopwords
-	text_field: String,
-	count_unique: bool,
-	min_stop_word: usize,
+	pub text_field: String,
+	pub count_unique: bool,
+	pub min_stop_word: usize,
 	/////////
-	stop_words: HashSet<String>,
+	pub stop_words: HashSet<String>,
 }
 
 impl DataProcessor for StopWordFilter {
@@ -722,6 +754,9 @@ impl DataProcessor for StopWordFilter {
 	}
 
 	fn process(&self, data: Value) -> Result<Option<Value>, Error> {
+		if self.min_stop_word == 0 {
+			return Ok(Some(data));
+		}
 		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
 		let words: Vec<_>= text.split_whitespace().map(|w| w.to_lowercase()).collect();
 		if self.count_unique {
@@ -729,7 +764,6 @@ impl DataProcessor for StopWordFilter {
 			for word in words {
 				if self.stop_words.contains(&word) {
 					occur_stop_words.insert(word);
-
 					if occur_stop_words.len() >= self.min_stop_word {
 						return Ok(Some(data))
 					}
@@ -753,9 +787,9 @@ impl DataProcessor for StopWordFilter {
 
 
 #[derive(Serialize, Debug)]
-struct MassiveWebRepetitionFilter {
+pub struct MassiveWebRepetitionFilter {
 	// Fancy repetition thing from Gopher
-	text_field: String,
+	pub text_field: String,
 }
 
 impl DataProcessor for MassiveWebRepetitionFilter {
@@ -767,7 +801,7 @@ impl DataProcessor for MassiveWebRepetitionFilter {
 		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
 		let lines: Vec<&str> = text.split('\n').filter(|w| w.len() > 0).collect();
 		let pars: Vec<&str> = text.split("\n\n").filter(|w| w.len() > 0).collect();
-		let words: Vec<&str> = text.split_word_bounds().collect();	
+		let words: Vec<&str> = text.unicode_words().collect();	
 		
 		let flow_args = vec![((&lines, 1, false), 0.3),
 						     ((&pars, 1, false), 0.3),
@@ -798,73 +832,89 @@ impl DataProcessor for MassiveWebRepetitionFilter {
 }
 
 impl MassiveWebRepetitionFilter {
-	fn _rep_counter_fraction(elements: &Vec<&str>, ngram_size: usize, weighted: bool,) -> Result<f32, Error> {
-		let mut ngram : VecDeque<String> = VecDeque::with_capacity(ngram_size);
-		let mut ngram_counts: HashMap<(u64, usize), Vec<usize>> = HashMap::new();
-		let elements_len = elements.len();
-		let mut ngram_char_len = 0;
+	pub fn _rep_counter_fraction(elements: &Vec<&str>, ngram_size: usize, weighted: bool,) -> Result<f32, Error> {
+		let mut ngram : VecDeque<String> = VecDeque::with_capacity(ngram_size); // temp to hold current "ngram"
+		let mut ngram_char_len = 0; // temp to current ngram len?
+
+		let mut ngram_counts: HashMap<(u64, usize), Vec<usize>> = HashMap::new(); //(ngram_hash, ngram_char_len) -> [idxs where this ngram starts, ...]
+		let total_elements = elements.len(); 
 		let mut total_ngrams = 0;
-		let total_len = elements.iter().map(|v| v.len()).sum::<usize>();
+		let total_charlen = elements.iter().map(|v| v.len()).sum::<usize>(); 
 
 		for (idx, element) in elements.iter().enumerate() {
 			ngram.push_back(element.to_string());
 			ngram_char_len += element.len();
-			if ngram.len() >= ngram_size {
-				total_ngrams += 1;
+			if ngram.len() >= ngram_size { // if enough "elements" to make ngram
+				// hash ngram and add it to counts
 				let mut hasher = DefaultHasher::new();
 				ngram.hash(&mut hasher);
 				let hash_val: u64 = hasher.finish();
-				ngram_counts.entry((hash_val, ngram_char_len)).or_insert(Vec::new()).push(idx);
+				ngram_counts.entry((hash_val, ngram_char_len)).or_insert(Vec::new()).push((idx +1) - ngram_size);
+
+				total_ngrams += 1;				
 				ngram_char_len -= ngram.pop_front().unwrap().len();
 			}
 		}
 
-
-		// Special cases:
-		if ngram_size == 1 && total_ngrams == 0 {
-			return Ok(1.0);
-		} else if ngram_size == 1 && total_ngrams == 1 {
+		// Special cases: either 0 or 1 ngrams
+		if total_ngrams == 0 {
+			if ngram_size == 1 { return Ok(1.0); } else { return Ok(0.0);}
+		} else if total_ngrams == 1 {
 			return Ok(0.0);
-		} else if ngram_size > 1 && total_ngrams == 0 {
-			return Ok(0.0)
-		}
+		} 
+
 
 		let repeat_frac = if ngram_size == 1 {	
+			// Single ngram case:
 			if weighted {
 				// no ngrams, weighted => get total charlen of elements repeated > 1x, divide by total charlen
 				let total_repeat_len = ngram_counts.iter()
-					.map(|(k,v)| if v.len() > 1 { k.1 * v.len() } else { 0 })
+					.filter_map(|(k,v)| if v.len() > 1 { Some(k.1 * v.len()) } else { None })
 					.sum::<usize>();
-				total_repeat_len as f32 / total_len as f32
+				total_repeat_len as f32 / total_charlen as f32
 			} else {
 				// no ngrams, unweighted => get total repeated elements >1x, divide by total elements
 				let total_repeats = ngram_counts.iter()
-					.map(|(_k,v)| if v.len() > 1 { v.len() } else { 0 })
+					.filter_map(|(_k,v)| if v.len() > 1 { Some(v.len()) } else { None })
 					.sum::<usize>();
-				total_repeats as f32 / elements_len as f32
+				total_repeats as f32 / total_elements as f32
 			}
 		} else { 
-			if ngram_size <= 4 {
-				// Get most common repeated ngram (max by (v, ngram.len)), divide by total charlen
+			// Ngram size > 1 case:
+			// If ngram size is >= 4, juts find the ngram that occurs most-often and use this to generate indexes 
+			// otherwise, find ALL ngrams that occur > 1
+			// Use these to generate element indices that are repeated and then count charlen / total_charlen
+
+			let repeated_start_idxs: Vec<usize> = if ngram_size <= 4 {
 				let most_common = ngram_counts.iter()
-					.max_by(|a, b| {
+				    .filter(|(_k,v)| v.len() > 1) // only select ngrams that repeat
+					.max_by(|a, b| {  // take max of (#repeats, ngramCharLen)
 						let value_cmp = a.1.len().cmp(&b.1.len());
 						if value_cmp == std::cmp::Ordering::Equal {
 							a.0.1.cmp(&b.0.1)
 						} else {
 							value_cmp
 						}
-					})
-					.map(|(k, v)| k.1 *v.len()).unwrap();
-				most_common as f32 / total_len as f32
-
+					});
+				if let Some(most_common_pair) = most_common {
+					most_common_pair.1.to_vec()				
+				} else {
+					Vec::new()
+				}
 			} else {
-				// Get full set of indices for which repeats occur
-				let repeat_idxs : HashSet<usize> = ngram_counts.values().filter(|v| v.len() > 1).flat_map(|v| v.clone()).collect();
-				let repeat_len = repeat_idxs.into_iter().map(|i| elements[i].len()).sum::<usize>();
-				repeat_len as f32 / total_len as f32
-			}
+				ngram_counts.into_values()
+					.filter(|v| v.len() > 1)
+					.flat_map(|v| v)
+					.collect()
+			};
+			let repeat_element_idxs: HashSet<usize> = repeated_start_idxs.iter()
+				.flat_map(|v| (*v..(v+ngram_size)).collect::<Vec<usize>>())
+				.collect();
+
+			let repeat_len = repeat_element_idxs.iter().map(|idx| elements[*idx].len()).sum::<usize>();				
+			repeat_len as f32 / total_charlen as f32
 		};
+		
 
 		Ok(repeat_frac)
 
@@ -872,10 +922,10 @@ impl MassiveWebRepetitionFilter {
 }
 
 #[derive(Serialize, Debug)]
-struct WordCountAdder {
+pub struct WordCountAdder {
 	// Adds a field which is the count of how many words are in the text_field
-	text_field: String,
-	word_count_field: String
+	pub text_field: String,
+	pub word_count_field: String
 }
 impl DataProcessor for WordCountAdder {
 	fn new(config: &Value) -> Result<Self, Error> {
@@ -887,7 +937,8 @@ impl DataProcessor for WordCountAdder {
 
 	fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
 		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
-		let word_count = text.split_word_bounds().collect::<Vec<_>>().len();
+
+		let word_count = text.unicode_words().collect::<Vec<_>>().len();
 		json_set(&mut data, &self.word_count_field, word_count.into()).unwrap();
 
 		Ok(Some(data))
@@ -898,11 +949,11 @@ impl DataProcessor for WordCountAdder {
 
 
 #[derive(Serialize, Debug)]
-struct RatioLineModifier {
+pub struct RatioLineModifier {
 	// Modifies docs to keep only lines that have not-too-many uppercase chars or digits
-	text_field: String,
-	upper_bound: f32,
-	check: String,
+	pub text_field: String,
+	pub upper_bound: f32,
+	pub check: String,
 }
 
 impl DataProcessor for RatioLineModifier {
@@ -925,7 +976,7 @@ impl DataProcessor for RatioLineModifier {
 
 		let mut passing_lines : Vec<&str> = Vec::new();
 		for line in lines {
-			let line_len = line.len() as f32;
+			let line_len = std::cmp::max(line.len(), 1) as f32;
 			let count = if &self.check == "uppercase" {
 				line.chars().filter(|v| v.is_uppercase()).collect::<Vec<_>>().len() as f32
 			} else {
@@ -944,13 +995,13 @@ impl DataProcessor for RatioLineModifier {
 }
 
 #[derive(Serialize, Debug)]
-struct RegexLineModifier {
+pub struct RegexLineModifier {
 	// Modifies lines to only keep those that don't have any regex matches
-	text_field: String,
-	regex_string: String, // 
+	// Note that we automatically lowercase the text we query!
+	pub text_field: String,
+	pub regex_string: String, // 
 	#[serde(skip)]
-
-	regex: Regex,
+	pub regex: Regex,
 }
 
 impl DataProcessor for RegexLineModifier {
@@ -986,13 +1037,13 @@ impl DataProcessor for RegexLineModifier {
 
 
 #[derive(Serialize, Debug)]
-struct LineLengthModifier {
+pub struct LineLenModifier {
 	// Modifes lines to only keep those that have >= lower_bound words
-	text_field: String,
-	lower_bound: usize
+	pub text_field: String,
+	pub lower_bound: usize
 }
 
-impl DataProcessor for LineLengthModifier {
+impl DataProcessor for LineLenModifier {
 	fn new(config: &Value) -> Result<Self, Error> {
 		let text_field = get_default(config, "text_field", String::from("text"));
 		let lower_bound = get_default(config, "lower_bound", 0);
@@ -1008,7 +1059,7 @@ impl DataProcessor for LineLengthModifier {
 
 
 		let passing_lines: Vec<_> = lines.iter()
-			.filter(|line| line.split_word_bounds().collect::<Vec<_>>().len() >= self.lower_bound)
+			.filter(|line| line.unicode_words().collect::<Vec<_>>().len() >= self.lower_bound)
 			.map(|&l| l)
 			.collect();
 		if passing_lines.len() == 0 {
@@ -1023,14 +1074,13 @@ impl DataProcessor for LineLengthModifier {
 
 
 #[derive(Serialize, Debug)]
-struct SubstringLineModifier {
+pub struct SubstringLineModifier {
 	// Modifies lines to only keep those that don't have any words from the banlist (or just removes those words themselves)
-	text_field: String, 
-	banlist: String,
-	max_len: usize,
-	remove_substring_only: bool,
-	location: String
-
+	pub text_field: String, 
+	pub banlist: String,
+	pub max_len: usize,
+	pub remove_substring_only: bool,
+	pub location: String
 }
 
 impl DataProcessor for SubstringLineModifier {
@@ -1048,10 +1098,10 @@ impl DataProcessor for SubstringLineModifier {
 	fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
 		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
 		let lines: Vec<&str> = text.split('\n').collect();
-	    let pattern = match self.location.as_str() {
-	        "prefix" => format!(r"^(?:{banlist})\s?", banlist = self.banlist),
-	        "suffix" => format!(r"\s?(?:{banlist})$", banlist = self.banlist),
-	        _ => format!(r"\s?(?:{banlist})", banlist = self.banlist),
+	    let (pattern, replacement) = match self.location.as_str() {
+	        "prefix" => (format!(r"^(?:{banlist})\s?", banlist = self.banlist), ""),
+	        "suffix" => (format!(r"\s?(?:{banlist})$", banlist = self.banlist), ""),
+	        _ => (format!(r"\s?(?:{banlist})\s?", banlist = self.banlist), " ")
 	    };
 
 	    let regex = Regex::new(&pattern).unwrap();
@@ -1061,10 +1111,10 @@ impl DataProcessor for SubstringLineModifier {
 
 		for line in lines {
 			let line = line.to_string();
-			if self.max_len == usize::MAX || line.split_word_bounds().collect::<Vec<_>>().len() <= self.max_len {
+			if self.max_len == usize::MAX || line.unicode_words().collect::<Vec<_>>().len() <= self.max_len {
 
 				if self.remove_substring_only {
-					let cleaned = regex.replace(&line, "").to_string();
+					let cleaned = regex.replace_all(&line, replacement).to_string();
 					if !cleaned.trim().is_empty() {
 						passing_lines.push(cleaned);
 					}
@@ -1085,11 +1135,11 @@ impl DataProcessor for SubstringLineModifier {
 
 
 #[derive(Serialize, Debug)]
-struct WordRemovalRatioFilter {
+pub struct WordRemovalRatioFilter {
 	// Only keeps docs that haven't removed too many words (from a previous, old, word_count_field)
-	text_field: String,
-	word_count_field: String,
-	upper_bound: f32
+	pub text_field: String,
+	pub word_count_field: String,
+	pub upper_bound: f32
 }
 
 impl DataProcessor for WordRemovalRatioFilter {
@@ -1104,7 +1154,7 @@ impl DataProcessor for WordRemovalRatioFilter {
 	fn process(&self, data: Value) -> Result<Option<Value>, Error> {
 		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
 		let old_word_count: usize = json_get(&data, &self.word_count_field).unwrap().as_u64().unwrap() as usize;
-		let cur_word_count: usize = text.split_word_bounds().collect::<Vec<_>>().len();
+		let cur_word_count: usize = text.unicode_words().collect::<Vec<_>>().len();
 
 		let removed_ratio = ((old_word_count - cur_word_count) as f32) / old_word_count as f32;
 		if removed_ratio <= self.upper_bound {

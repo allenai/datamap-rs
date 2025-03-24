@@ -1,6 +1,8 @@
 // External crates
 
 
+use std::collections::HashMap;
+use crate::serde_json::Value;
 use dashmap::DashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -19,9 +21,10 @@ use mj_io::{expand_dirs, read_pathbuf_to_mem, write_mem_to_pathbuf, build_pbar, 
 use indicatif::ProgressBar;
 
 
-mod map_fxn; 
-mod utils;
-use crate::map_fxn::{PipelineProcessor};
+pub mod map_fxn; 
+pub mod utils;
+use datamap_rs::map_fxn::{PipelineProcessor};
+pub use map_fxn::DataProcessor;
 /*
 Map Config layout:
 
@@ -58,7 +61,10 @@ enum Commands {
         output_dir: PathBuf,
 
         #[arg(required=true, long)]
-        config: PathBuf
+        config: PathBuf,
+
+        #[arg(required=true, long)]
+        debug_stash: Option<PathBuf>
     },
 
 
@@ -107,13 +113,20 @@ fn parse_config(config: &PathBuf) -> Result<serde_json::Value, Error> {
 }
 
 
+fn save_debug_stuff(debug_file: &PathBuf, debug_collector: DashMap<usize, Vec<Value>>) -> Result<(), Error> {
+    let debug_data : HashMap<usize, Vec<Value>> = debug_collector.into_iter().map(|(k, v)| (k, v)).collect();
+    let debug_bytes = serde_json::to_vec(&debug_data).unwrap();
+    write_mem_to_pathbuf(&debug_bytes, debug_file).unwrap();
+    Ok(())
+}
+
 
 /*============================================================
 =                            GENERAL MAP                     =
 ============================================================*/
 
 
-fn gen_map(input_dir: &PathBuf, output_dir: &PathBuf, config: &PathBuf) -> Result<(), Error> {
+fn gen_map(input_dir: &PathBuf, output_dir: &PathBuf, config: &PathBuf, debug_stash: Option<PathBuf>) -> Result<(), Error> {
     /* Generic mapping/filtration function. 
 
     Processes each *.jsonl.* in input_dir and makes an identically named copy in output_dir
@@ -124,9 +137,16 @@ fn gen_map(input_dir: &PathBuf, output_dir: &PathBuf, config: &PathBuf) -> Resul
 
     let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
     let json_config = parse_config(config).unwrap();
+    println!("LOADING PIPELINE");
     let processor = PipelineProcessor::new(&json_config).unwrap();
+    println!("FINISHED LOADING PIPELINE");
     let global_timer: DashMap<usize, u128> = DashMap::new();
     let global_filter: DashMap<usize, usize> = DashMap::new();
+    let debug_collector: Option<DashMap<usize, Vec<Value>>>  = if let Some(ref _x) = debug_stash {
+        Some(DashMap::new())
+    } else {
+        None
+    };
     for i in 0..processor.pipeline.len() {
         global_timer.insert(i, 0);
         global_filter.insert(i,0);
@@ -136,11 +156,14 @@ fn gen_map(input_dir: &PathBuf, output_dir: &PathBuf, config: &PathBuf) -> Resul
     let pbar = build_pbar(all_files.len(), "Files");
     all_files.par_iter().for_each(|p| {
         let output_file = get_output_filename(p, input_dir, output_dir).unwrap();        
-        gen_map_single(p, &output_file, &processor, &global_timer, &global_filter).unwrap();
+        gen_map_single(p, &output_file, &processor, &global_timer, &global_filter, &debug_collector).unwrap();
         pbar.inc(1);
     });
 
+    if !debug_stash.is_none() {
 
+        save_debug_stuff(&debug_stash.unwrap(), debug_collector.unwrap()).unwrap();
+    }
 
     println!("Finishing map in {:?} seconds", start_main.elapsed().as_secs());
     println!("---------------------------");
@@ -148,7 +171,7 @@ fn gen_map(input_dir: &PathBuf, output_dir: &PathBuf, config: &PathBuf) -> Resul
     for (i, el) in processor.pipeline.iter().enumerate() {
         println!("Step: {:?}", el);
         println!("\tRemoved {:?} documents", global_filter.get(&i).unwrap().value());
-        println!("\tTook {:?} seconds", *global_timer.get(&i).unwrap().value() as f64 / 1_000_000.0);
+        println!("\tTook {:?} seconds", *global_timer.get(&i).unwrap().value() as f64 / 1_000_000_000.0);
         println!("~~~~~~~");
     }
     println!("FINAL");
@@ -160,21 +183,30 @@ fn gen_map(input_dir: &PathBuf, output_dir: &PathBuf, config: &PathBuf) -> Resul
 
 
 fn gen_map_single(input_file: &PathBuf, output_file: &PathBuf, processor: &PipelineProcessor, 
-                  global_timer: &DashMap<usize, u128>, global_filter: &DashMap<usize, usize>) -> Result<(), Error> {
+                  global_timer: &DashMap<usize, u128>, global_filter: &DashMap<usize, usize>,
+                  debug_collector: &Option<DashMap<usize, Vec<Value>>>) -> Result<(), Error> {
     /* Single-file mapping/filtration function
 
     Processes the contents of a single file, using file-centric mappers specified in the config and writes to output file
     */
     let data = read_pathbuf_to_mem(input_file).unwrap();
     let lines: Vec<_> = data.lines().map(|el| el.unwrap()).collect();
+    let debug_mode = if let Some(ref _x) = debug_collector {true} else {false};
 
-    let (output_lines, timing_info, filter_info) = processor.process_lines(lines).unwrap();
-    if output_lines.len() > 0 {
-        let mut output_bytes: Vec<u8> = Vec::new();
-        for line in output_lines.into_iter() {
-            output_bytes.extend(serde_json::to_vec(&line).unwrap());
-            output_bytes.push(b'\n');
+    let (output_lines, timing_info, filter_info) = processor.process_lines(lines, debug_mode).unwrap();
+    let mut output_bytes: Vec<u8> = Vec::new();
+    output_lines.into_iter().for_each(|(k, v)| {
+        if k == usize::MAX {
+            for line in  v {
+                output_bytes.extend(serde_json::to_vec(&line).unwrap());
+                output_bytes.push(b'\n')
+            }
+        } else if let Some(debug_data) = debug_collector {        
+            debug_data.entry(k).or_default().extend(v)
         }
+    });
+
+    if output_bytes.len() > 0 {
         write_mem_to_pathbuf(&output_bytes, output_file).unwrap();
     }
 
@@ -284,8 +316,8 @@ fn main() {
     }
 
     let result = match &args.command {
-        Commands::Map{input_dir, output_dir, config} => {
-            gen_map(input_dir, output_dir, config)
+        Commands::Map{input_dir, output_dir, config, debug_stash} => {
+            gen_map(input_dir, output_dir, config, debug_stash.clone())
         },
 
 
