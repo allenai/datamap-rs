@@ -64,6 +64,10 @@ enum Commands {
         config: PathBuf,
 
         #[arg(long)]
+        err_dir: Option<PathBuf>,
+
+
+        #[arg(long)]
         debug_stash: Option<PathBuf>
     },
 
@@ -162,18 +166,20 @@ fn print_global_stats_stuff(start_time: Instant, global_timer: DashMap<usize, At
 ============================================================*/
 
 
-fn gen_map(input_dir: &PathBuf, output_dir: &PathBuf, config: &PathBuf, debug_stash: Option<PathBuf>) -> Result<(), Error> {
+fn gen_map(input_dir: &PathBuf, output_dir: &PathBuf, config: &PathBuf, err_dir: Option<PathBuf>, debug_stash: Option<PathBuf>) -> Result<(), Error> {
     /* Generic mapping/filtration function. 
 
     Processes each *.jsonl.* in input_dir and makes an identically named copy in output_dir
     with the changes specified in the config applied
     */
 
+    // Setup data handlers
     let start_main = Instant::now();
-
     let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
     let json_config = parse_config(config).unwrap();
     let processor = PipelineProcessor::new(&json_config).unwrap();
+
+    // Setup logging utils
     let global_timer: DashMap<usize, AtomicUsize> = DashMap::new();
     let global_filter: DashMap<usize, usize> = DashMap::new();
     let debug_collector: Option<DashMap<usize, Vec<Value>>>  = if let Some(ref _x) = debug_stash {
@@ -186,19 +192,25 @@ fn gen_map(input_dir: &PathBuf, output_dir: &PathBuf, config: &PathBuf, debug_st
         global_filter.insert(i,0);
     }
     global_filter.insert(usize::MAX, 0);
+    let err_count: AtomicUsize = AtomicUsize::new(0);
 
+    // Loop over files
     let pbar = build_pbar(all_files.len(), "Files");
     all_files.par_iter().for_each(|p| {
         let output_file = get_output_filename(p, input_dir, output_dir).unwrap();        
-        gen_map_single(p, &output_file, &processor, &global_timer, &global_filter, &debug_collector).unwrap();
+        let err_file: Option<PathBuf> = if let Some(err_dir_real) = &err_dir {
+            Some(get_output_filename(p, input_dir, &err_dir_real).unwrap())
+        } else {
+            None
+        };
+        gen_map_single(p, &output_file, err_file, &processor, &global_timer, &global_filter, &debug_collector, &err_count).unwrap();
         pbar.inc(1);
     });
 
+    // Finalize logging
     if !debug_stash.is_none() {
-
         save_debug_stuff(&debug_stash.unwrap(), debug_collector.unwrap()).unwrap();
     }
-
     print_global_stats_stuff(start_main, global_timer, global_filter, &processor);
 
     Ok(())    
@@ -206,18 +218,22 @@ fn gen_map(input_dir: &PathBuf, output_dir: &PathBuf, config: &PathBuf, debug_st
 
 
 
-fn gen_map_single(input_file: &PathBuf, output_file: &PathBuf, processor: &PipelineProcessor, 
+fn gen_map_single(input_file: &PathBuf, output_file: &PathBuf, err_file: Option<PathBuf>, processor: &PipelineProcessor, 
                   global_timer: &DashMap<usize, AtomicUsize>, global_filter: &DashMap<usize, usize>,
-                  debug_collector: &Option<DashMap<usize, Vec<Value>>>) -> Result<(), Error> {
+                  debug_collector: &Option<DashMap<usize, Vec<Value>>>, err_count: &AtomicUsize) -> Result<(), Error> {
     /* Single-file mapping/filtration function
 
     Processes the contents of a single file, using file-centric mappers specified in the config and writes to output file
     */
+
+    // Setup for processing
     let data = read_pathbuf_to_mem(input_file).unwrap();
     let lines: Vec<_> = data.lines().map(|el| el.unwrap()).collect();
     let debug_mode = if let Some(ref _x) = debug_collector {true} else {false};
 
-    let (output_lines, timing_info, filter_info) = processor.process_lines(lines, debug_mode).unwrap();
+    // Process data
+    let (output_lines, err_lines, timing_info, filter_info) = processor.process_lines(lines, debug_mode).unwrap();
+    let err_lines_len = err_lines.len();
     let mut output_bytes: Vec<u8> = Vec::new();
     output_lines.into_iter().for_each(|(k, v)| {
         if k == usize::MAX {
@@ -230,10 +246,25 @@ fn gen_map_single(input_file: &PathBuf, output_file: &PathBuf, processor: &Pipel
         }
     });
 
+    // Save outputs
     if output_bytes.len() > 0 {
         write_mem_to_pathbuf(&output_bytes, output_file).unwrap();
     }
 
+    if let Some(err_file_real) = err_file {
+        let mut err_bytes: Vec<u8> = Vec::new();
+        err_lines.into_iter().for_each(|line| {
+            err_bytes.extend(line.as_bytes());
+            err_bytes.push(b'\n');
+        });
+        if err_bytes.len() > 0 {
+            write_mem_to_pathbuf(&err_bytes, &err_file_real).unwrap();
+        }
+    }
+
+
+    // Do logging stuff
+    let _ = err_count.fetch_add(err_lines_len, Ordering::SeqCst);
     timing_info.iter().for_each(|(k,v)| {
         global_timer.get(k).unwrap().fetch_add(*v as usize, Ordering::SeqCst);
     });
@@ -242,8 +273,6 @@ fn gen_map_single(input_file: &PathBuf, output_file: &PathBuf, processor: &Pipel
         global_filter.entry(*k)
             .and_modify(|gv| *gv += v);
     });
-
-
 
 
     Ok(())
@@ -339,8 +368,8 @@ fn main() {
     }
 
     let result = match &args.command {
-        Commands::Map{input_dir, output_dir, config, debug_stash} => {
-            gen_map(input_dir, output_dir, config, debug_stash.clone())
+        Commands::Map{input_dir, output_dir, config, err_dir, debug_stash} => {
+            gen_map(input_dir, output_dir, config, err_dir.clone(), debug_stash.clone())
         },
 
 

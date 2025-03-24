@@ -150,23 +150,29 @@ impl PipelineProcessor {
 	    Ok((usize::MAX, Some(current_data)))
 	}
 
-	pub fn process_lines(&self, lines: Vec<String>, debug: bool) -> Result<(HashMap<usize, Vec<Value>>, TimingInfo, FilterInfo), Error> {
+	pub fn process_lines(&self, lines: Vec<String>, debug: bool) -> Result<(HashMap<usize, Vec<Value>>, Vec<String>, TimingInfo, FilterInfo), Error> {
 		let mut timing_info = TimingInfo::new();
 		let mut filter_info = FilterInfo::new();
 		let mut output_lines: HashMap<usize, Vec<Value>> = HashMap::new();
+		let mut err_lines: Vec<String> = Vec::new();
 		//let pbar = build_pbar(lines.len(), "lines");
+
 		for line in lines {
 			let json_line = serde_json::from_str(&line).unwrap();
-			let (step_out, json_result) = self.process(json_line, &mut timing_info, &mut filter_info, debug).unwrap();
-			if let Some(json_out) = json_result {
-				output_lines.entry(step_out)
-					.or_insert_with(Vec::new)
-					.push(json_out);
-			}
-			//pbar.inc(1);
+			let process_out = self.process(json_line, &mut timing_info, &mut filter_info, debug);
+			match process_out {
+				Ok((step_out, json_result)) => {
+					if let Some(json_out) = json_result {
+						output_lines.entry(step_out)
+							.or_insert_with(Vec::new)
+							.push(json_out);
+						}},
+				Err(_e) => err_lines.push(line.clone())
+			};
+		
 		};
 
-		Ok((output_lines, timing_info, filter_info))
+		Ok((output_lines, err_lines, timing_info, filter_info))
 	}
 
 }
