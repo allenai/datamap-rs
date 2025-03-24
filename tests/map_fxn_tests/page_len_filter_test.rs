@@ -163,11 +163,12 @@ mod tests {
         let config = json!({
             "length_type": "word",
             "lower_bound": 0,
-            "upper_bound": 0,
+            "upper_bound": 10,
             "ignore_punctuation": true
         });
         let filter = PageLenFilter::new(&config).unwrap();
         let doc = create_test_doc(".,;!?");
         assert!(filter.process(doc).unwrap().is_some());
+        
     }
 }

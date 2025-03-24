@@ -1,7 +1,6 @@
 use std::time::Instant;
 use std::hash::{Hash, Hasher};
 use std::collections::VecDeque;
-use std::hash::DefaultHasher;
 use aho_corasick::AhoCorasick;
 use std::io::BufRead;
 use std::path::PathBuf;
@@ -21,8 +20,11 @@ use mj_io::read_pathbuf_to_mem;
 use fasttext::FastText;
 use unicode_segmentation::UnicodeSegmentation;
 use regex::Regex;
+use fxhash::{FxHasher};
+
 
 use derivative::Derivative; 
+use mj_io::build_pbar;
 
 /*================================================================================
 =                            PIPELINE PROCESSING                                 =
@@ -152,7 +154,7 @@ impl PipelineProcessor {
 		let mut timing_info = TimingInfo::new();
 		let mut filter_info = FilterInfo::new();
 		let mut output_lines: HashMap<usize, Vec<Value>> = HashMap::new();
-
+		let pbar = build_pbar(lines.len(), "lines");
 		for line in lines {
 			let json_line = serde_json::from_str(&line).unwrap();
 			let (step_out, json_result) = self.process(json_line, &mut timing_info, &mut filter_info, debug).unwrap();
@@ -161,6 +163,7 @@ impl PipelineProcessor {
 					.or_insert_with(Vec::new)
 					.push(json_out);
 			}
+			pbar.inc(1);
 		};
 
 		Ok((output_lines, timing_info, filter_info))
@@ -360,12 +363,34 @@ impl DataProcessor for UrlSubstringFilter {
 		} 
 
 		// Nonexact case 
-		let ac_banlist = self.ac_banlist.as_ref().unwrap(); 
-		let match_count = ac_banlist.find_iter(&url).collect::<Vec<_>>().len();
-		if match_count < self.num_banned_substrs {
-			Ok(Some(data))
+		if self.match_substrings {
+			let ac_banlist = self.ac_banlist.as_ref().unwrap(); 
+			let match_count = ac_banlist.find_iter(&url).collect::<Vec<_>>().len();
+			if match_count < self.num_banned_substrs {
+				Ok(Some(data))
+			} else {
+				Ok(None)
+			}
 		} else {
-			Ok(None)
+			let ac_banlist = self.ac_banlist.as_ref().unwrap();
+		    let matches: Vec<_> = ac_banlist.find_iter(&url).collect();
+		    
+		    // Filter matches to only keep those at word boundaries
+		    let valid_matches = matches.into_iter().filter(|mat| {
+		        let start = mat.start();
+		        let end = mat.end();
+		        
+		        let is_start_boundary = start == 0 || !url[..start].chars().last().unwrap().is_alphanumeric();
+		        let is_end_boundary = end == url.len() || !url[end..].chars().next().unwrap().is_alphanumeric();
+		        
+		        is_start_boundary && is_end_boundary
+		    }).collect::<Vec<_>>();
+		    
+		    if valid_matches.len() < self.num_banned_substrs {
+		        Ok(Some(data))
+		    } else {
+		        Ok(None)
+		    }
 		}
 	}
 }
@@ -452,7 +477,7 @@ impl DataProcessor for FastTextAnnotator {
 
 	fn process(&self, mut data: Value) -> Result<Option<Value> ,Error> {
 
-		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
+		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string().replace("\n", " ");
 		let predictions = self.model.predict(&text, self.k, self.threshold).unwrap();
 
 		let mut map = serde_json::Map::new();
@@ -460,9 +485,7 @@ impl DataProcessor for FastTextAnnotator {
 			map.insert(pred.label.clone(), json!(pred.prob));
 		}
 		let pred_json = Value::Object(map);
-		//println!("DATA IN {:?}", data);
 		json_set(&mut data, &self.output_field, pred_json).unwrap();
-		//println!("DATA OUT {:?}", data);
 		Ok(Some(data))
 	}
 }
@@ -546,7 +569,6 @@ impl DataProcessor for PageLenFilter {
 				return Err(anyhow!("Only implemented for words for now!"))
 			}
 		};
-
 		if self.lower_bound <= len && len <= self.upper_bound {
 			Ok(Some(data))
 		} else {
@@ -832,8 +854,8 @@ impl DataProcessor for MassiveWebRepetitionFilter {
 }
 
 impl MassiveWebRepetitionFilter {
-	pub fn _rep_counter_fraction(elements: &Vec<&str>, ngram_size: usize, weighted: bool,) -> Result<f32, Error> {
-		let mut ngram : VecDeque<String> = VecDeque::with_capacity(ngram_size); // temp to hold current "ngram"
+	pub fn _rep_counter_fraction<'a>(elements: &'a Vec<&'a str>, ngram_size: usize, weighted: bool,) -> Result<f32, Error> {
+		let mut ngram : VecDeque<&'a str> = VecDeque::with_capacity(ngram_size); // temp to hold current "ngram"
 		let mut ngram_char_len = 0; // temp to current ngram len?
 
 		let mut ngram_counts: HashMap<(u64, usize), Vec<usize>> = HashMap::new(); //(ngram_hash, ngram_char_len) -> [idxs where this ngram starts, ...]
@@ -841,12 +863,13 @@ impl MassiveWebRepetitionFilter {
 		let mut total_ngrams = 0;
 		let total_charlen = elements.iter().map(|v| v.len()).sum::<usize>(); 
 
-		for (idx, element) in elements.iter().enumerate() {
-			ngram.push_back(element.to_string());
+		for (idx, &element) in elements.iter().enumerate() {
+			ngram.push_back(element);
 			ngram_char_len += element.len();
 			if ngram.len() >= ngram_size { // if enough "elements" to make ngram
 				// hash ngram and add it to counts
-				let mut hasher = DefaultHasher::new();
+
+				let mut hasher = FxHasher::default();
 				ngram.hash(&mut hasher);
 				let hash_val: u64 = hasher.finish();
 				ngram_counts.entry((hash_val, ngram_char_len)).or_insert(Vec::new()).push((idx +1) - ngram_size);

@@ -63,7 +63,7 @@ enum Commands {
         #[arg(required=true, long)]
         config: PathBuf,
 
-        #[arg(required=true, long)]
+        #[arg(long)]
         debug_stash: Option<PathBuf>
     },
 
@@ -120,6 +120,42 @@ fn save_debug_stuff(debug_file: &PathBuf, debug_collector: DashMap<usize, Vec<Va
     Ok(())
 }
 
+fn print_global_stats_stuff(start_time: Instant, global_timer: DashMap<usize, AtomicUsize>, global_filter: DashMap<usize, usize>, processor: &PipelineProcessor) -> () {
+    // Timing info
+    let total_time = start_time.elapsed().as_secs();
+    let step_times: HashMap<usize, usize> = global_timer.into_iter().map(|(k,v)| (k, v.into_inner())).collect();
+    let total_step_time = step_times.values().sum::<usize>();
+    let step_fracs: HashMap<usize, f64> = step_times.iter().map(|(k,v)| (*k, *v as f64 / total_step_time as f64)).collect();
+
+    // Filtering info 
+    let total_docs: usize = global_filter.iter().map(|e| *e.value()).sum::<usize>();
+    let mut remaining_docs: usize = total_docs;
+
+    // Print things
+    println!("Finishing map in {:?} seconds", total_time);
+    println!("Processed {:?} total documents", total_docs);
+    println!("-------------------------------------------");
+    for (i, el) in processor.pipeline.iter().enumerate() {
+        println!("Step {:?} | {:?}", i, el);
+
+        let step_time_pct = step_fracs.get(&i).unwrap();
+        println!("\t Spent {:.2}% of processing time in this step", step_time_pct * 100.0);
+
+        let filter_entry = global_filter.get(&i).unwrap();
+        let removed_in_this_step = filter_entry.value();
+
+        let remaining_remove_pct = *removed_in_this_step as f32 / f32::max(0.0, remaining_docs as f32) * 100.0;
+        let total_remove_pct = *removed_in_this_step as f32 / f32::max(0.0, total_docs as f32) * 100.0;
+        remaining_docs -= removed_in_this_step;
+        println!("\t Removed {:?} docs | {:.2}% of pool | {:.2}% of remaining", removed_in_this_step, remaining_remove_pct, total_remove_pct);
+    }
+
+    println!("FINAL:");
+    println!("\t {:?} docs survived | {:.2} of pool", remaining_docs, remaining_docs as f32 / f32::max(0.0, total_docs as f32) * 100.0);
+
+    ()
+}
+
 
 /*============================================================
 =                            GENERAL MAP                     =
@@ -137,10 +173,8 @@ fn gen_map(input_dir: &PathBuf, output_dir: &PathBuf, config: &PathBuf, debug_st
 
     let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
     let json_config = parse_config(config).unwrap();
-    println!("LOADING PIPELINE");
     let processor = PipelineProcessor::new(&json_config).unwrap();
-    println!("FINISHED LOADING PIPELINE");
-    let global_timer: DashMap<usize, u128> = DashMap::new();
+    let global_timer: DashMap<usize, AtomicUsize> = DashMap::new();
     let global_filter: DashMap<usize, usize> = DashMap::new();
     let debug_collector: Option<DashMap<usize, Vec<Value>>>  = if let Some(ref _x) = debug_stash {
         Some(DashMap::new())
@@ -148,7 +182,7 @@ fn gen_map(input_dir: &PathBuf, output_dir: &PathBuf, config: &PathBuf, debug_st
         None
     };
     for i in 0..processor.pipeline.len() {
-        global_timer.insert(i, 0);
+        global_timer.insert(i, AtomicUsize::new(0));
         global_filter.insert(i,0);
     }
     global_filter.insert(usize::MAX, 0);
@@ -165,17 +199,7 @@ fn gen_map(input_dir: &PathBuf, output_dir: &PathBuf, config: &PathBuf, debug_st
         save_debug_stuff(&debug_stash.unwrap(), debug_collector.unwrap()).unwrap();
     }
 
-    println!("Finishing map in {:?} seconds", start_main.elapsed().as_secs());
-    println!("---------------------------");
-    println!("Printouts: ");
-    for (i, el) in processor.pipeline.iter().enumerate() {
-        println!("Step: {:?}", el);
-        println!("\tRemoved {:?} documents", global_filter.get(&i).unwrap().value());
-        println!("\tTook {:?} seconds", *global_timer.get(&i).unwrap().value() as f64 / 1_000_000_000.0);
-        println!("~~~~~~~");
-    }
-    println!("FINAL");
-    println!("\t {:?} documents survived", global_filter.get(&usize::MAX).unwrap().value());
+    print_global_stats_stuff(start_main, global_timer, global_filter, &processor);
 
     Ok(())    
 }
@@ -183,7 +207,7 @@ fn gen_map(input_dir: &PathBuf, output_dir: &PathBuf, config: &PathBuf, debug_st
 
 
 fn gen_map_single(input_file: &PathBuf, output_file: &PathBuf, processor: &PipelineProcessor, 
-                  global_timer: &DashMap<usize, u128>, global_filter: &DashMap<usize, usize>,
+                  global_timer: &DashMap<usize, AtomicUsize>, global_filter: &DashMap<usize, usize>,
                   debug_collector: &Option<DashMap<usize, Vec<Value>>>) -> Result<(), Error> {
     /* Single-file mapping/filtration function
 
@@ -211,8 +235,7 @@ fn gen_map_single(input_file: &PathBuf, output_file: &PathBuf, processor: &Pipel
     }
 
     timing_info.iter().for_each(|(k,v)| {
-        global_timer.entry(*k)
-            .and_modify(|gv| *gv += v);
+        global_timer.get(k).unwrap().fetch_add(*v as usize, Ordering::SeqCst);
     });
 
     filter_info.iter().for_each(|(k, v)| {
