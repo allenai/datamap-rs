@@ -167,7 +167,10 @@ impl PipelineProcessor {
 							.or_insert_with(Vec::new)
 							.push(json_out);
 						}},
-				Err(_e) => err_lines.push(line.clone())
+				Err(_e) => {
+					println!("ERRORING AND ENDING HERE");
+					err_lines.push(line.clone())
+				}
 			};
 		
 		};
@@ -352,7 +355,13 @@ impl DataProcessor for UrlSubstringFilter {
 	fn process(&self, data: Value) -> Result<Option<Value>, Error> {
 		// Process url
 		let mut url = json_get(&data, &self.url_key).unwrap().as_str().unwrap().to_string();
-		url = if self.exact_domain_match {Url::parse(&url).unwrap().host_str().unwrap().to_string()} else {url};
+		url = if self.exact_domain_match {
+			let parsed_url = Url::parse(&url)?;
+			let host_str = parsed_url.host_str().ok_or_else(|| anyhow!("URL has no host component"))?;
+			host_str.to_string()
+		} else {
+			url
+		};
 		url = if !self.case_sensitive { url.to_lowercase() } else { url };
 		for c in &self.ignore_chars {
 			url = url.replace(c, "");
@@ -369,8 +378,9 @@ impl DataProcessor for UrlSubstringFilter {
 		} 
 
 		// Nonexact case 
+		let ac_banlist = self.ac_banlist.as_ref().ok_or(anyhow!("AC Banlist"))?; 
+
 		if self.match_substrings {
-			let ac_banlist = self.ac_banlist.as_ref().unwrap(); 
 			let match_count = ac_banlist.find_iter(&url).collect::<Vec<_>>().len();
 			if match_count < self.num_banned_substrs {
 				Ok(Some(data))
@@ -378,7 +388,6 @@ impl DataProcessor for UrlSubstringFilter {
 				Ok(None)
 			}
 		} else {
-			let ac_banlist = self.ac_banlist.as_ref().unwrap();
 		    let matches: Vec<_> = ac_banlist.find_iter(&url).collect();
 		    
 		    // Filter matches to only keep those at word boundaries
@@ -517,9 +526,8 @@ impl DataProcessor for FloatFilter {
 	}
 
 	fn process(&self, data: Value) -> Result<Option<Value>, Error> {
-		//println!("WHAT??? {:?} | {:?}", json_get())
 		let val = if let Some(json_val) = json_get(&data, &self.float_field) {
-			json_val.as_f64().unwrap() as f32
+			json_val.as_f64().ok_or(anyhow!("Float field {:?} | {:?} is not a number?", self.float_field, json_val))? as f32
 		} else {
 			self.default
 		};
