@@ -132,7 +132,7 @@ impl PipelineProcessor {
 		let mut filter_step = 0;
 	    for processor in &self.pipeline {
 	    	let start_step = Instant::now();
-	    	let proc_result = processor.process(current_data).unwrap();
+	    	let proc_result = processor.process(current_data)?;
 	        *timing_info.entry(filter_step).or_insert(0 as u128) += start_step.elapsed().as_nanos();
 
 	    	match proc_result {
