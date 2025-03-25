@@ -168,7 +168,6 @@ impl PipelineProcessor {
 							.push(json_out);
 						}},
 				Err(_e) => {
-					println!("ERRORING AND ENDING HERE");
 					err_lines.push(line.clone())
 				}
 			};
