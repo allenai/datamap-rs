@@ -24,7 +24,7 @@ use fxhash::{FxHasher};
 
 
 use derivative::Derivative; 
-use mj_io::build_pbar;
+//use mj_io::build_pbar;
 
 /*================================================================================
 =                            PIPELINE PROCESSING                                 =
@@ -119,7 +119,7 @@ impl PipelineProcessor {
         Ok(Self { pipeline })
     }
 
-	pub fn process(&self, data: Value, timing_info: &mut TimingInfo, filter_info: &mut FilterInfo, debug: bool) -> Result<(usize, Option<Value>), Error> {
+	pub fn process(&self, data: Value, timing_info: &mut TimingInfo, filter_info: &mut FilterInfo) -> Result<(usize, Option<Value>), Error> {
 		/*
 		General data processor for the pipeline: 
 			Takes in a Value and some extra logging info. Will maybe modify the json and then spit it back out with a (usize, .) prefixing it
@@ -127,7 +127,7 @@ impl PipelineProcessor {
 			else, the thing that gets output passes the map and should be included in outputs
 		*/
 
-		let og_copy = if debug {Some(data.clone())} else {None};
+		let og_copy = data.clone();
 	    let mut current_data = data;
 		
 		let mut filter_step = 0;
@@ -140,7 +140,7 @@ impl PipelineProcessor {
 	    		Some(data_value) => current_data = data_value,
 	    		None => {
 	    			*filter_info.entry(filter_step).or_insert(0 as usize) += 1;
-	    			return Ok((filter_step, og_copy));
+	    			return Ok((filter_step, Some(og_copy)));
 	    		}
 
 	    	}
@@ -151,17 +151,15 @@ impl PipelineProcessor {
 	    Ok((usize::MAX, Some(current_data)))
 	}
 
-	pub fn process_lines(&self, lines: Vec<String>, debug: bool) -> Result<(HashMap<usize, Vec<Value>>, Vec<String>, TimingInfo, FilterInfo), Error> {
+	pub fn process_lines(&self, lines: Vec<String>) -> Result<(HashMap<usize, Vec<Value>>, Vec<String>, TimingInfo, FilterInfo), Error> {
 		let mut timing_info = TimingInfo::new();
 		let mut filter_info = FilterInfo::new();
 		let mut output_lines: HashMap<usize, Vec<Value>> = HashMap::new();
-		let mut err_lines: Vec<String> = Vec::new();
-		//let pbar = build_pbar(lines.len(), "lines");
-		//lines.truncate(5000);
+		let mut err_lines: Vec<String> = Vec::new();		
 		for line in lines {
 
 			let json_line = serde_json::from_str(&line).unwrap();
-			let process_out = self.process(json_line, &mut timing_info, &mut filter_info, debug);
+			let process_out = self.process(json_line, &mut timing_info, &mut filter_info);
 			match process_out {
 				Ok((step_out, json_result)) => {
 					if let Some(json_out) = json_result {
@@ -173,7 +171,6 @@ impl PipelineProcessor {
 					err_lines.push(line.clone())
 				}
 			};
-			//pbar.inc(1);
 		};
 
 		Ok((output_lines, err_lines, timing_info, filter_info))
@@ -1254,7 +1251,6 @@ pub struct Madlad400SentenceFilter {
 
 impl DataProcessor for Madlad400SentenceFilter {
 	fn new(config: &Value) -> Result<Self, Error> {
-		println!("STARTING LOAD MADLAD");
 		let text_field = get_default(config, "text_field", String::from("text"));
 		let sentence_lower_bound = get_default(config, "sentence_lower_bound", 5);
 		let sentence_question_upper_bound = get_default(config, "sentence_question_upper_bound", 0.20) as f32;
@@ -1282,7 +1278,6 @@ impl DataProcessor for Madlad400SentenceFilter {
 		for el in &cursed_regex_lines[cursed_regex_lines.len() - 4..] {
 			cursed_regexes.push(Regex::new(el).unwrap());
 		}
-		println!("ENDING LOAD MADLAD!");
 		Ok(Self { text_field, sentence_lower_bound, sentence_question_upper_bound, 
 				  fast_text_file, model, langid_field,
 				  case_upper_bound, case_tok_lower_bound,
