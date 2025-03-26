@@ -1291,7 +1291,7 @@ impl DataProcessor for Madlad400SentenceFilter {
 		// Setup for filtering
 		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();		
 		let sentence_splitter = Regex::new(r"[.!?]+\s+").unwrap();
-		let sentences: Vec<_> = sentence_splitter.split(&text).collect();
+		let sentences: Vec<_> = sentence_splitter.split(&text).filter(|s| s.trim().len() > 0 ).collect();
 		let num_sentences = sentences.len();
 		if num_sentences < self.sentence_lower_bound {
 			return Ok(None);
@@ -1405,6 +1405,9 @@ impl Madlad400SentenceFilter {
 	pub fn document_consistency(&self, sentence: &str, doc_lang: &str) -> Result<bool, Error> {
 		// Do langid 
 		let sentence_lang_preds = &self.model.predict(&sentence.replace("\n", " "), 1, 0.0).unwrap();
+		if sentence_lang_preds.len() == 0 {
+			return Ok(true);
+		}
 		let sentence_lang = &sentence_lang_preds.iter()
 			.max_by(|a, b| (&a.prob).partial_cmp(&b.prob).unwrap_or(std::cmp::Ordering::Equal))
 			.unwrap()
