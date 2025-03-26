@@ -155,11 +155,11 @@ fn print_global_stats_stuff(start_time: Instant, global_timer: DashMap<usize, At
         let remaining_remove_pct = *removed_in_this_step as f32 / f32::max(0.0, remaining_docs as f32) * 100.0;
         let total_remove_pct = *removed_in_this_step as f32 / f32::max(0.0, total_docs as f32) * 100.0;
         remaining_docs -= removed_in_this_step;
-        println!("\t Removed {:?} docs | {:.2}% of pool | {:.2}% of remaining", removed_in_this_step, remaining_remove_pct, total_remove_pct);
+        println!("\t Removed {:?} docs | {:.2}% of remaining | {:.2}% of pool", removed_in_this_step, remaining_remove_pct, total_remove_pct);
     }
 
     println!("FINAL:");
-    println!("\t {:?} docs survived | {:.2} of pool", remaining_docs, remaining_docs as f32 / f32::max(0.0, total_docs as f32) * 100.0);
+    println!("\t {:?} docs survived | {:.2}% of pool", remaining_docs, remaining_docs as f32 / f32::max(0.0, total_docs as f32) * 100.0);
 
     ()
 }
@@ -231,7 +231,7 @@ fn gen_map_single(input_file: &PathBuf, input_dir: &PathBuf, output_dir: &PathBu
 
     output_lines.into_iter().for_each(|(k, v)| {
         let step_output_dir = if k < usize::MAX {
-            output_dir.clone().join(format!("step_{:2}", k))
+            output_dir.clone().join(format!("step_{:02}", k))
         } else {
             output_dir.clone().join("step_final")
         };
