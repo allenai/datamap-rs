@@ -24,7 +24,7 @@ use fxhash::{FxHasher};
 
 
 use derivative::Derivative; 
-//use mj_io::build_pbar;
+use mj_io::build_pbar;
 
 /*================================================================================
 =                            PIPELINE PROCESSING                                 =
@@ -72,6 +72,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
     register_processor!(m, "line_len_modifier", LineLenModifier);
     register_processor!(m, "substring_line_modifier", SubstringLineModifier);
     register_processor!(m, "word_removal_ratio_filter", WordRemovalRatioFilter);
+    register_processor!(m, "madlad400_sentence_filter", Madlad400SentenceFilter);
     // Add more processor types as needed
     
     m
@@ -150,14 +151,15 @@ impl PipelineProcessor {
 	    Ok((usize::MAX, Some(current_data)))
 	}
 
-	pub fn process_lines(&self, lines: Vec<String>, debug: bool) -> Result<(HashMap<usize, Vec<Value>>, Vec<String>, TimingInfo, FilterInfo), Error> {
+	pub fn process_lines(&self, mut lines: Vec<String>, debug: bool) -> Result<(HashMap<usize, Vec<Value>>, Vec<String>, TimingInfo, FilterInfo), Error> {
 		let mut timing_info = TimingInfo::new();
 		let mut filter_info = FilterInfo::new();
 		let mut output_lines: HashMap<usize, Vec<Value>> = HashMap::new();
 		let mut err_lines: Vec<String> = Vec::new();
-		//let pbar = build_pbar(lines.len(), "lines");
-
+		let pbar = build_pbar(lines.len(), "lines");
+		//lines.truncate(10);
 		for line in lines {
+
 			let json_line = serde_json::from_str(&line).unwrap();
 			let process_out = self.process(json_line, &mut timing_info, &mut filter_info, debug);
 			match process_out {
@@ -171,7 +173,7 @@ impl PipelineProcessor {
 					err_lines.push(line.clone())
 				}
 			};
-		
+			pbar.inc(1);
 		};
 
 		Ok((output_lines, err_lines, timing_info, filter_info))
@@ -507,10 +509,11 @@ impl DataProcessor for FastTextAnnotator {
 
 #[derive(Serialize, Debug)]
 pub struct FloatFilter {
-	// Filters to only keep docs that have float in doc.float_field in range [lower_bound, upper_bound]
+	// Filters to only keep docs that have float in doc.float_field in range [lower_bound, upper_bound] (or ![lower_bound, upper_bound])
 	pub float_field: String,
 	pub lower_bound: f32,
 	pub upper_bound: f32,
+	pub negate: bool, // if this is true, collect only lines that do NOT meet the criteria
 	pub default: f32,
 }
 
@@ -519,9 +522,10 @@ impl DataProcessor for FloatFilter {
 		let float_field = config.get("float_field").unwrap().as_str().unwrap().to_string();
 		let lower_bound = get_default(config, "lower_bound", 0.0 as f64) as f32;
 		let upper_bound = get_default(config, "upper_bound", f32::MAX as f64) as f32;
+		let negate = get_default(config, "negate", false);
 		let default = get_default(config, "default", 0.0 as f64) as f32;
 
-		Ok(Self {float_field, lower_bound, upper_bound, default})
+		Ok(Self {float_field, lower_bound, upper_bound, negate, default})
 	}
 
 	fn process(&self, data: Value) -> Result<Option<Value>, Error> {
@@ -530,7 +534,12 @@ impl DataProcessor for FloatFilter {
 		} else {
 			self.default
 		};
-		if self.lower_bound <= val && val <= self.upper_bound {
+		let mut passes = self.lower_bound <= val && val <= self.upper_bound;
+		if self.negate {
+			passes = !passes
+		}
+
+		if passes {
 			Ok(Some(data))
 		} else {
 			Ok(None)
@@ -1200,3 +1209,216 @@ impl DataProcessor for WordRemovalRatioFilter {
 		}
 	}
 }
+
+
+#[derive(Derivative)]
+#[derivative(Debug)]
+#[derive(Serialize)]
+pub struct Madlad400SentenceFilter {
+	// Does the madlad400 sec2.3 filter : https://openreview.net/pdf?id=Y45ZCxslFx
+	pub text_field: String,
+	pub sentence_lower_bound: usize, // defaults to 5
+	pub sentence_question_upper_bound: f32, // defaults to 20%
+
+
+	// document consistency 
+	pub fast_text_file: String, // path to fasttext model
+	#[serde(skip)]
+	pub model: FastText,
+	pub langid_field: String, // field where the document level language is 
+
+	// list case
+	pub case_upper_bound: f32, // defaults to 0.50
+	pub case_tok_lower_bound: usize, // defaults to 12
+
+	// abnormal lengths
+	pub char_len_lower_bound: usize, // defaults to 20
+	pub char_len_upper_bound: usize, // defaults to 500 
+
+	// technical chars
+	pub tech_lower_bound: f32, // defaults to 0.20
+    #[derivative(Debug="ignore")]	
+    #[serde(skip)]
+    pub tech_charset: HashSet<char>,
+
+	// cursed regxes 
+	pub cursed_regex_file: String, // path to cursed strings // last 4 are regexes
+    #[derivative(Debug="ignore")]	
+    #[serde(skip)]
+	pub cursed_inclusions: AhoCorasick,
+    #[derivative(Debug="ignore")]	
+    #[serde(skip)]
+	pub cursed_regexes: Vec<Regex>,
+
+}
+
+impl DataProcessor for Madlad400SentenceFilter {
+	fn new(config: &Value) -> Result<Self, Error> {
+		println!("STARTING LOAD MADLAD");
+		let text_field = get_default(config, "text_field", String::from("text"));
+		let sentence_lower_bound = get_default(config, "sentence_lower_bound", 5);
+		let sentence_question_upper_bound = get_default(config, "sentence_question_upper_bound", 0.20) as f32;
+
+		let fast_text_file = config.get("fast_text_file").unwrap().as_str().unwrap().to_string();
+		let mut model = FastText::new();
+		model.load_model(&fast_text_file).unwrap();
+		let langid_field = config.get("langid_field").unwrap().as_str().unwrap().to_string();
+
+		let case_upper_bound = get_default(config, "case_upper_bound", 0.50) as f32;
+		let case_tok_lower_bound = get_default(config, "case_tok_lower_bound", 12);
+
+		let char_len_lower_bound = get_default(config, "char_len_lower_bound", 20);
+		let char_len_upper_bound = get_default(config, "char_len_upper_bound", 500);
+
+		let tech_lower_bound = get_default(config, "tech_lower_bound", 0.20) as f32;
+		let tech_charset: HashSet<char> = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 
+                               '{', '}', '+', '/', '(', ')', '>'].into_iter().collect();
+
+		let cursed_regex_file = config.get("cursed_regex_file").unwrap().as_str().unwrap().to_string();
+		let cursed_regex_data = read_pathbuf_to_mem(&PathBuf::from(cursed_regex_file.clone())).unwrap();
+		let cursed_regex_lines: Vec<_> = cursed_regex_data.lines().map(|l| l.unwrap()).collect();
+		let cursed_inclusions = AhoCorasick::new(&cursed_regex_lines[..cursed_regex_lines.len() - 4]).unwrap();
+		let mut cursed_regexes: Vec<Regex> = Vec::new();
+		for el in &cursed_regex_lines[cursed_regex_lines.len() - 4..] {
+			cursed_regexes.push(Regex::new(el).unwrap());
+		}
+		println!("ENDING LOAD MADLAD!");
+		Ok(Self { text_field, sentence_lower_bound, sentence_question_upper_bound, 
+				  fast_text_file, model, langid_field,
+				  case_upper_bound, case_tok_lower_bound,
+				  char_len_lower_bound, char_len_upper_bound,
+				  tech_lower_bound, tech_charset,
+				  cursed_regex_file, cursed_inclusions, cursed_regexes})			
+	}
+
+	fn process(&self, data: Value) -> Result<Option<Value>, Error> {
+
+		// Setup for filtering
+		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();		
+		let sentence_splitter = Regex::new(r"[.!?]+\s+").unwrap();
+		let sentences: Vec<_> = sentence_splitter.split(&text).collect();
+		let num_sentences = sentences.len();
+		if num_sentences < self.sentence_lower_bound {
+			return Ok(None);
+		}
+
+		let doc_lang = json_get(&data, &self.langid_field).unwrap().as_object().unwrap()
+			.iter()
+			.max_by(|(_, a), (_, b)| (&(a.as_f64().unwrap())).partial_cmp(&(b.as_f64().unwrap())).unwrap_or(std::cmp::Ordering::Equal)).unwrap().0;
+
+		let sentence_threshold = num_sentences as f32 * self.sentence_question_upper_bound;
+		let mut sus_sentences = 0;
+		let mut sus_levels = vec![0,0,0,0,0];
+		//println!("Sentences {:?}", sentences);
+
+		// Loop through sentences
+		for sentence in sentences {
+			// Stop to exit early maybe
+			if sus_sentences as f32 > sentence_threshold {
+				return Ok(None);
+			}
+
+			// Check abnormal len sentences
+			if self.abnormal_len_sentence(sentence).unwrap() {
+				sus_levels[0] += 1;
+				//sus_sentences += 1;
+				continue;
+			}
+
+			// Then check technical character counts
+			if self.technical_characters(sentence).unwrap() {
+				sus_levels[1] += 1;
+				//sus_sentences += 1;
+				continue;
+			}
+
+			// Then check case
+			if self.list_case(sentence).unwrap() {
+				sus_levels[2] += 1;
+				//sus_sentences += 1;
+				continue;
+			}
+
+			// Then do cursed regex stuff
+			if self.check_cursed_regexes(sentence).unwrap() {
+				sus_levels[3] += 1;
+				//sus_sentences += 1;
+				continue;
+			}
+
+			// And finally langid
+			if self.document_consistency(sentence, doc_lang).unwrap() {
+				sus_levels[4] += 1;
+				//sus_sentences += 1;
+				continue
+			}
+		}
+
+
+		// If too many questionable setences, filter out
+		//println!("Sus sentences {:?}", sus_levels);
+		let sus_sentences = sus_levels.iter().sum::<usize>();
+		if sus_sentences as f32 > sentence_threshold {
+			Ok(None)
+		} else {
+			Ok(Some(data))
+		}		
+	}
+}
+
+impl Madlad400SentenceFilter {
+	// Individual checks. Returns True if the sentence IS questionable!
+	pub fn abnormal_len_sentence(&self, sentence: &str) -> Result<bool, Error> {
+		Ok(sentence.len() < self.char_len_lower_bound || sentence.len() > self.char_len_upper_bound)
+	}
+
+	pub fn technical_characters(&self, sentence: &str) -> Result<bool, Error> {
+		let technical_chars = sentence.chars().filter(|c| self.tech_charset.contains(c)).count();
+		Ok((technical_chars as f32) > sentence.len() as f32 * self.tech_lower_bound)
+	}
+
+	pub fn list_case(&self, sentence: &str) -> Result<bool, Error> {
+		// List case : we treat "tokens" here as words
+		let words: Vec<&str> = sentence.unicode_words().collect();
+		if words.len() < self.case_tok_lower_bound {
+			return Ok(false);
+		}
+		let cap_counts = words.iter().filter(|w| {
+			if let Some(first_char) = w.chars().next() {
+				first_char.is_uppercase()
+			} else {
+				false
+			}
+		})
+		.count();
+
+		Ok(cap_counts as f32 > words.len() as f32 * self.case_upper_bound)		
+	}
+
+	pub fn check_cursed_regexes(&self, sentence: &str) -> Result<bool, Error> {
+		if let Some(_) = self.cursed_inclusions.find_iter(sentence).next() {
+			return Ok(true)
+		}
+		let has_curse = self.cursed_regexes.iter().any(|re| {
+			if let Some(_) = re.find(sentence) {
+				true
+			} else {
+				false
+			}
+		});
+		Ok(has_curse)	
+	}
+
+	pub fn document_consistency(&self, sentence: &str, doc_lang: &str) -> Result<bool, Error> {
+		// Do langid 
+		let sentence_lang_preds = &self.model.predict(&sentence.replace("\n", " "), 1, 0.0).unwrap();
+		let sentence_lang = &sentence_lang_preds.iter()
+			.max_by(|a, b| (&a.prob).partial_cmp(&b.prob).unwrap_or(std::cmp::Ordering::Equal))
+			.unwrap()
+			.label;
+		Ok(sentence_lang != doc_lang)	
+	}
+}
+
+
+
