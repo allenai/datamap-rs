@@ -151,13 +151,13 @@ impl PipelineProcessor {
 	    Ok((usize::MAX, Some(current_data)))
 	}
 
-	pub fn process_lines(&self, mut lines: Vec<String>, debug: bool) -> Result<(HashMap<usize, Vec<Value>>, Vec<String>, TimingInfo, FilterInfo), Error> {
+	pub fn process_lines(&self, lines: Vec<String>, debug: bool) -> Result<(HashMap<usize, Vec<Value>>, Vec<String>, TimingInfo, FilterInfo), Error> {
 		let mut timing_info = TimingInfo::new();
 		let mut filter_info = FilterInfo::new();
 		let mut output_lines: HashMap<usize, Vec<Value>> = HashMap::new();
 		let mut err_lines: Vec<String> = Vec::new();
-		let pbar = build_pbar(lines.len(), "lines");
-		//lines.truncate(10);
+		//let pbar = build_pbar(lines.len(), "lines");
+		//lines.truncate(5000);
 		for line in lines {
 
 			let json_line = serde_json::from_str(&line).unwrap();
@@ -173,7 +173,7 @@ impl PipelineProcessor {
 					err_lines.push(line.clone())
 				}
 			};
-			pbar.inc(1);
+			//pbar.inc(1);
 		};
 
 		Ok((output_lines, err_lines, timing_info, filter_info))
@@ -1308,8 +1308,7 @@ impl DataProcessor for Madlad400SentenceFilter {
 
 		let sentence_threshold = num_sentences as f32 * self.sentence_question_upper_bound;
 		let mut sus_sentences = 0;
-		let mut sus_levels = vec![0,0,0,0,0];
-		//println!("Sentences {:?}", sentences);
+		//let mut sus_levels = vec![0,0,0,0,0];
 
 		// Loop through sentences
 		for sentence in sentences {
@@ -1320,36 +1319,36 @@ impl DataProcessor for Madlad400SentenceFilter {
 
 			// Check abnormal len sentences
 			if self.abnormal_len_sentence(sentence).unwrap() {
-				sus_levels[0] += 1;
-				//sus_sentences += 1;
+				//sus_levels[0] += 1;
+				sus_sentences += 1;
 				continue;
 			}
 
 			// Then check technical character counts
 			if self.technical_characters(sentence).unwrap() {
-				sus_levels[1] += 1;
-				//sus_sentences += 1;
+				//sus_levels[1] += 1;
+				sus_sentences += 1;
 				continue;
 			}
 
 			// Then check case
 			if self.list_case(sentence).unwrap() {
-				sus_levels[2] += 1;
-				//sus_sentences += 1;
+				//sus_levels[2] += 1;
+				sus_sentences += 1;
 				continue;
 			}
 
 			// Then do cursed regex stuff
 			if self.check_cursed_regexes(sentence).unwrap() {
-				sus_levels[3] += 1;
-				//sus_sentences += 1;
+				//sus_levels[3] += 1;
+				sus_sentences += 1;
 				continue;
 			}
 
 			// And finally langid
 			if self.document_consistency(sentence, doc_lang).unwrap() {
-				sus_levels[4] += 1;
-				//sus_sentences += 1;
+				//sus_levels[4] += 1;
+				sus_sentences += 1;
 				continue
 			}
 		}
@@ -1357,7 +1356,6 @@ impl DataProcessor for Madlad400SentenceFilter {
 
 		// If too many questionable setences, filter out
 		//println!("Sus sentences {:?}", sus_levels);
-		let sus_sentences = sus_levels.iter().sum::<usize>();
 		if sus_sentences as f32 > sentence_threshold {
 			Ok(None)
 		} else {
