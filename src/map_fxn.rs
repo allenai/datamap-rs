@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use anyhow::{Error, Result, ensure, anyhow};
 use rand::Rng;
 use uuid::Uuid;
-use crate::utils::{get_default, json_get, json_set};
+use crate::utils::{get_default, json_get, json_set, extract_subdomain};
 use serde::Serialize;
 use once_cell::sync::Lazy;
 use std::collections::{HashMap, HashSet};
@@ -21,7 +21,6 @@ use fasttext::FastText;
 use unicode_segmentation::UnicodeSegmentation;
 use regex::Regex;
 use fxhash::{FxHasher};
-
 
 use derivative::Derivative; 
 //use mj_io::build_pbar;
@@ -323,17 +322,27 @@ pub struct UrlSubstringFilter {
 	*/
 
 	pub url_key: String,
+	// Main modes of operation
+	pub exact_domain_match: bool, 
+	pub exact_subdomain_match: bool,
+	pub exact_url_match: bool,
+	pub exact_part_match: bool,
+	pub match_substrings: bool,
+
+	// Modifiers
+	pub case_sensitive: bool,
 	pub ignore_chars: Vec<String>,
 	pub num_banned_substrs: usize,
-	pub exact_domain_match: bool, 
-	pub match_substrings: bool,
-	pub case_sensitive: bool,
+
+
+	// Internal storage
     #[derivative(Debug="ignore")]
 	pub banlist: HashSet<String>, // Key for this is banlist_file
     #[derivative(Debug="ignore")]	
 	#[serde(skip)]
-	pub ac_banlist: Option<AhoCorasick>
+	pub ac_banlist: Option<AhoCorasick>,
 }
+
 impl DataProcessor for UrlSubstringFilter {
 	fn new(config: &Value) -> Result<Self, Error> {
 		let case_sensitive = get_default(config, "case_sensitive", false);
@@ -353,20 +362,32 @@ impl DataProcessor for UrlSubstringFilter {
 	fn process(&self, data: Value) -> Result<Option<Value>, Error> {
 		// Process url
 		let mut url = json_get(&data, &self.url_key).unwrap().as_str().unwrap().to_string();
+
+		// Extract domain/subdomain if exact match case
 		url = if self.exact_domain_match {
 			let parsed_url = Url::parse(&url)?;
 			let host_str = parsed_url.host_str().ok_or_else(|| anyhow!("URL has no host component"))?;
 			host_str.to_string()
+		} else if self.exact_subdomain_match {
+			let subdomain_match = extract_subdomain(&url)?;
+			if let Some(subdomain) = subdomain_match {
+				subdomain
+			} else {
+				return Ok(Some(data))
+			}
 		} else {
 			url
 		};
+
+		// Handle downcasing + ignore_chars
 		url = if !self.case_sensitive { url.to_lowercase() } else { url };
 		for c in &self.ignore_chars {
 			url = url.replace(c, "");
 		}
 
+
 		// Exact match case
-		if self.exact_domain_match {
+		if self.exact_domain_match || self.exact_subdomain_match || self.exact_url_match {
 			if self.banlist.contains(&url) {
 				return Ok(None);
 			} else {
@@ -374,6 +395,17 @@ impl DataProcessor for UrlSubstringFilter {
 			}
 
 		} 
+
+		// Exact part match
+		if self.exact_part_match {
+			let splitter_re = Regex::new(r"[^a-zA-Z0-9]+").unwrap();
+			let mut parts = splitter_re.split(&url);
+			if parts.any(|p| self.banlist.contains(p)) {
+				return Ok(None)
+			} else {
+				return Ok(Some(data))
+			}
+		}
 
 		// Nonexact case 
 		let ac_banlist = self.ac_banlist.as_ref().ok_or(anyhow!("AC Banlist"))?; 
@@ -416,10 +448,11 @@ impl UrlSubstringFilter {
 		let ignore_chars = get_default(config, "ignore_chars", Vec::new()).into_iter().map(|el| el.as_str().unwrap().to_string()).collect();
 		let num_banned_substrs = get_default(config, "num_banned_substrs", 1);
 		let exact_domain_match = get_default(config, "exact_domain_match", false);
+		let exact_subdomain_match = get_default(config, "exact_subdomain_match", false);
+		let exact_url_match = get_default(config, "exact_url_match", false);
+		let exact_part_match = get_default(config, "exact_part_match", false);
 		let match_substrings = get_default(config, "match_substrings", true);
 		let case_sensitive = get_default(config, "case_sensitive", false);
-
-
 
 		let ac_banlist = if !exact_domain_match {
 			let banlist_vec : Vec<String> = banlist.clone().into_iter().map(|v| v).collect();
@@ -427,7 +460,7 @@ impl UrlSubstringFilter {
 		} else {
 			None
 		};
-		Ok(Self {url_key, ignore_chars, num_banned_substrs, exact_domain_match, match_substrings, case_sensitive, banlist, ac_banlist})
+		Ok(Self {url_key, exact_domain_match, exact_subdomain_match, exact_url_match, exact_part_match, match_substrings, case_sensitive, ignore_chars, num_banned_substrs, banlist, ac_banlist})
 
 	}
 }

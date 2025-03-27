@@ -1,5 +1,6 @@
 use serde_json::{Value, json};
 use anyhow::{anyhow, Result, Error};
+use url::Url;
 
 /*================================================================================
 =                            JSON GETTER METHODS                                 =
@@ -103,3 +104,30 @@ pub fn json_set(input: &mut Value, key: &String, val: Value) -> Result<(), Error
 	}
 	Ok(())
 }
+
+
+/*====================================================================
+=                            URL HELPERS                             =
+====================================================================*/
+
+
+pub fn extract_subdomain(url_str: &str) -> Result<Option<String>, Error> {
+    let url = Url::parse(url_str)?;
+    
+    // Get the host
+    let host = match url.host_str() {
+        Some(host) => host,
+        None => return Ok(None), // URL has no host component
+    };
+    
+    // Split the host by dots
+    let parts: Vec<&str> = host.split('.').collect();
+    
+    // If we have at least 3 parts (like in "sub.example.com"), the first part is a subdomain
+    if parts.len() >= 3 {
+        Ok(Some(parts[0].to_string()))
+    } else {
+        Ok(None) // No subdomain found
+    }
+}
+
