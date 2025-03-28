@@ -30,6 +30,16 @@ def check_fasttext_annotator(kwargs):
     fasttext.load_model(kwargs["fast_text_file"])
 
 
+def check_madlad400(kwargs):
+    fasttext.load_model(kwargs["fast_text_file"])
+    try:
+        open(kwargs["cursed_regex_file"], "r").read()
+    except:
+        raise Exception(
+            "Could not find cursed regex file: %s" % kwargs["cursed_regex_file"]
+        )
+
+
 # ===================================================================
 # =                          MAIN                                   =
 # ===================================================================
@@ -37,6 +47,7 @@ def check_fasttext_annotator(kwargs):
 VERIFY_CHECKERS = {
     "url_substring_filter": check_url_substring_filter,
     "fasttext_annotator": check_fasttext_annotator,
+    "madlad400_sentence_filter": check_madlad400,
 }
 
 
