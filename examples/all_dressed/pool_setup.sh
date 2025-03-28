@@ -34,7 +34,7 @@ source ~/.bashrc
 cd
 git clone https://github.com/revbucket/datamap-rs.git
 cd datamap-rs
-git checkout dclm
+git checkout main
 s5cmd run examples/all_dressed/s5cmd_asset_downloader.txt
 cargo build --release 
 

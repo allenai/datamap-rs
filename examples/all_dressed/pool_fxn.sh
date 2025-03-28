@@ -27,7 +27,7 @@ mkdir -p "/mnt/raid0/${X}_output"
 # Step 2: Run the map operation
 echo "Running map operation..."
 cd ~/datamap-rs
-git checkout dclm
+git checkout main
 cargo run --release -- map --input-dir "/mnt/raid0/$X" --output-dir "/mnt/raid0/${X}_output" --config examples/all_dressed/config.yaml > "/mnt/raid0/${X}_output/map.log"
 
 # Step 3: Run the deduplication operation on JUST the outputs 
@@ -39,7 +39,7 @@ cargo run --release -- exact-dedup  --config examples/all_dressed/ed_stub.yaml -
 
 # Step 4: Reshard the output data to be a better size 
 cd ~/datamap-rs
-git checkout reshardh
+git checkout main
 cargo run --release -- reshard --input-dir "/mnt/raid0/${X}_output/step_final_exactdedup/" --output-dir "/mnt/raid0/${X}_output/step_final_exactdedup_reshard/" --max-lines 65536
 
 # Step 5: Copy results back to S3
