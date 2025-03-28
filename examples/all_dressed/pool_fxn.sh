@@ -12,6 +12,13 @@ fi
 X=$1
 echo "Processing directory: $X"
 
+# Step 0: preclean
+echo "Pre-clean local storage..."
+rm -rf "/mnt/raid0/${X}_output"
+rm -rf "/mnt/raid0/$X"
+rm -rf "/mnt/raid0/ed_working_dir"
+
+
 # Step 1: Copy from S3 to local storage
 echo "Copying data from S3 to local storage..."
 s5cmd cp -sp "s3://allennlp-mattj/scratch/test_all_dressed/cc_2021_49_small_20xparts/$X/*" "/mnt/raid0/$X"
