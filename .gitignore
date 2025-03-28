@@ -1,1 +1,5 @@
 /target
+/examples/**/*.txt
+/examples/**/*.bin
+Cargo.lock
+.DS_Store
