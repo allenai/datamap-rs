@@ -14,7 +14,7 @@ echo "Processing directory: $X"
 
 # Step 1: Copy from S3 to local storage
 echo "Copying data from S3 to local storage..."
-s5cmd cp -sp "s3://allennlp-mattj/scratch/test_all_dressed/$X/*" "/mnt/raid0/$X"
+s5cmd cp -sp "s3://allennlp-mattj/scratch/test_all_dressed/cc_2021_49_small_20xparts/$X/*" "/mnt/raid0/$X"
 mkdir -p "/mnt/raid0/${X}_output"
 
 # Step 2: Run the map operation
@@ -37,8 +37,8 @@ cargo run --release -- reshard --input-dir "/mnt/raid0/${X}_output/step_final_ex
 
 # Step 5: Copy results back to S3
 echo "Copying results back to S3..."
-s5cmd cp -sp "/mnt/raid0/${X}_output/step_final_exactdedup_reshard/" "s3://ai2-llm/pretraining-data/sources/cc_all_dressed/all_dressed/$X/"
-s5cmd cp -sp "/mnt/raid0/${X}_output/step_12/" "s3://ai2-llm/pretraining-data/sources/cc_all_dressed/non_english/$X/"
+s5cmd cp -sp "/mnt/raid0/${X}_output/step_final_exactdedup_reshard/" "s3://ai2-llm/pretraining-data/sources/cc_all_dressed/20xpart_test/all_dressed/$X/"
+s5cmd cp -sp "/mnt/raid0/${X}_output/step_12/" "s3://ai2-llm/pretraining-data/sources/cc_all_dressed/20xpart_test/non_english/$X/"
 
 # Step 6: Clean up local storage
 echo "Cleaning up local storage..."
