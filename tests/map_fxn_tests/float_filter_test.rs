@@ -12,7 +12,7 @@ mod tests {
             "float_field": "temperature",
             "lower_bound": 20.5,
             "upper_bound": 30.75,
-            "default": 25.0
+            "default": 25.0,
         });
         
         let filter = FloatFilter::new(&config).unwrap();
@@ -40,6 +40,7 @@ mod tests {
             lower_bound: 20.0,
             upper_bound: 30.0,
             default: 0.0,
+            negate: false
         };
         
         // Test value in range (should return the document)
@@ -59,6 +60,7 @@ mod tests {
             lower_bound: 20.0,
             upper_bound: 30.0,
             default: 0.0,
+            negate: false
         };
         
         // Test value at lower bound (should be included)
@@ -87,6 +89,7 @@ mod tests {
             lower_bound: 20.0,
             upper_bound: 30.0,
             default: 0.0,
+            negate: false
         };
         
         // Test value below range
@@ -115,6 +118,7 @@ mod tests {
             lower_bound: 20.0,
             upper_bound: 30.0,
             default: 25.0,
+            negate: false
         };
         
         // Test missing field (should use default value)
@@ -133,6 +137,7 @@ mod tests {
             lower_bound: 20.0,
             upper_bound: 30.0,
             default: 10.0, // Out of range
+            negate: false
         };
         
         let result = filter_with_out_of_range_default.process(doc).unwrap();
@@ -146,6 +151,7 @@ mod tests {
             lower_bound: 20.0,
             upper_bound: 30.0,
             default: 0.0,
+            negate: false
         };
         
         // Test nested field in range
