@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::time::Instant;
 use std::hash::{Hash, Hasher};
 use std::collections::VecDeque;
@@ -21,6 +22,7 @@ use fasttext::FastText;
 use unicode_segmentation::UnicodeSegmentation;
 use regex::Regex;
 use fxhash::{FxHasher};
+use scraper::{Html, Selector};
 
 use derivative::Derivative; 
 //use mj_io::build_pbar;
@@ -104,14 +106,14 @@ impl PipelineProcessor {
     // Create an empty pipeline
     pub fn new(config: &Value) -> Result<Self, Error> {
     	let mut pipeline : Vec<Box<dyn AnyDataProcessor>> = Vec::<Box<dyn AnyDataProcessor>>::new(); 
-    	let text_field = get_default(&config, "text_field", String::from("text"));
+    	let global_default_text_field = get_default(&config, "text_field", String::from("text"));
 
     	let pipeline_configs = config.get("pipeline").unwrap().as_array().unwrap();
     	for subconfig in pipeline_configs {
     		let subconfig_name = subconfig.get("name").unwrap().as_str().unwrap();
     		let default_json = json!({});
     		let mut subconfig_kwargs: Value = subconfig.get("kwargs").or(Some(&default_json)).unwrap().clone();
-    		json_set(&mut subconfig_kwargs, &String::from("text_field"), serde_json::Value::String(text_field.clone())).unwrap();
+    		json_set(&mut subconfig_kwargs, &String::from("text_field"), serde_json::Value::String(global_default_text_field.clone())).unwrap();
     		let constructor = PROCESSOR_CONSTRUCTORS[subconfig_name];
     		pipeline.push(constructor(&subconfig_kwargs).unwrap());
     	}
@@ -1448,6 +1450,163 @@ impl Madlad400SentenceFilter {
 		Ok(sentence_lang != doc_lang)	
 	}
 }
+
+
+/*================================================================================
+=                            SPRING 2 CODE STUFF                                 =
+================================================================================*/
+
+
+#[derive(Serialize, Debug)]
+pub struct TextSelectorFilter {
+	// Text selector: just select rows that match a particular string	
+	text_field: String,	
+	exact_match: String,
+	
+}
+ impl DataProcessor for TextSelectorFilter {
+	fn new(config: &Value) -> Result<Self, Error> {		
+		let text_field = config.get("text_field").unwrap().as_str().unwrap().to_string();
+		let exact_match = config.get("exact_match").unwrap().as_str().unwrap().to_string();		
+		Ok(Self {text_field, exact_match})
+	}
+
+
+	fn process(&self, data: Value) -> Result<Option<Value>, Error> {
+		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap();
+		if text == self.exact_match {
+			Ok(Some(data))
+		} else {
+			Ok(None)
+		}
+	}
+}
+
+
+
+#[derive(Serialize, Debug)]
+pub struct DotTXTFileNameFilter {
+	pl_field: String,
+	filename_field: String
+	
+}
+ impl DataProcessor for DotTXTFileNameFilter {
+	fn new(config: &Value) -> Result<Self, Error> {		
+		let pl_field = config.get("pl_field").unwrap().as_str().unwrap().to_string();		
+		let filename_field = config.get("filename_field").unwrap().as_str().unwrap().to_string();
+		Ok(Self {pl_field, filename_field})
+	}
+
+
+	fn process(&self, data: Value) -> Result<Option<Value>, Error> {
+		let pl = json_get(&data, &self.pl_field).unwrap().as_str().unwrap();
+		let filename = Path::new(json_get(&data, &self.filename_field).unwrap().as_str().unwrap());
+		if pl != "txt" {
+			return Ok(Some(data));
+		}
+
+		// keep only if 'requirement' is in the filename, or if lowercase is 'readme', 'notes', 'todo', 'description', 'cmakelists
+		if let Some(file_stem) = filename.file_stem() {
+			if let Some(basename) = file_stem.to_str() {
+				let basename_lower = basename.to_lowercase();
+				if basename_lower.contains("requirements") {
+					return Ok(Some(data));
+				}
+				match basename_lower.as_str() { 
+				"readme" | "notes" | "todo" | "description" | "cmakelists" => return Ok(Some(data)),
+				_ => return Ok(None)
+				};
+			} else {
+				return Ok(None);
+			}
+		} else {
+			return Ok(None);
+		}		
+	}
+}
+
+
+
+#[derive(Serialize, Debug)]
+pub struct PLLineFilter {
+	text_field: String, 
+	pl_field: String,
+	valid_pls: Vec<String>,
+	line_upper_bound: usize
+}
+
+impl DataProcessor for PLLineFilter {
+	fn new(config: &Value) -> Result<Self, Error> {
+		let text_field = config.get("text_field").unwrap().as_str().unwrap().to_string();
+		let pl_field = config.get("pl_field").unwrap().as_str().unwrap().to_string();		
+		let valid_pls: Vec<String> = config.get("valid_pls").unwrap().as_array().unwrap().into_iter().map(|s| s.as_str().unwrap().to_string()).collect();
+		let line_upper_bound = config.get("line_upper_bound").unwrap().as_u64().unwrap() as usize;
+		Ok(Self {text_field, pl_field, valid_pls, line_upper_bound})
+	}
+
+	fn process(&self, data: Value) -> Result<Option<Value>, Error> {
+		let pl = json_get(&data, &self.pl_field).unwrap().as_str().unwrap().to_string();
+		if !self.valid_pls.contains(&pl) {
+			return Ok(Some(data));
+		}
+
+		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap();
+		let line_count = text.lines().count();
+		if line_count > self.line_upper_bound {
+			return Ok(None)
+		}
+		Ok(Some(data))
+	}
+}
+
+
+#[derive(Serialize, Debug)]
+pub struct HTMLSpecificFilter {
+	text_field: String, 
+	pl_field: String,
+	visible_lower_bound_count: usize,
+	visible_lower_bound_ratio: f32,
+}
+
+
+impl DataProcessor for HTMLSpecificFilter {
+	fn new(config: &Value) -> Result<Self, Error> {
+		let text_field = config.get("text_field").unwrap().as_str().unwrap().to_string();
+		let pl_field = config.get("pl_field").unwrap().as_str().unwrap().to_string();		
+		let visible_lower_bound_count = config.get("visible_lower_bound_count").unwrap().as_u64().unwrap() as usize;
+		let visible_lower_bound_ratio = config.get("visible_lower_bound_ratio").unwrap().as_f64().unwrap() as f32;
+
+		Ok(HTMLSpecificFilter {text_field, pl_field, visible_lower_bound_count, visible_lower_bound_ratio})
+	}
+
+	fn process(&self, data: Value) -> Result<Option<Value>, Error> {
+		let pl = json_get(&data, &self.pl_field).unwrap().as_str().unwrap().to_string();
+		if pl != "html" {
+			return Ok(Some(data));
+		}
+		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap();
+
+		let document = Html::parse_document(&text);
+		let body_selector = Selector::parse("body").unwrap();
+		let mut visible_text_len = 0;
+		let total_len = text.len();
+		if let Some(body) = document.select(&body_selector).next() {
+			visible_text_len += body.text().map(|v| v.len() + 1).sum::<usize>(); // +1 to join with " "
+			if visible_text_len > 0 { // -1 here because we have "overcounted" by 1 from the +1's above^
+				visible_text_len -= 1;
+			};
+		}
+
+		if visible_text_len >= self.visible_lower_bound_count && visible_text_len as f32 >= (self.visible_lower_bound_ratio * total_len as f32) {
+			Ok(Some(data))
+		} else {
+			Ok(None)
+		}
+	}
+}
+	
+
+
 
 
 
