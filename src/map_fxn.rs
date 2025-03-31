@@ -302,7 +302,6 @@ impl DataProcessor for SubsampleFilter {
 		}		
 	}
 }
-
 #[derive(Derivative)]
 #[derivative(Debug)]
 #[derive(Serialize)]
@@ -322,6 +321,8 @@ pub struct UrlSubstringFilter {
 	*/
 
 	pub url_key: String,
+	pub alt_url_key: String, // Alternate key in case first one is missing
+
 	// Main modes of operation
 	pub exact_domain_match: bool, 
 	pub exact_subdomain_match: bool,
@@ -361,7 +362,14 @@ impl DataProcessor for UrlSubstringFilter {
 
 	fn process(&self, data: Value) -> Result<Option<Value>, Error> {
 		// Process url
-		let mut url = json_get(&data, &self.url_key).unwrap().as_str().unwrap().to_string();
+
+		let url_val = if let Some(url_val) = json_get(&data, &self.url_key) {
+			url_val
+		} else {
+			json_get(&data, &self.alt_url_key).unwrap()
+		};
+		let mut url = url_val.as_str().unwrap().to_string();
+
 
 		// Extract domain/subdomain if exact match case
 		url = if self.exact_domain_match {
@@ -445,6 +453,7 @@ impl UrlSubstringFilter {
 	pub fn construct_w_explicit_banlist(config: &Value, banlist: HashSet<String>) -> Result<Self, Error> {
 
 		let url_key = config.get("url_key").unwrap().as_str().unwrap().to_string();
+		let alt_url_key = get_default(config, "alt_url_key", String::from("ALT_URL_KEY"));
 		let ignore_chars = get_default(config, "ignore_chars", Vec::new()).into_iter().map(|el| el.as_str().unwrap().to_string()).collect();
 		let num_banned_substrs = get_default(config, "num_banned_substrs", 1);
 		let exact_domain_match = get_default(config, "exact_domain_match", false);
@@ -454,16 +463,19 @@ impl UrlSubstringFilter {
 		let match_substrings = get_default(config, "match_substrings", true);
 		let case_sensitive = get_default(config, "case_sensitive", false);
 
-		let ac_banlist = if !exact_domain_match {
+
+		let ac_banlist = if exact_domain_match | exact_subdomain_match | exact_url_match | exact_part_match {
+			None
+		} else {
 			let banlist_vec : Vec<String> = banlist.clone().into_iter().map(|v| v).collect();
 			Some(AhoCorasick::new(banlist_vec).unwrap())
-		} else {
-			None
 		};
-		Ok(Self {url_key, exact_domain_match, exact_subdomain_match, exact_url_match, exact_part_match, match_substrings, case_sensitive, ignore_chars, num_banned_substrs, banlist, ac_banlist})
+
+		Ok(Self {url_key, alt_url_key, exact_domain_match, exact_subdomain_match, exact_url_match, exact_part_match, match_substrings, case_sensitive, ignore_chars, num_banned_substrs, banlist, ac_banlist})
 
 	}
 }
+
 
 
 #[derive(Serialize, Debug)]

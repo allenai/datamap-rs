@@ -176,6 +176,74 @@ mod tests {
         assert!(result.unwrap().is_none()); // Should be filtered out (has 2 matches)
     }
 
-
+    #[test]
+    fn test_alt_url_key_when_primary_missing() {
+        // Create a simple banlist with a banned domain
+        let banlist: HashSet<String> = vec!["example.com".to_string()].into_iter().collect();
+        
+        // Create filter configuration that uses alt_url_key
+        let config = json!({
+            "url_key": "primary_url",
+            "alt_url_key": "secondary_url",
+            "exact_domain_match": true,
+            "case_sensitive": false
+        });
+        
+        let filter = UrlSubstringFilter::construct_w_explicit_banlist(&config, banlist).unwrap();
+        
+        // Test case where primary_url is missing but secondary_url is present
+        let data = json!({
+            "secondary_url": "http://example.com",
+            "other_field": "value"
+        });
+        
+        let result = filter.process(data).unwrap();
+        assert!(result.is_none(), "Should filter out data with banned URL in alt_url_key");
+        
+        // Test with non-banned URL in alt_url_key
+        let data = json!({
+            "secondary_url": "http://allowed-site.com",
+            "other_field": "value"
+        });
+        
+        let result = filter.process(data).unwrap();
+        assert!(result.is_some(), "Should keep data with non-banned URL in alt_url_key");
+    }
+    
+    #[test]
+    fn test_primary_key_preferred_over_alt() {
+        // Create a banlist with a banned domain
+        let banlist: HashSet<String> = vec!["bad-example.com".to_string()].into_iter().collect();
+        
+        // Create filter configuration
+        let config = json!({
+            "url_key": "primary_url",
+            "alt_url_key": "secondary_url",
+            "exact_domain_match": true,
+            "case_sensitive": false
+        });
+        
+        let filter = UrlSubstringFilter::construct_w_explicit_banlist(&config, banlist).unwrap();
+        
+        // Test case where both URLs exist but primary is used
+        let data = json!({
+            "primary_url": "http://good-example.com",
+            "secondary_url": "http://bad-example.com",
+            "other_field": "value"
+        });
+        
+        let result = filter.process(data).unwrap();
+        assert!(result.is_some(), "Should keep data when primary URL is good, ignoring bad alt URL");
+        
+        // Reverse test - bad primary, good secondary
+        let data = json!({
+            "primary_url": "http://bad-example.com",
+            "secondary_url": "http://good-example.com",
+            "other_field": "value"
+        });
+        
+        let result = filter.process(data).unwrap();
+        assert!(result.is_none(), "Should filter out data when primary URL is banned, ignoring good alt URL");
+    }
 
 }
