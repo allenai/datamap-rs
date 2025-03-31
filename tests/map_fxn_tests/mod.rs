@@ -19,3 +19,6 @@ pub mod line_len_modifier_test;
 pub mod substring_line_modifier_test;
 pub mod word_removal_ratio_filter_test;
 pub mod massive_repetition_filter_test; 
+pub mod code_alpha_filter_test;
+pub mod code_encoded_data_test;
+pub mod code_enry_auto_gen_filter_test;

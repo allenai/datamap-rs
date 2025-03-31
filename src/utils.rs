@@ -55,6 +55,17 @@ impl FromValue for Vec<Value> {
 	}
 }
 
+impl<T: FromValue> FromValue for Option<T> {
+    // Implement this please 
+    fn from_value(value: &Value) -> Option<Self> {
+        if value.is_null() {
+            Some(None)
+        } else {
+            Some(T::from_value(value))
+        }
+    }
+}
+
 /// Get a value from a JSON config with a default
 pub fn get_default<T: FromValue>(config: &Value, key: &str, default: T) -> T {
     match config.get(key) {

@@ -30,6 +30,9 @@ regex = "1.11.1"
 derivative = "2.2.0"
 fxhash = "0.2.1"
 scraper = "0.23.1"
+# enry = { git = "https://github.com/go-enry/rs-enry", rev = "3fd51cf63192bfa0effba9961cd6a43bc1d70e63" }
+enry = { git = "https://github.com/go-enry/rs-enry", rev = "3fd51cf63192bfa0effba9961cd6a43bc1d70e63", default-features = false }
+
 
 [[test]]
 name = "tests"
