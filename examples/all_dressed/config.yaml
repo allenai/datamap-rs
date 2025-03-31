@@ -4,54 +4,64 @@ pipeline:
   - name: url_substring_filter
     kwargs:
       url_key: metadata.WARC-Target-URI
+      alt_url_key: metadata.warc_url
       banlist_file: examples/dclm/refinedweb_banned_domains_curated.txt
       exact_domain_match: true
       ignore_chars: ['www']
   - name: url_substring_filter
     kwargs:
       url_key: metadata.WARC-Target-URI
+      alt_url_key: metadata.warc_url      
       banlist_file: examples/dclm/refinedweb_banned_words_strict_reverse_engineered.txt
       ignore_chars: ['-', '.']
   - name: url_substring_filter
     kwargs:
       url_key: metadata.WARC-Target-URI
+      alt_url_key: metadata.warc_url      
       banlist_file: examples/dclm/refinedweb_banned_words_hard_reverse_engineered.txt
       match_substrings: false
   - name: url_substring_filter
     kwargs:
       url_key: metadata.WARC-Target-URI
+      alt_url_key: metadata.warc_url      
       banlist_file: examples/dclm/refinedweb_banned_words_soft_reverse_engineered.txt
       num_banned_substrs: 2
       match_substrings: false
   - name: url_substring_filter
     kwargs:
       url_key: metadata.WARC-Target-URI
+      alt_url_key: metadata.warc_url      
       banlist_file: examples/all_dressed/fineweb_url_filters/domains.txt
       exact_domain_match: true
   - name: url_substring_filter
     kwargs:
       url_key: metadata.WARC-Target-URI
+      alt_url_key: metadata.warc_url      
       banlist_file: examples/all_dressed/fineweb_url_filters/domains.txt
       exact_subdomain_match: true
   - name: url_substring_filter
     kwargs:
       url_key: metadata.WARC-Target-URI
+      alt_url_key: metadata.warc_url      
       banlist_file: examples/all_dressed/fineweb_url_filters/urls.txt
       exact_url_match: true
   - name: url_substring_filter
     kwargs:
       url_key: metadata.WARC-Target-URI
+      alt_url_key: metadata.warc_url      
       banlist_file: examples/all_dressed/fineweb_url_filters/banned_words.txt
       exact_part_match: true      
   - name: url_substring_filter
     kwargs:
       url_key: metadata.WARC-Target-URI
+      alt_url_key: metadata.warc_url      
       banlist_file: examples/all_dressed/fineweb_url_filters/soft_banned_words.txt
       match_substrings: false
       num_banned_substrs: 2
   - name: url_substring_filter
     kwargs:
       url_key: metadata.WARC-Target-URI
+      alt_url_key: metadata.warc_url      
       banlist_file: examples/all_dressed/fineweb_url_filters/banned_subwords.txt
       match_substrings: true
   - name: newline_removal_modifier
