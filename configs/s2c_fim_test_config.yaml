@@ -13,16 +13,16 @@ pipeline:
     kwargs:
       text_field: text
       subs:
-        - ['<|endoftext|>', '<|\U0010f0f0endoftext|>']
-        - ['<|fim_prefix|>', '<|\U0010f0f0fim_prefix|>']
-        - ['<|fim_middle|>', '<|\U0010f0f0fim_middle|>']
-        - ['<|fim_suffix|>', '<|\U0010f0f0fim_suffix|>']
-        - ['<|im_start|>', '<|\U0010f0f0im_start|>']
-        - ['<|im_end|>', '<|\U0010f0f0im_end|>']
-        - ['<|endofprompt|>', '<|\U0010f0f0endofprompt|>']
-        - ['<|pad|>', '<|\U0010f0f0pad|>']
-        - ['<|repo_name|>', '<|\U0010f0f0repo_name|>']
-        - ['<|file_sep|>', '<|\U0010f0f0file_sep|>']        
+        - ['<|endoftext|>', '<|􏃰endoftext|>']
+        - ['<|fim_prefix|>', '<|􏃰fim_prefix|>']
+        - ['<|fim_middle|>', '<|􏃰fim_middle|>']
+        - ['<|fim_suffix|>', '<|􏃰fim_suffix|>']
+        - ['<|im_start|>', '<|􏃰im_start|>']
+        - ['<|im_end|>', '<|􏃰im_end|>']
+        - ['<|endofprompt|>', '<|􏃰endofprompt|>']
+        - ['<|pad|>', '<|􏃰pad|>']
+        - ['<|repo_name|>', '<|􏃰repo_name|>']
+        - ['<|file_sep|>', '<|􏃰file_sep|>']        
 group_pipeline:
   - group_key: 
     - metadata.repo_name
