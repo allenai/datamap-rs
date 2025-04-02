@@ -25,7 +25,7 @@ use fxhash::{FxHasher};
 use scraper::{Html, Selector};
 
 use derivative::Derivative; 
-use enry::{is_generated};
+// use enry::{is_generated};
 //use mj_io::build_pbar;
 
 /*================================================================================
@@ -1742,9 +1742,9 @@ impl DataProcessor for CodeEnryAutoGenFilter {
 		}
 		let text_bytes = text.as_bytes();
 
-		if is_generated(&path, &text_bytes).unwrap() {
-			return Ok(None)
-		};
+		//if is_generated(&path, &text_bytes).unwrap() {
+		//	return Ok(None)
+		//};
 
 		Ok(Some(data))
 	}
