@@ -31,7 +31,7 @@ use enry::{is_generated};
 /*================================================================================
 =                            PIPELINE PROCESSING                                 =
 ================================================================================*/
-type TimingInfo = HashMap<usize, u128>;
+type TimingInfo = HashMap<usize, usize>;
 type FilterInfo = HashMap<usize, usize>;
 
 type ProcessorConstructor = fn(&Value) -> Result<Box<dyn AnyDataProcessor>, Error>;
@@ -109,7 +109,7 @@ impl PipelineProcessor {
     	let mut pipeline : Vec<Box<dyn AnyDataProcessor>> = Vec::<Box<dyn AnyDataProcessor>>::new(); 
     	let global_default_text_field = get_default(&config, "text_field", String::from("text"));
 
-    	let pipeline_configs = config.get("pipeline").unwrap().as_array().unwrap();
+    	let pipeline_configs: Vec<Value> = get_default(&config, "pipeline", vec![]);
     	for subconfig in pipeline_configs {
     		let subconfig_name = subconfig.get("name").unwrap().as_str().unwrap();
     		let default_json = json!({});
@@ -136,7 +136,7 @@ impl PipelineProcessor {
 	    for processor in &self.pipeline {
 	    	let start_step = Instant::now();
 	    	let proc_result = processor.process(current_data)?;
-	        *timing_info.entry(filter_step).or_insert(0 as u128) += start_step.elapsed().as_nanos();
+	        *timing_info.entry(filter_step).or_insert(0) += start_step.elapsed().as_nanos() as usize;
 
 	    	match proc_result {
 	    		Some(data_value) => current_data = data_value,
@@ -153,14 +153,13 @@ impl PipelineProcessor {
 	    Ok((usize::MAX, Some(current_data)))
 	}
 
-	pub fn process_lines(&self, lines: Vec<String>) -> Result<(HashMap<usize, Vec<Value>>, Vec<String>, TimingInfo, FilterInfo), Error> {
+	pub fn process_lines(&self, values: Vec<Value>) -> Result<(HashMap<usize, Vec<Value>>, Vec<String>, TimingInfo, FilterInfo), Error> {
 		let mut timing_info = TimingInfo::new();
 		let mut filter_info = FilterInfo::new();
 		let mut output_lines: HashMap<usize, Vec<Value>> = HashMap::new();
 		let mut err_lines: Vec<String> = Vec::new();		
-		for line in lines {
-
-			let json_line = serde_json::from_str(&line).unwrap();
+		for json_line in values {
+			let og_json_str = serde_json::to_string(&json_line).unwrap();
 			let process_out = self.process(json_line, &mut timing_info, &mut filter_info);
 			match process_out {
 				Ok((step_out, json_result)) => {
@@ -170,7 +169,7 @@ impl PipelineProcessor {
 							.push(json_out);
 						}},
 				Err(_e) => {
-					err_lines.push(line.clone())
+					err_lines.push(og_json_str);
 				}
 			};
 		};

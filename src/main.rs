@@ -26,9 +26,14 @@ use indicatif::ProgressBar;
 
 
 pub mod map_fxn; 
+pub mod group_map_fxn;
 pub mod utils;
 use datamap_rs::map_fxn::{PipelineProcessor};
 pub use map_fxn::DataProcessor;
+use datamap_rs::group_map_fxn::{GroupPipelineProcessor};
+pub use group_map_fxn::GroupDataProcessor;
+
+
 /*
 Map Config layout:
 
@@ -71,7 +76,6 @@ enum Commands {
         err_dir: Option<PathBuf>,
 
     },
-
 
     Reshard {
         #[arg(required=true, long)]
@@ -135,40 +139,90 @@ fn write_output_lines(output_values: Vec<Value>, output_file: &PathBuf) -> Resul
 }
 
 
-fn print_global_stats_stuff(start_time: Instant, global_timer: DashMap<usize, AtomicUsize>, global_filter: DashMap<usize, usize>, processor: &PipelineProcessor) -> () {
+fn print_global_stats_stuff(start_time: Instant, global_timer: DashMap<usize, AtomicUsize>, global_filter: DashMap<usize, AtomicUsize>, 
+                            global_group_timer: DashMap<(usize, usize), AtomicUsize>, global_group_filter: DashMap<(usize, usize), AtomicUsize>,
+                            processor: &PipelineProcessor, group_processor: &GroupPipelineProcessor) -> () {
     // Timing info
     let total_time = start_time.elapsed().as_secs();
-    let step_times: HashMap<usize, usize> = global_timer.into_iter().map(|(k,v)| (k, v.into_inner())).collect();
-    let total_step_time = step_times.values().sum::<usize>();
+    let step_times : HashMap<usize, usize> = global_timer.into_iter().map(|(k,v)| (k, v.into_inner())).collect();
+    let group_step_times : HashMap<(usize, usize), usize> = global_group_timer.into_iter().map(|(k,v)| (k, v.into_inner())).collect();
+
+    let mut total_step_time = 0;
+    total_step_time += step_times.values().sum::<usize>();
+    total_step_time += group_step_times.values().sum::<usize>();
+
     let step_fracs: HashMap<usize, f64> = step_times.iter().map(|(k,v)| (*k, *v as f64 / total_step_time as f64)).collect();
+    let group_step_fracs: HashMap<(usize, usize), f64> = group_step_times.iter().map(|(k,v)| (*k, *v as f64 / total_step_time as f64)).collect();
+
 
     // Filtering info 
-    let total_docs: usize = global_filter.iter().map(|e| *e.value()).sum::<usize>();
+    let step_docs : HashMap<usize, usize> = global_filter.into_iter().map(|(k,v)| (k, v.into_inner())).collect();
+    let group_step_docs : HashMap<(usize, usize), usize> = global_group_filter.into_iter().map(|(k,v)| (k, v.into_inner())).collect();
+    let mut total_docs = 0;
+    total_docs += step_docs.values().sum::<usize>();
+    total_docs += group_step_docs.values().sum::<usize>();
     let mut remaining_docs: usize = total_docs;
 
     // Print things
     println!("Finishing map in {:?} seconds", total_time);
     println!("Processed {:?} total documents", total_docs);
-    println!("-------------------------------------------");
-    for (i, el) in processor.pipeline.iter().enumerate() {
-        println!("Step {:?} | {:?}", i, el);
+    if processor.pipeline.len() > 0 {
+        println!("-------------------------------------------");        
+        println!("---------SINGLE DOC PIPELINE---------------");
+        println!("-------------------------------------------");    
+        for (i, el) in processor.pipeline.iter().enumerate() {
+            println!("Step {:?} | {:?}", i, el);
+            let step_time_pct = step_fracs.get(&i).unwrap();
+            println!("\t Spent {:.2}% of processing time in this step", step_time_pct * 100.0);
 
-        let step_time_pct = step_fracs.get(&i).unwrap();
-        println!("\t Spent {:.2}% of processing time in this step", step_time_pct * 100.0);
+            let filter_entry = step_docs.get(&i).unwrap();
+            let removed_in_this_step = filter_entry;
 
-        let filter_entry = global_filter.get(&i).unwrap();
-        let removed_in_this_step = filter_entry.value();
+            let remaining_remove_pct = *removed_in_this_step as f32 / f32::max(0.0, remaining_docs as f32) * 100.0;
+            let total_remove_pct = *removed_in_this_step as f32 / f32::max(0.0, total_docs as f32) * 100.0;
+            remaining_docs -= removed_in_this_step;
+            println!("\t Removed {:?} docs | {:.2}% of remaining | {:.2}% of pool", removed_in_this_step, remaining_remove_pct, total_remove_pct);
+        }
+    }
 
-        let remaining_remove_pct = *removed_in_this_step as f32 / f32::max(0.0, remaining_docs as f32) * 100.0;
-        let total_remove_pct = *removed_in_this_step as f32 / f32::max(0.0, total_docs as f32) * 100.0;
-        remaining_docs -= removed_in_this_step;
-        println!("\t Removed {:?} docs | {:.2}% of remaining | {:.2}% of pool", removed_in_this_step, remaining_remove_pct, total_remove_pct);
+    if group_processor.group_pipelines.len() > 0 {
+        println!("-------------------------------------------");        
+        println!("---------SINGLE DOC PIPELINE---------------");
+        println!("-------------------------------------------");   
+        for (pipeline_num, pipeline) in group_processor.group_pipelines.iter().enumerate() {
+            for (step_num, step) in pipeline.iter().enumerate() {
+                println!("Group Step ({:?}, {:?}) | {:?}", pipeline_num, step_num, step);
+                let step_time_pct = group_step_fracs.get(&(pipeline_num, step_num)).unwrap();
+                println!("\t Spet {:.2}% of processing time in this step", step_time_pct * 100.0);
+
+                
+                let filter_entry = group_step_docs.get(&(pipeline_num, step_num)).unwrap();
+                let removed_in_this_step = filter_entry;
+
+                let remaining_remove_pct = *removed_in_this_step as f32 / f32::max(0.0, remaining_docs as f32) * 100.0;
+                let total_remove_pct = *removed_in_this_step as f32 / f32::max(0.0, total_docs as f32) * 100.0;
+                remaining_docs -= removed_in_this_step;
+                println!("\t Removed {:?} docs | {:.2}% of remaining | {:.2}% of pool", removed_in_this_step, remaining_remove_pct, total_remove_pct);       
+            }     
+        }        
     }
 
     println!("FINAL:");
     println!("\t {:?} docs survived | {:.2}% of pool", remaining_docs, remaining_docs as f32 / f32::max(0.0, total_docs as f32) * 100.0);
 
     ()
+}
+
+fn agg_global<T>(local: &HashMap<T, usize>, global: &DashMap<T, AtomicUsize>) -> ()
+where
+    T: Eq + std::hash::Hash + Clone,
+{
+    for (k, v) in local {
+        global
+            .entry(k.clone())
+            .or_insert(AtomicUsize::new(0))
+            .fetch_add(*v, Ordering::SeqCst);
+    }
 }
 
 
@@ -190,16 +244,14 @@ fn gen_map(input_dir: &PathBuf, output_dir: &PathBuf, config: &PathBuf, err_dir:
     let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
     let json_config = parse_config(config).unwrap();
     let processor = PipelineProcessor::new(&json_config).unwrap();
+    let group_processor = GroupPipelineProcessor::new(&json_config).unwrap();
 
     // Setup logging utils
     let global_timer: DashMap<usize, AtomicUsize> = DashMap::new();
-    let global_filter: DashMap<usize, usize> = DashMap::new();
-    for i in 0..processor.pipeline.len() {
-        global_timer.insert(i, AtomicUsize::new(0));
-        global_filter.insert(i,0);
-    }
-    global_filter.insert(usize::MAX, 0);
-    let err_count: AtomicUsize = AtomicUsize::new(0);
+    let global_filter: DashMap<usize, AtomicUsize> = DashMap::new();
+    let global_group_timer: DashMap<(usize, usize), AtomicUsize> = DashMap::new();
+    let global_group_filter: DashMap<(usize, usize), AtomicUsize> = DashMap::new();
+
 
     // Loop over input files
     let pbar = build_pbar(all_files.len(), "Files");
@@ -210,35 +262,74 @@ fn gen_map(input_dir: &PathBuf, output_dir: &PathBuf, config: &PathBuf, err_dir:
         } else {
             None
         };
-        gen_map_single(p, input_dir, output_dir, err_file, &processor, &global_timer, &global_filter, &err_count).unwrap();
+        gen_map_single(p, input_dir, output_dir, err_file, &processor, &group_processor, 
+                       &global_timer, &global_filter, &global_group_timer, &global_group_filter).unwrap();
         pbar.inc(1);
     });
 
-    print_global_stats_stuff(start_main, global_timer, global_filter, &processor);
+    print_global_stats_stuff(start_main, global_timer, global_filter, global_group_timer, global_group_filter, &processor, &group_processor);
     Ok(())    
 }
 
 
-
 fn gen_map_single(input_file: &PathBuf, input_dir: &PathBuf, output_dir: &PathBuf, err_file: Option<PathBuf>, processor: &PipelineProcessor, 
-                  global_timer: &DashMap<usize, AtomicUsize>, global_filter: &DashMap<usize, usize>,
-                  err_count: &AtomicUsize) -> Result<(), Error> {
+                  group_processor: &GroupPipelineProcessor,
+                  global_timer: &DashMap<usize, AtomicUsize>, global_filter: &DashMap<usize, AtomicUsize>,
+                  global_group_timer: &DashMap<(usize, usize), AtomicUsize>, global_group_filter: &DashMap<(usize, usize), AtomicUsize>) -> Result<(), Error> {
     /* Single-file mapping/filtration function
 
     Processes the contents of a single file, using file-centric mappers specified in the config and writes to output file
     */
-
+    
+    
     // Setup for processing
     let data = read_pathbuf_to_mem(input_file).unwrap();
-    let lines: Vec<_> = data.lines().map(|el| el.unwrap()).collect();
+    let values: Vec<Value> = data.lines().map(|el| serde_json::from_str(&el.unwrap()).unwrap()).collect();
 
-    // Process data
-    let (output_lines, err_lines, timing_info, filter_info) = processor.process_lines(lines).unwrap();    
-    let err_lines_len = err_lines.len();
+    // Process data (individual line pipeline step) and pass to group processors
+    let (mut output_lines, err_lines, timing_info, filter_info) = processor.process_lines(values).unwrap();    
+    let passed_lines : Vec<Value> = if let Some(passed_lines) = output_lines.remove(&usize::MAX) {
+        passed_lines
+    } else {
+        vec![]
+    };
 
-    output_lines.into_iter().for_each(|(k, v)| {
-        let step_output_dir = if k < usize::MAX {
-            output_dir.clone().join(format!("step_{:02}", k))
+
+    // Now do the "group" pipeline, if it exists
+    let (group_output, group_errs, group_timing_info, group_filter_info) = group_processor.process_lines(passed_lines).unwrap();
+
+
+    // Now save everything:
+    // - output_lines has the "single document" filtered things | keys here single_doc steps
+    // - err_lines + group_errs has all errored documents 
+    // - group_output has (group_pipeline_num, step_num)
+
+    // Save errs first
+    if let Some(err_file_real) = err_file {
+        let mut err_bytes: Vec<u8> = Vec::new();
+        err_lines.into_iter().for_each(|line| {
+            err_bytes.extend(line.as_bytes());
+            err_bytes.push(b'\n');
+        });
+        group_errs.into_iter().for_each(|val| {
+            err_bytes.extend(serde_json::to_vec(&val).unwrap());
+            err_bytes.push(b'\n');
+        });
+        if err_bytes.len() > 0 {
+            write_mem_to_pathbuf(&err_bytes, &err_file_real).unwrap();
+        }
+
+    }
+
+    // Then save all the outputs --> single filter first, then multi-filter
+    output_lines.into_iter().for_each(|(k,v)| {
+        let step_output_dir = output_dir.clone().join(format!("step_{:02}", k));
+        let output_file = get_output_filename(input_file, input_dir, &step_output_dir).unwrap();
+        write_output_lines(v, &output_file).unwrap();
+    });
+    group_output.into_iter().for_each(|(k, v)| {
+        let step_output_dir = if k.0 < usize::MAX {
+            output_dir.clone().join(format!("group_{:02}_step_{:02}", k.0, k.1))
         } else {
             output_dir.clone().join("step_final")
         };
@@ -246,35 +337,16 @@ fn gen_map_single(input_file: &PathBuf, input_dir: &PathBuf, output_dir: &PathBu
         write_output_lines(v, &output_file).unwrap();
     });
 
-
-    if let Some(err_file_real) = err_file {
-        let mut err_bytes: Vec<u8> = Vec::new();
-        err_lines.into_iter().for_each(|line| {
-            err_bytes.extend(line.as_bytes());
-            err_bytes.push(b'\n');
-        });
-        if err_bytes.len() > 0 {
-            write_mem_to_pathbuf(&err_bytes, &err_file_real).unwrap();
-        }
-    }
-
-
-    // Do logging stuff
-    let _ = err_count.fetch_add(err_lines_len, Ordering::SeqCst);
-    timing_info.iter().for_each(|(k,v)| {
-        global_timer.get(k).unwrap().fetch_add(*v as usize, Ordering::SeqCst);
-    });
-
-    filter_info.iter().for_each(|(k, v)| {
-        global_filter.entry(*k)
-            .and_modify(|gv| *gv += v);
-    });
+    // Bubble up logging stuff to outside thread
+    agg_global::<usize>(&timing_info, global_timer);
+    agg_global::<usize>(&filter_info, global_filter);
+    agg_global::<(usize, usize)>(&group_timing_info, global_group_timer);
+    agg_global::<(usize, usize)>(&group_filter_info, global_group_filter);
 
 
     Ok(())
+    
 }
-
-
 
 /*============================================================
 =                            RESHARD                         =
@@ -399,6 +471,7 @@ fn main() {
         Commands::Map{input_dir, output_dir, config, err_dir} => {
             gen_map(input_dir, output_dir, config, err_dir.clone())
         },
+
         Commands::Reshard{input_dir, output_dir, max_lines, max_size, subsample} => {
             reshard(input_dir, output_dir, *max_lines, *max_size, *subsample)
         },
