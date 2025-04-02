@@ -163,6 +163,7 @@ fn print_global_stats_stuff(start_time: Instant, global_timer: DashMap<usize, At
     total_docs += group_step_docs.values().sum::<usize>();
     let mut remaining_docs: usize = total_docs;
 
+
     // Print things
     println!("Finishing map in {:?} seconds", total_time);
     println!("Processed {:?} total documents", total_docs);
@@ -175,7 +176,7 @@ fn print_global_stats_stuff(start_time: Instant, global_timer: DashMap<usize, At
             let step_time_pct = step_fracs.get(&i).unwrap();
             println!("\t Spent {:.2}% of processing time in this step", step_time_pct * 100.0);
 
-            let filter_entry = step_docs.get(&i).unwrap();
+            let filter_entry = step_docs.get(&i).unwrap_or(&0);
             let removed_in_this_step = filter_entry;
 
             let remaining_remove_pct = *removed_in_this_step as f32 / f32::max(0.0, remaining_docs as f32) * 100.0;
@@ -187,7 +188,7 @@ fn print_global_stats_stuff(start_time: Instant, global_timer: DashMap<usize, At
 
     if group_processor.group_pipelines.len() > 0 {
         println!("-------------------------------------------");        
-        println!("---------SINGLE DOC PIPELINE---------------");
+        println!("-         GROUP DOC PIPELINE              -");
         println!("-------------------------------------------");   
         for (pipeline_num, pipeline) in group_processor.group_pipelines.iter().enumerate() {
             for (step_num, step) in pipeline.iter().enumerate() {
@@ -196,7 +197,7 @@ fn print_global_stats_stuff(start_time: Instant, global_timer: DashMap<usize, At
                 println!("\t Spet {:.2}% of processing time in this step", step_time_pct * 100.0);
 
                 
-                let filter_entry = group_step_docs.get(&(pipeline_num, step_num)).unwrap();
+                let filter_entry = group_step_docs.get(&(pipeline_num, step_num)).unwrap_or(&0);
                 let removed_in_this_step = filter_entry;
 
                 let remaining_remove_pct = *removed_in_this_step as f32 / f32::max(0.0, remaining_docs as f32) * 100.0;

@@ -59,6 +59,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
     register_processor!(m, "url_substring_filter", UrlSubstringFilter);
     register_processor!(m, "newline_removal_modifier", NewlineRemovalModifier);
     register_processor!(m, "fasttext_annotator", FastTextAnnotator);
+    register_processor!(m, "string_eq_filter", StringEQFilter);
     register_processor!(m, "float_filter", FloatFilter);
     register_processor!(m, "page_len_filter", PageLenFilter);
     register_processor!(m, "word_len_filter", WordLenFilter);
@@ -75,6 +76,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
     register_processor!(m, "substring_line_modifier", SubstringLineModifier);
     register_processor!(m, "word_removal_ratio_filter", WordRemovalRatioFilter);
     register_processor!(m, "madlad400_sentence_filter", Madlad400SentenceFilter);
+    register_processor!(m, "string_sub_modifier", StringSubModifier);
     // Add more processor types as needed
     
     m
@@ -537,6 +539,43 @@ impl DataProcessor for FastTextAnnotator {
 		Ok(Some(data))
 	}
 }
+
+
+
+#[derive(Serialize, Debug)]
+pub struct StringEQFilter {
+	// Filters to only keep docs that have float in doc.float_field in range [lower_bound, upper_bound] (or ![lower_bound, upper_bound])
+	pub text_field: String,
+	pub targets: Vec<String>,
+	pub case_sensitive: bool // defaults to true
+}
+
+impl DataProcessor for StringEQFilter {
+	fn new(config: &Value) -> Result<Self, Error> {
+		let text_field = config.get("text_field").unwrap().as_str().unwrap().to_string();
+		let targets: Vec<String> = config.get("targets").unwrap().as_array().unwrap().into_iter().map(|v| v.as_str().unwrap().to_string()).collect();
+		let case_sensitive = get_default(config, "case_sensitive", true);
+		let targets = if !case_sensitive {
+			targets.into_iter().map(|s| s.to_lowercase()).collect()
+		} else {
+			targets
+		};
+		Ok(Self {text_field, targets, case_sensitive})
+	}
+
+	fn process(&self, data: Value) -> Result<Option<Value>, Error> {
+		let val = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
+		let val = if self.case_sensitive {val} else {val.to_lowercase()};
+		let passes = self.targets.iter().any(|t| val.contains(t));
+		if passes {
+			Ok(Some(data))
+		} else {
+			Ok(None)
+		}
+	}
+}
+
+
 
 
 #[derive(Serialize, Debug)]
@@ -1452,35 +1491,46 @@ impl Madlad400SentenceFilter {
 }
 
 
+#[derive(Serialize, Debug)]
+pub struct StringSubModifier {
+	// Text selector: just select rows that match a particular string	
+	pub text_field: String,	
+	pub subs: Vec<(String, String)>,
+	
+}
+ impl DataProcessor for StringSubModifier {
+	fn new(config: &Value) -> Result<Self, Error> {		
+		let text_field = config.get("text_field").unwrap().as_str().unwrap().to_string();
+		let raw_subs = config.get("subs").unwrap().as_array().unwrap();
+		let subs = raw_subs.into_iter().map(|val| {
+			let val_arr: Vec<String> = val.as_array().unwrap().into_iter().map(|s| s.as_str().unwrap().to_string()).collect();		
+			(val_arr[0].clone(), val_arr[1].clone())
+		}).collect();
+
+		Ok(Self {text_field, subs})
+	}
+
+
+	fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap();
+		let mut result = text.to_string();
+		for (pre, post) in &self.subs {
+			result = result.replace(pre, post);
+		}
+
+		json_set(&mut data, &self.text_field, Value::String(result)).unwrap();
+
+		Ok(Some(data))
+	}
+}
+
+
+
 /*================================================================================
 =                            SPRING 2 CODE STUFF                                 =
 ================================================================================*/
 
 
-#[derive(Serialize, Debug)]
-pub struct TextSelectorFilter {
-	// Text selector: just select rows that match a particular string	
-	text_field: String,	
-	exact_match: String,
-	
-}
- impl DataProcessor for TextSelectorFilter {
-	fn new(config: &Value) -> Result<Self, Error> {		
-		let text_field = config.get("text_field").unwrap().as_str().unwrap().to_string();
-		let exact_match = config.get("exact_match").unwrap().as_str().unwrap().to_string();		
-		Ok(Self {text_field, exact_match})
-	}
-
-
-	fn process(&self, data: Value) -> Result<Option<Value>, Error> {
-		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap();
-		if text == self.exact_match {
-			Ok(Some(data))
-		} else {
-			Ok(None)
-		}
-	}
-}
 
 
 

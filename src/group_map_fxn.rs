@@ -1,3 +1,4 @@
+// use regex::Regex;
 use std::hash::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::time::Instant;
@@ -8,7 +9,7 @@ use crate::utils::{get_default, json_set, json_get};
 use serde::Serialize;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
-
+use rustpython_parser::{ast, Parse};
 
  
 
@@ -79,6 +80,7 @@ impl GroupPipelineProcessor {
 
     	let pipeline_configs = config.get("group_pipeline").unwrap().as_array().unwrap();
     	for subconfig in pipeline_configs {
+
     		let key = subconfig.get("group_key").unwrap().as_array().unwrap().into_iter().map(|v| v.as_str().unwrap().to_string()).collect();
     		group_keys.push(key);
     		let mut group_op_list: Vec<Box<dyn AnyGroupDataProcessor>> = Vec::new();
@@ -86,7 +88,7 @@ impl GroupPipelineProcessor {
     		for group_op in group_ops_unparsed {
     			let group_op_name = group_op.get("name").unwrap().as_str().unwrap();
     			let default_json = json!({});
-    			let mut group_op_kwargs: Value = subconfig.get("kwargs").or(Some(&default_json)).unwrap().clone();
+    			let mut group_op_kwargs: Value = group_op.get("kwargs").or(Some(&default_json)).unwrap().clone();
 	    		json_set(&mut group_op_kwargs, &String::from("text_field"), serde_json::Value::String(global_default_text_field.clone())).unwrap();
 	    		let constructor = GROUP_PROCESSOR_CONSTRUCTORS[group_op_name];
 	    		group_op_list.push(constructor(&group_op_kwargs).unwrap());
@@ -270,6 +272,70 @@ pub struct Concatenate {
 	}
 }
 
+/*======================================================================
+=                            IMPORT ORDERING                           =
+======================================================================*/
+
+
+pub fn extract_python_imports(content: &String, filename: &String) -> Result<Vec<String>, Error> {
+	let mut imports : Vec<String> = Vec::new();
+	let program = match ast::Suite::parse(content, filename) {
+		Ok(ast) => ast,
+		_ => return Ok(imports)
+	};
+	
+	// Do a dumb thing where we only look at top-level imports 
+	for stmt in program {
+		match stmt {
+			// Regular import statements (import x, import y as z)
+			ast::Stmt::Import(import_stmt) => { 
+				for alias in &import_stmt.names {
+					imports.push(alias.name.to_string());
+				}
+			},
+
+            // From import statements (from x import y, from . import z)
+            ast::Stmt::ImportFrom(from_import) => {
+                // Handle relative imports with dots
+
+                let level_prefix = if let Some(level) = from_import.level {
+                	".".repeat(level.to_usize())
+                } else {
+                	"".to_string()
+                };
+                
+                // Get the module name (or empty string if none)
+                let module_path = match &from_import.module {
+                    Some(module) => {
+                        if level_prefix.is_empty() {
+                            module.as_str().to_string()
+                        } else {
+                            format!("{}{}", level_prefix, module)
+                        }
+                    },
+                    None => level_prefix
+                };
+                
+                // Format the imported names, handling aliases
+                let imports_list: Vec<String> = from_import.names.iter()
+                    .map(|alias| {
+                        if let Some(asname) = &alias.asname {
+                            format!("{} as {}", alias.name, asname)
+                        } else {
+                            alias.name.to_string()
+                        }
+                    })
+                    .collect();
+                
+                imports.push(format!("from {} import {}", module_path, imports_list.join(", ")));
+            },
+            _ => {}
+
+		}
+	}
+
+    Ok(imports)
+}
 
 
 

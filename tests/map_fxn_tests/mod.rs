@@ -22,3 +22,6 @@ pub mod massive_repetition_filter_test;
 pub mod code_alpha_filter_test;
 pub mod code_encoded_data_test;
 pub mod code_enry_auto_gen_filter_test;
+pub mod extract_python_imports_test;
+pub mod string_sub_modifier_test;
+pub mod string_eq_filter_test;
