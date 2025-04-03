@@ -79,7 +79,13 @@ impl GroupPipelineProcessor {
     	let mut group_pipelines : Vec<Vec<Box<dyn AnyGroupDataProcessor>>> = Vec::new(); 
     	let mut group_keys: Vec<Vec<String>> = Vec::new();
 
-    	let pipeline_configs = config.get("group_pipeline").unwrap().as_array().unwrap();
+
+    	let pipeline_configs = if let Some(group_pipeline_config) = config.get("group_pipeline") {
+    		group_pipeline_config.as_array().unwrap()
+    	} else {
+    		&Vec::new()
+    	};
+    	
     	for subconfig in pipeline_configs {
 
     		let key = subconfig.get("group_key").unwrap().as_array().unwrap().into_iter().map(|v| v.as_str().unwrap().to_string()).collect();
