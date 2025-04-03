@@ -284,7 +284,7 @@ pub struct AnySubstring {
  impl GroupDataProcessor for AnySubstring {
 	fn new(config: &Value) -> Result<Self, Error> {
 		let text_field = config.get("text_field").unwrap().as_str().unwrap().to_string();
-		let patterns: Vec<String> = config.get("keep_fields").unwrap().as_array().unwrap().into_iter().map(|el| el.as_str().unwrap().to_string()).collect();
+		let patterns: Vec<String> = config.get("patterns").unwrap().as_array().unwrap().into_iter().map(|el| el.as_str().unwrap().to_string()).collect();
 		let case_sensitive = get_default(config, "case_sensitive", true);
 
 		let patterns = if case_sensitive {
