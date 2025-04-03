@@ -77,8 +77,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
     register_processor!(m, "word_removal_ratio_filter", WordRemovalRatioFilter);
     register_processor!(m, "madlad400_sentence_filter", Madlad400SentenceFilter);
     register_processor!(m, "string_sub_modifier", StringSubModifier);
-    // Add more processor types as needed
-    
+    // Add more processor types as needed    
     m
 });
 
