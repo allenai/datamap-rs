@@ -1,0 +1,28 @@
+name: code_challenge_repos
+text_field: text
+pipeline:
+    # Just get python and markdown
+    - name: string_eq_filter
+      kwargs:
+        text_field: metadata.language
+        targets:
+            - python
+            - markdown
+        case_sensitive: false
+group_pipeline:
+  - group_key:
+    - metadata.repo_name
+    group_ops:
+      - name: any_substring
+        kwargs:
+          case_sensitive: false
+          patterns: 
+            - HackerRank
+            - CodeSignal
+            - Exercism
+            - Project Euler
+            - Codewars
+            - AtCoder
+            - Codeforces
+            - AlgoExpert
+            - InterviewBit            

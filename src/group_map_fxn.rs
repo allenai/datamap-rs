@@ -37,6 +37,7 @@ macro_rules! register_group_processor {
 static GROUP_PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, GroupProcessorConstructor>> = Lazy::new(|| {
     let mut m: HashMap<&'static str, GroupProcessorConstructor> = HashMap::new();
    	register_group_processor!(m, "concatenate", Concatenate);
+   	register_group_processor!(m, "any_substring", AnySubstring);
     // Add more processor types as needed
     
     m
@@ -272,6 +273,61 @@ pub struct Concatenate {
 	}
 }
 
+
+#[derive(Serialize, Debug)]
+pub struct AnySubstring {
+	// Will keep the _full_ group if any of the text_fields contain any of the patterns
+	pub text_field: String,
+	pub patterns: Vec<String>,
+	pub case_sensitive: bool, // defaults to true
+}
+ impl GroupDataProcessor for AnySubstring {
+	fn new(config: &Value) -> Result<Self, Error> {
+		let text_field = config.get("text_field").unwrap().as_str().unwrap().to_string();
+		let patterns: Vec<String> = config.get("keep_fields").unwrap().as_array().unwrap().into_iter().map(|el| el.as_str().unwrap().to_string()).collect();
+		let case_sensitive = get_default(config, "case_sensitive", true);
+
+		let patterns = if case_sensitive {
+			patterns
+		} else {
+			patterns.into_iter().map(|s| s.to_lowercase()).collect()
+		};
+
+		Ok(Self {text_field, patterns, case_sensitive})
+	}
+
+
+	fn process_group(&self, data: Vec<Value>) -> Result<(Vec<Value>, Vec<Value>, Vec<Value>), Error>{
+		let mut passed = false;
+		if let Some(_) = data.first() {} else {
+			return Ok((data, vec![], vec![]));		
+		}
+		for datum in &data {
+			let text = datum.get(&self.text_field).unwrap().as_str().unwrap().to_string();
+			let text = if self.case_sensitive {
+				text
+			} else {
+				text.to_lowercase()
+			};
+			if self.patterns.iter().any(|s| text.contains(s)) {
+				passed = true;
+			}
+			if passed {
+				break
+			}
+		}
+
+		if passed {
+			Ok((data, vec![], vec![]))
+		} else {
+			Ok((vec![], data, vec![]))
+		}
+
+
+	}
+}
+
+
 /*======================================================================
 =                            IMPORT ORDERING                           =
 ======================================================================*/
@@ -336,6 +392,8 @@ pub fn extract_python_imports(content: &String, filename: &String) -> Result<Vec
 
     Ok(imports)
 }
+
+
 
 
 
