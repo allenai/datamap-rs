@@ -23,7 +23,7 @@ use rayon::current_num_threads;
 use zstd::{Encoder};
 use mj_io::{expand_dirs, read_pathbuf_to_mem, write_mem_to_pathbuf, build_pbar, get_output_filename};
 use indicatif::ProgressBar;
-
+use utils::get_default;
 
 pub mod map_fxn; 
 pub mod group_map_fxn;
@@ -79,7 +79,7 @@ enum Commands {
 
     Reshard {
         #[arg(required=true, long)]
-        input_dir: PathBuf,
+        input_dirs: Vec<PathBuf>,
 
         #[arg(required=true, long)]
         output_dir: PathBuf,
@@ -92,6 +92,10 @@ enum Commands {
 
         #[arg(long, default_value_t=0.0)]
         subsample: f32,
+
+        /// If true, will never split up input files across multiple outputs
+        #[arg(long, default_value_t=false)] 
+        whole_files: bool
     },
 
 }
@@ -269,6 +273,18 @@ fn gen_map(input_dir: &PathBuf, output_dir: &PathBuf, config: &PathBuf, err_dir:
     });
 
     print_global_stats_stuff(start_main, global_timer, global_filter, global_group_timer, global_group_filter, &processor, &group_processor);
+
+    // OPTIONAL CHAINED RESHARD
+    if let Some(reshard_kwargs) = json_config.get("reshard") {
+        let step_final_outputs = output_dir.clone().join("step_final");
+        let reshard_loc = output_dir.clone().join("step_final_reshard");
+        let max_lines = get_default(reshard_kwargs, "max_lines", 0);
+        let max_size = get_default(reshard_kwargs, "max_size", 0);
+        let whole_files = get_default(reshard_kwargs, "whole_files", false);
+        println!("Mapping finished. Starting reshard...");
+        reshard(&vec![step_final_outputs], &reshard_loc, max_lines, max_size, 0.0, whole_files).unwrap();        
+    }
+
     Ok(())    
 }
 
@@ -353,7 +369,7 @@ fn gen_map_single(input_file: &PathBuf, input_dir: &PathBuf, output_dir: &PathBu
 =                            RESHARD                         =
 ============================================================*/
 
-fn reshard(input_dir: &PathBuf, output_dir: &PathBuf, max_lines: usize, max_size: usize, subsample: f32) -> Result<(), Error> {
+fn reshard(input_dirs: &Vec<PathBuf>, output_dir: &PathBuf, max_lines: usize, max_size: usize, subsample: f32, whole_files:  bool) -> Result<(), Error> {
     let start_main = Instant::now();
 
     ensure!(max(max_lines, max_size) > 0, "Either max_lines or max_size must be provided!");
@@ -369,13 +385,15 @@ fn reshard(input_dir: &PathBuf, output_dir: &PathBuf, max_lines: usize, max_size
     };
 
     let num_threads = current_num_threads();    
-    let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
+
+    let all_files = expand_dirs(input_dirs.clone(), None).unwrap();
+    //let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
     let pbar = build_pbar(all_files.len(), "Files");
     let chunk_size = (all_files.len() + num_threads - 1) / num_threads;
     let chunks: Vec<Vec<PathBuf>> = all_files.chunks(chunk_size).map(|c| c.to_vec()).collect();
     let out_num = AtomicUsize::new(0);
     chunks.par_iter().for_each(|chunk| {
-        reshard_chunk(chunk, output_dir, &out_num, max_lines, max_size, &pbar, subsample).unwrap();
+        reshard_chunk(chunk, output_dir, &out_num, max_lines, max_size, &pbar, subsample, whole_files).unwrap();
     });
 
     println!("Finished reshard in {:?} seconds | Wrote {:?} new shards", start_main.elapsed().as_secs(), out_num.fetch_add(0, Ordering::SeqCst));
@@ -383,7 +401,7 @@ fn reshard(input_dir: &PathBuf, output_dir: &PathBuf, max_lines: usize, max_size
 }
 
 
-fn reshard_chunk(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUsize, max_lines: usize, max_size: usize, pbar: &ProgressBar, subsample: f32) -> Result<(), Error> {
+fn reshard_chunk(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUsize, max_lines: usize, max_size: usize, pbar: &ProgressBar, subsample: f32, whole_files: bool) -> Result<(), Error> {
     // faster strat: keep an open writer and append until full
     let get_new_writer = |out_num: &AtomicUsize| -> Result<Encoder<BufWriter<File>>, Error> {
         let shard_id = out_num.fetch_add(1, Ordering::SeqCst);
@@ -406,7 +424,7 @@ fn reshard_chunk(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUsi
                 cur_size += line.len();
                 writer.write_all(&line).unwrap();
                 writer.write(vec![b'\n'].as_slice()).unwrap();
-                if cur_lines >= max_lines || cur_size >= max_size {
+                if !whole_files & (cur_lines >= max_lines || cur_size >= max_size) {
                     writer.flush().unwrap();
                     writer.do_finish().unwrap();
                     writer = get_new_writer(out_num).unwrap();
@@ -414,6 +432,13 @@ fn reshard_chunk(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUsi
                     cur_size = 0;
                 }
             }
+        }
+        if whole_files & (cur_lines >= max_lines || cur_size >= max_size) {
+            writer.flush().unwrap();
+            writer.do_finish().unwrap();
+            writer = get_new_writer(out_num).unwrap();
+            cur_lines = 0; 
+            cur_size = 0;            
         }
         pbar.inc(1);
     }
@@ -473,8 +498,8 @@ fn main() {
             gen_map(input_dir, output_dir, config, err_dir.clone())
         },
 
-        Commands::Reshard{input_dir, output_dir, max_lines, max_size, subsample} => {
-            reshard(input_dir, output_dir, *max_lines, *max_size, *subsample)
+        Commands::Reshard{input_dirs, output_dir, max_lines, max_size, subsample, whole_files} => {
+            reshard(input_dirs, output_dir, *max_lines, *max_size, *subsample, *whole_files)
         },
 
         _ => {Ok(())}
