@@ -1,0 +1,14 @@
+name: fim_test_04022025
+text_field: text
+pipeline:
+  # Just get python anly
+  - name: string_eq_filter 
+    kwargs:
+      text_field: metadata.language 
+      targets:
+        - python    
+      case_sensitive: false
+reshard:
+  max_size: 512000000
+  whole_files: true
+  
