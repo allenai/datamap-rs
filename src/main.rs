@@ -78,7 +78,7 @@ enum Commands {
     },
 
     Reshard {
-        #[arg(required=true, long)]
+        #[arg(required=true, long, value_delimiter = ',')]
         input_dirs: Vec<PathBuf>,
 
         #[arg(required=true, long)]
