@@ -1,6 +1,7 @@
 use serde_json::{Value, json};
 use anyhow::{anyhow, Result, Error};
 use url::Url;
+use tiktoken_rs::{cl100k_base, o200k_base, p50k_base, p50k_edit, r50k_base, CoreBPE};
 
 /*================================================================================
 =                            JSON GETTER METHODS                                 =
@@ -67,7 +68,7 @@ pub fn get_default<T: FromValue>(config: &Value, key: &str, default: T) -> T {
 pub fn json_get<'a>(data: &'a serde_json::Value, key: &str) -> Option<&'a Value> {
     let keys: Vec<&str> = key.split('.').collect();
     let mut current = data;
-    
+
     for key in keys {
         match current.get(key) {
             Some(value) => current = value,
@@ -76,7 +77,7 @@ pub fn json_get<'a>(data: &'a serde_json::Value, key: &str) -> Option<&'a Value>
             }
         }
     }
-    
+
     Some(current)
 }
 
@@ -113,16 +114,16 @@ pub fn json_set(input: &mut Value, key: &String, val: Value) -> Result<(), Error
 
 pub fn extract_subdomain(url_str: &str) -> Result<Option<String>, Error> {
     let url = Url::parse(url_str)?;
-    
+
     // Get the host
     let host = match url.host_str() {
         Some(host) => host,
         None => return Ok(None), // URL has no host component
     };
-    
+
     // Split the host by dots
     let parts: Vec<&str> = host.split('.').collect();
-    
+
     // If we have at least 3 parts (like in "sub.example.com"), the first part is a subdomain
     if parts.len() >= 3 {
         Ok(Some(parts[0].to_string()))
@@ -131,3 +132,21 @@ pub fn extract_subdomain(url_str: &str) -> Result<Option<String>, Error> {
     }
 }
 
+
+
+/*================================================================================
+=                              TOKENIZER HELPERS                                 =
+================================================================================*/
+
+
+pub fn get_tokenizer(tokenizer_name: &str) -> Result<CoreBPE, Error> {
+    match tokenizer_name {
+        "cl100k_base" => Ok(cl100k_base().unwrap()),
+        "o200k_base" => Ok(o200k_base().unwrap()),
+        "p50k_base" => Ok(p50k_base().unwrap()),
+        "p50k_edit" => Ok(p50k_edit().unwrap()),
+        "r50k_base" => Ok(r50k_base().unwrap()),
+        "gpt2" => Ok(p50k_base().unwrap()),
+        _ => Err(anyhow::anyhow!("Tokenizer not found: {}", tokenizer_name)),
+    }
+}
