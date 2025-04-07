@@ -105,7 +105,6 @@ enum Commands {
         // - p50k_base: Code models, text-davinci-002, text-davinci-003
         // - p50k_edit: Use for edit models like text-davinci-edit-001, code-davinci-edit-001
         // - r50k_base/gpt2: GPT-3 models like davinci
-
         #[arg(long, default_value_t=String::from("cl100k_base"))]
         tokenizer_name: String,
 
@@ -114,6 +113,9 @@ enum Commands {
 
         #[arg(long, default_value_t=1_048_576)]
         max_length: usize,
+
+        #[arg(long)]
+        manual_extension: Option<String>,
     },
 
 }
@@ -412,17 +414,41 @@ fn make_shard_writer(shard_name: PathBuf) -> Result<Encoder<'static, BufWriter<F
 =                    PARTITION BY LENGTH                     =
 ============================================================*/
 
+fn convert_option_string_to_option_str_slice<'a>(opt: &'a Option<String>) -> Option<Vec<&'a str>> {
+    opt.as_ref().map(|s| vec![s.as_str()])
+}
+
+
 fn partition_by_length(
     input_dir: &PathBuf,
     output_dir: &PathBuf,
     tokenizer_name: String,
     min_length: usize,
     max_length: usize,
+    manual_extension: Option<String>,
 ) -> Result<(), Error> {
 
     // Setup data handlers
     let start_main = Instant::now();
-    let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
+
+    // let mut ext_str_vec = Vec::new();
+    // let manual_ext = match manual_extension {
+    //     Some(e) => {
+    //         // let ext_str = e.as_str();
+    //         // let ext_str_vec = vec![ext_str];
+    //         ext_str_vec.push(e.as_str());
+    //         Some(&ext_str_vec[..])
+    //     }
+    //     None => None,
+    // };
+
+    let ext_str_vec = manual_extension.as_ref().map(|e| vec![e.as_str()]);
+    let manual_ext = ext_str_vec.as_ref().map(|v| &v[..]);
+
+    let all_files = expand_dirs(
+        vec![input_dir.clone()],
+        manual_ext
+    ).unwrap();
 
     // Loop over input files
     let pbar = build_pbar(all_files.len(), "Files");
@@ -544,14 +570,16 @@ fn main() {
             output_dir,
             tokenizer_name,
             min_length,
-            max_length
+            max_length,
+            manual_extension
         } => {
             partition_by_length(
                 input_dir,
                 output_dir,
                 tokenizer_name.clone(),
                 min_length.clone(),
-                max_length.clone()
+                max_length.clone(),
+                manual_extension.clone()
             )
         },
         _ => {Ok(())}
