@@ -414,11 +414,6 @@ fn make_shard_writer(shard_name: PathBuf) -> Result<Encoder<'static, BufWriter<F
 =                    PARTITION BY LENGTH                     =
 ============================================================*/
 
-fn convert_option_string_to_option_str_slice<'a>(opt: &'a Option<String>) -> Option<Vec<&'a str>> {
-    opt.as_ref().map(|s| vec![s.as_str()])
-}
-
-
 fn partition_by_length(
     input_dir: &PathBuf,
     output_dir: &PathBuf,
@@ -505,8 +500,31 @@ fn partition_by_length_single(
             continue;
         }
 
-        // get the length of the text in tokens
-        let length_in_tokens = tokenizer.encode_with_special_tokens(text).len();
+        // split text on double newlines; we dont want to feed into the tokenizer
+        // sequences that are too long for the model
+        let double_newlines_length = tokenizer.encode_ordinary("\n\n").len();
+        let mut length_in_tokens = 0;
+        let mut paragraph_too_long = false;
+
+        for paragraph in text.split("\n\n") {
+            if paragraph.len() > max_length {
+                paragraph_too_long = true;
+                break;
+            } else {
+                let paragraph_token_length = tokenizer.encode_ordinary(paragraph).len();
+                length_in_tokens += paragraph_token_length + double_newlines_length;
+            }
+        }
+
+        // we subtract the double newlines length from the total length to account for the fact that
+        // the last paragraph will not have a double newline after it
+        length_in_tokens -= double_newlines_length;
+
+        if paragraph_too_long {
+            // this document has a single paragraph that has more characters than the maximum length
+            // of tokens; we skip this document otherwise it will kill the tokenizer
+            continue;
+        }
 
         let closest_power_of_2 = match (length_in_tokens as f32).log2() {
              x if x > log_max_length as f32 => log_max_length,  // we cap at max_length
