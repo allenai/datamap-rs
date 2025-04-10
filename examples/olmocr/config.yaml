@@ -1,0 +1,23 @@
+name: olmocr
+text_field: text
+pipeline:
+  - name: olmocr_rules_adder
+  - name: fasttext_annotator
+    kwargs:
+      fast_text_file: tmp/lid.176.bin
+      output_field: metadata.lang
+  - name: float_filter
+    kwargs:
+      float_field: metadata.lang.__label__en
+      lower_bound: 0.65
+      default: 0.0
+  - name: float_filter
+    kwargs:
+      float_field: metadata.olmocr_rules.table_lines_ratio
+      upper_bound: 0.3
+      default: 1.0
+  - name: float_filter
+    kwargs:
+      float_field: metadata.olmocr_rules.digits_ratio
+      upper_bound: 0.1
+      default: 1.0

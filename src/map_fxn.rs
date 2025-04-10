@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use anyhow::{Error, Result, ensure, anyhow};
 use rand::Rng;
 use uuid::Uuid;
-use crate::utils::{get_default, json_get, json_set, extract_subdomain};
+use crate::utils::{get_default, json_get, json_set, extract_subdomain, get_tokenizer};
 use serde::Serialize;
 use once_cell::sync::Lazy;
 use std::collections::{HashMap, HashSet};
@@ -20,9 +20,9 @@ use mj_io::read_pathbuf_to_mem;
 use fasttext::FastText;
 use unicode_segmentation::UnicodeSegmentation;
 use regex::Regex;
-use fxhash::{FxHasher};
-
-use derivative::Derivative; 
+use fxhash::FxHasher;
+use tiktoken_rs::CoreBPE;
+use derivative::Derivative;
 //use mj_io::build_pbar;
 
 /*================================================================================
@@ -48,7 +48,7 @@ macro_rules! register_processor {
 static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>> = Lazy::new(|| {
     let mut m: HashMap<&'static str, ProcessorConstructor> = HashMap::new();
 
-    
+
     register_processor!(m, "text_len_filter", TextLenFilter);
     register_processor!(m, "subsample", SubsampleFilter);
     register_processor!(m, "santcoder_pl_filter", SantaCoderPLFilter);
@@ -72,8 +72,9 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
     register_processor!(m, "substring_line_modifier", SubstringLineModifier);
     register_processor!(m, "word_removal_ratio_filter", WordRemovalRatioFilter);
     register_processor!(m, "madlad400_sentence_filter", Madlad400SentenceFilter);
+    register_processor!(m, "olmocr_rules_adder", OlmocrRulesAdder);
     // Add more processor types as needed
-    
+
     m
 });
 
@@ -83,7 +84,7 @@ pub trait AnyDataProcessor: Send + Sync + std::fmt::Debug  {
     fn process(&self, data: Value) -> Result<Option<Value>, Error>;
 }
 
-impl<T> AnyDataProcessor for T 
+impl<T> AnyDataProcessor for T
 where
     T: DataProcessor + Send + Sync + serde::Serialize + std::fmt::Debug,
 {
@@ -91,7 +92,7 @@ where
         // Just delegate to the underlying DataProcessor implementation
         DataProcessor::process(self, data)
     }
-    
+
 
 }
 
@@ -103,7 +104,7 @@ pub struct PipelineProcessor {
 impl PipelineProcessor {
     // Create an empty pipeline
     pub fn new(config: &Value) -> Result<Self, Error> {
-    	let mut pipeline : Vec<Box<dyn AnyDataProcessor>> = Vec::<Box<dyn AnyDataProcessor>>::new(); 
+    	let mut pipeline : Vec<Box<dyn AnyDataProcessor>> = Vec::<Box<dyn AnyDataProcessor>>::new();
     	let text_field = get_default(&config, "text_field", String::from("text"));
 
     	let pipeline_configs = config.get("pipeline").unwrap().as_array().unwrap();
@@ -120,7 +121,7 @@ impl PipelineProcessor {
 
 	pub fn process(&self, data: Value, timing_info: &mut TimingInfo, filter_info: &mut FilterInfo) -> Result<(usize, Option<Value>), Error> {
 		/*
-		General data processor for the pipeline: 
+		General data processor for the pipeline:
 			Takes in a Value and some extra logging info. Will maybe modify the json and then spit it back out with a (usize, .) prefixing it
 			If the usize is less than usize::MAX, then this document got filtered and should not be included in outputs
 			else, the thing that gets output passes the map and should be included in outputs
@@ -128,7 +129,7 @@ impl PipelineProcessor {
 
 		let og_copy = data.clone();
 	    let mut current_data = data;
-		
+
 		let mut filter_step = 0;
 	    for processor in &self.pipeline {
 	    	let start_step = Instant::now();
@@ -154,7 +155,7 @@ impl PipelineProcessor {
 		let mut timing_info = TimingInfo::new();
 		let mut filter_info = FilterInfo::new();
 		let mut output_lines: HashMap<usize, Vec<Value>> = HashMap::new();
-		let mut err_lines: Vec<String> = Vec::new();		
+		let mut err_lines: Vec<String> = Vec::new();
 		for line in lines {
 
 			let json_line = serde_json::from_str(&line).unwrap();
@@ -185,7 +186,7 @@ impl PipelineProcessor {
 /*
 New plan:
 	- each data processing "unit" operates on a single line of a jsonl.
-	- the signature for processing takes in data and some extra configs, but also has maybe some precached data 
+	- the signature for processing takes in data and some extra configs, but also has maybe some precached data
 		(precached data is nice for things that need to be loaded like banlists or a fasttext classifier)
 	- this is specified in the pipeline with the kwargs argument in the config yaml
 	- signatures are always a (json, config) -> Result<Option<Value>, Error>
@@ -193,13 +194,13 @@ New plan:
 
 pub trait DataProcessor {
     // Initialize and return Self with cached data
-    fn new(config: &Value) -> Result<Self, Error> 
+    fn new(config: &Value) -> Result<Self, Error>
     where
         Self: Sized;
-    
+
     // Process method that all implementations must provide
     fn process(&self, data: Value) -> Result<Option<Value>, Error>;
-    
+
 
 }
 
@@ -209,13 +210,13 @@ pub trait DataProcessor {
 #[derive(Serialize, Debug)]
 pub struct TextLenFilter {
 	// Filters to only keep docs that have text length in range [lower_bound, upper_bound]
-	text_field: String,	
+	text_field: String,
 	lower_bound: usize,
 	upper_bound: usize,
 }
  impl DataProcessor for TextLenFilter {
 	fn new(config: &Value) -> Result<Self, Error> {
-		let lower_bound = get_default(config, "lower_bound", 0); 
+		let lower_bound = get_default(config, "lower_bound", 0);
 		let upper_bound = get_default(config, "upper_bound", usize::MAX);
 		let text_field = get_default(config, "text_field", String::from("text"));
 		Ok(Self {text_field, lower_bound, upper_bound})
@@ -241,7 +242,7 @@ pub struct AddIdModifier {
 }
 impl DataProcessor for AddIdModifier {
 	fn new(config: &Value) -> Result<Self, Error> {
-		let id_key = get_default(config, "id_key", String::from("id")); 
+		let id_key = get_default(config, "id_key", String::from("id"));
 		Ok(Self {id_key})
 	}
 
@@ -249,7 +250,7 @@ impl DataProcessor for AddIdModifier {
 	fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
 		let id = Uuid::new_v4().to_string();
 		json_set(&mut data, &self.id_key, Value::String(id)).unwrap();
-	    Ok(Some(data))		
+	    Ok(Some(data))
 
 	}
 }
@@ -299,14 +300,14 @@ impl DataProcessor for SubsampleFilter {
 			Ok(Some(data))
 		} else {
 			Ok(None)
-		}		
+		}
 	}
 }
 #[derive(Derivative)]
 #[derivative(Debug)]
 #[derive(Serialize)]
 pub struct UrlSubstringFilter {
-	/* Filters by the url. 
+	/* Filters by the url.
 	Stealing docs from DCLM:
     ignore_chars -- A list of characters to ignore (e.g., ['.', "-"]) as they are typically used to bypass
             detectors for fradulent/inappropriate webpages
@@ -314,8 +315,8 @@ pub struct UrlSubstringFilter {
             to be filtered out. Refinedweb uses this for "softer" banlist items (e.g., "webcam", "escort")
     exact_domain_match -- Whether to extract the domain from the page url and check for an exact match (e.g., when
     set to False, "le.com" being in banlist would lead to "google.com" being banned)
-    match_substrings -- When True, the banlist items only need to be a substring. When False, items must exist 
-            in between word boundaries. Note this is only used when exact_domain_match is False. 
+    match_substrings -- When True, the banlist items only need to be a substring. When False, items must exist
+            in between word boundaries. Note this is only used when exact_domain_match is False.
     case_sensitive -- Whether to check for case sensitivity (RefinedWeb sets this to be True)
 
 	*/
@@ -324,7 +325,7 @@ pub struct UrlSubstringFilter {
 	pub alt_url_key: String, // Alternate key in case first one is missing
 
 	// Main modes of operation
-	pub exact_domain_match: bool, 
+	pub exact_domain_match: bool,
 	pub exact_subdomain_match: bool,
 	pub exact_url_match: bool,
 	pub exact_part_match: bool,
@@ -339,7 +340,7 @@ pub struct UrlSubstringFilter {
 	// Internal storage
     #[derivative(Debug="ignore")]
 	pub banlist: HashSet<String>, // Key for this is banlist_file
-    #[derivative(Debug="ignore")]	
+    #[derivative(Debug="ignore")]
 	#[serde(skip)]
 	pub ac_banlist: Option<AhoCorasick>,
 }
@@ -354,7 +355,7 @@ impl DataProcessor for UrlSubstringFilter {
 			.map(|line| if case_sensitive { line.unwrap().to_lowercase() } else {line.unwrap()})
 			.collect();
 
-		UrlSubstringFilter::construct_w_explicit_banlist(config, banlist)		
+		UrlSubstringFilter::construct_w_explicit_banlist(config, banlist)
 
 
 	}
@@ -402,7 +403,7 @@ impl DataProcessor for UrlSubstringFilter {
 				return Ok(Some(data));
 			}
 
-		} 
+		}
 
 		// Exact part match
 		if self.exact_part_match {
@@ -415,8 +416,8 @@ impl DataProcessor for UrlSubstringFilter {
 			}
 		}
 
-		// Nonexact case 
-		let ac_banlist = self.ac_banlist.as_ref().ok_or(anyhow!("AC Banlist"))?; 
+		// Nonexact case
+		let ac_banlist = self.ac_banlist.as_ref().ok_or(anyhow!("AC Banlist"))?;
 
 		if self.match_substrings {
 			let match_count = ac_banlist.find_iter(&url).collect::<Vec<_>>().len();
@@ -427,18 +428,18 @@ impl DataProcessor for UrlSubstringFilter {
 			}
 		} else {
 		    let matches: Vec<_> = ac_banlist.find_iter(&url).collect();
-		    
+
 		    // Filter matches to only keep those at word boundaries
 		    let valid_matches = matches.into_iter().filter(|mat| {
 		        let start = mat.start();
 		        let end = mat.end();
-		        
+
 		        let is_start_boundary = start == 0 || !url[..start].chars().last().unwrap().is_alphanumeric();
 		        let is_end_boundary = end == url.len() || !url[end..].chars().next().unwrap().is_alphanumeric();
-		        
+
 		        is_start_boundary && is_end_boundary
 		    }).collect::<Vec<_>>();
-		    
+
 		    if valid_matches.len() < self.num_banned_substrs {
 		        Ok(Some(data))
 		    } else {
@@ -488,7 +489,7 @@ impl DataProcessor for NewlineRemovalModifier {
 	fn new(config: &Value) -> Result<Self, Error> {
 		let text_field = get_default(config, "text_field", String::from("text"));
 		let max_consecutive = get_default(config, "max_consecutive", 2);
-		Ok(Self {text_field, max_consecutive})	
+		Ok(Self {text_field, max_consecutive})
 	}
 
 
@@ -529,7 +530,7 @@ impl DataProcessor for FastTextAnnotator {
 		let threshold = get_default(config, "threshold", 0.0) as f32;
 		let mut model = FastText::new();
 		model.load_model(&fast_text_file).unwrap();
-		Ok(Self {fast_text_file, text_field, output_field, k, threshold, model})	
+		Ok(Self {fast_text_file, text_field, output_field, k, threshold, model})
 	}
 
 
@@ -598,7 +599,7 @@ pub struct PageLenFilter {
     line, paragraph).
     If the length is less than `min_length`, it returns None
     If the length is greater/equal to `min_length`, it returns the original JSON object.
-    */	
+    */
 	pub text_field: String,
 	pub length_type: String,
 	pub lower_bound: usize,
@@ -609,7 +610,7 @@ pub struct PageLenFilter {
 impl DataProcessor for PageLenFilter {
 	fn new(config: &Value) -> Result<Self, Error> {
 		let text_field = get_default(config, "text_field", String::from("text"));
-		let length_type = config.get("length_type").unwrap().as_str().unwrap().to_string();		
+		let length_type = config.get("length_type").unwrap().as_str().unwrap().to_string();
 		ensure!(["word", "sentence", "line", "paragraph", "char"].contains(&&length_type.as_str()),
 				format!("Length type must be one of {{word, sentence, line, paragraph, char}} and not {:?}", length_type)
 			);
@@ -655,7 +656,7 @@ impl DataProcessor for WordLenFilter {
 	fn new(config: &Value) -> Result<Self, Error> {
 		let text_field = get_default(config, "text_field", String::from("text"));
 		let lower_bound = get_default(config, "lower_bound", 0.0 as f64) as f32;
-		let upper_bound = get_default(config, "upper_bound", f32::MAX as f64) as f32;		
+		let upper_bound = get_default(config, "upper_bound", f32::MAX as f64) as f32;
 		Ok(Self {text_field, lower_bound, upper_bound})
 	}
 
@@ -669,7 +670,7 @@ impl DataProcessor for WordLenFilter {
 			Ok(Some(data))
 		} else {
 			Ok(None)
-		}	
+		}
 	}
 }
 
@@ -705,7 +706,7 @@ impl DataProcessor for SymbolRatioFilter {
 			Ok(Some(data))
 		} else {
 			Ok(None)
-		}	
+		}
 	}
 }
 
@@ -730,12 +731,12 @@ impl DataProcessor for BulletFilter {
 		let lines: Vec<&str> = text.split('\n').collect();
 	   let bullet_count = lines.iter()
 	        .filter(|line| {
-	            line.starts_with('●') || 
-	            line.starts_with('•') || 
-	            line.starts_with('*') || 
+	            line.starts_with('●') ||
+	            line.starts_with('•') ||
+	            line.starts_with('*') ||
 	            line.starts_with('-')
 	        })
-	        .count();		
+	        .count();
 	    if bullet_count as f32 / lines.len() as f32 > self.max_bullet_ratio {
 	    	Ok(None)
 	    } else {
@@ -778,7 +779,7 @@ impl DataProcessor for EllipsisLineRatioFilter {
 			Ok(Some(data))
 		} else {
 			Ok(None)
-		}	
+		}
 	}
 }
 
@@ -813,7 +814,7 @@ impl DataProcessor for AlphabeticWordRatioFilter {
 			Ok(Some(data))
 		} else {
 			Ok(None)
-		}	
+		}
 	}
 }
 
@@ -881,14 +882,14 @@ pub struct MassiveWebRepetitionFilter {
 impl DataProcessor for MassiveWebRepetitionFilter {
 	fn new(config: &Value) -> Result<Self, Error> {
 		let text_field = get_default(config, "text_field", String::from("text"));
-		Ok(Self { text_field })		
+		Ok(Self { text_field })
 	}
 	fn process(&self, data: Value) -> Result<Option<Value>, Error> {
 		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
 		let lines: Vec<&str> = text.split('\n').filter(|w| w.len() > 0).collect();
 		let pars: Vec<&str> = text.split("\n\n").filter(|w| w.len() > 0).collect();
-		let words: Vec<&str> = text.unicode_words().collect();	
-		
+		let words: Vec<&str> = text.unicode_words().collect();
+
 		let flow_args = vec![((&lines, 1, false), 0.3),
 						     ((&pars, 1, false), 0.3),
 						     ((&lines, 1, true), 0.2),
@@ -909,7 +910,7 @@ impl DataProcessor for MassiveWebRepetitionFilter {
 				return Ok(None);
 			}
 		}
-		
+
 		Ok(Some(data))
 	}
 
@@ -923,9 +924,9 @@ impl MassiveWebRepetitionFilter {
 		let mut ngram_char_len = 0; // temp to current ngram len?
 
 		let mut ngram_counts: HashMap<(u64, usize), Vec<usize>> = HashMap::new(); //(ngram_hash, ngram_char_len) -> [idxs where this ngram starts, ...]
-		let total_elements = elements.len(); 
+		let total_elements = elements.len();
 		let mut total_ngrams = 0;
-		let total_charlen = elements.iter().map(|v| v.len()).sum::<usize>(); 
+		let total_charlen = elements.iter().map(|v| v.len()).sum::<usize>();
 
 		for (idx, &element) in elements.iter().enumerate() {
 			ngram.push_back(element);
@@ -938,7 +939,7 @@ impl MassiveWebRepetitionFilter {
 				let hash_val: u64 = hasher.finish();
 				ngram_counts.entry((hash_val, ngram_char_len)).or_insert(Vec::new()).push((idx +1) - ngram_size);
 
-				total_ngrams += 1;				
+				total_ngrams += 1;
 				ngram_char_len -= ngram.pop_front().unwrap().len();
 			}
 		}
@@ -948,10 +949,10 @@ impl MassiveWebRepetitionFilter {
 			if ngram_size == 1 { return Ok(1.0); } else { return Ok(0.0);}
 		} else if total_ngrams == 1 {
 			return Ok(0.0);
-		} 
+		}
 
 
-		let repeat_frac = if ngram_size == 1 {	
+		let repeat_frac = if ngram_size == 1 {
 			// Single ngram case:
 			if weighted {
 				// no ngrams, weighted => get total charlen of elements repeated > 1x, divide by total charlen
@@ -966,9 +967,9 @@ impl MassiveWebRepetitionFilter {
 					.sum::<usize>();
 				total_repeats as f32 / total_elements as f32
 			}
-		} else { 
+		} else {
 			// Ngram size > 1 case:
-			// If ngram size is >= 4, juts find the ngram that occurs most-often and use this to generate indexes 
+			// If ngram size is >= 4, juts find the ngram that occurs most-often and use this to generate indexes
 			// otherwise, find ALL ngrams that occur > 1
 			// Use these to generate element indices that are repeated and then count charlen / total_charlen
 
@@ -984,7 +985,7 @@ impl MassiveWebRepetitionFilter {
 						}
 					});
 				if let Some(most_common_pair) = most_common {
-					most_common_pair.1.to_vec()				
+					most_common_pair.1.to_vec()
 				} else {
 					Vec::new()
 				}
@@ -998,10 +999,10 @@ impl MassiveWebRepetitionFilter {
 				.flat_map(|v| (*v..(v+ngram_size)).collect::<Vec<usize>>())
 				.collect();
 
-			let repeat_len = repeat_element_idxs.iter().map(|idx| elements[*idx].len()).sum::<usize>();				
+			let repeat_len = repeat_element_idxs.iter().map(|idx| elements[*idx].len()).sum::<usize>();
 			repeat_len as f32 / total_charlen as f32
 		};
-		
+
 
 		Ok(repeat_frac)
 
@@ -1086,7 +1087,7 @@ pub struct RegexLineModifier {
 	// Modifies lines to only keep those that don't have any regex matches
 	// Note that we automatically lowercase the text we query!
 	pub text_field: String,
-	pub regex_string: String, // 
+	pub regex_string: String, //
 	#[serde(skip)]
 	pub regex: Regex,
 }
@@ -1163,7 +1164,7 @@ impl DataProcessor for LineLenModifier {
 #[derive(Serialize, Debug)]
 pub struct SubstringLineModifier {
 	// Modifies lines to only keep those that don't have any words from the banlist (or just removes those words themselves)
-	pub text_field: String, 
+	pub text_field: String,
 	pub banlist: String,
 	pub max_len: usize,
 	pub remove_substring_only: bool,
@@ -1213,7 +1214,7 @@ impl DataProcessor for SubstringLineModifier {
 			} else {
 				passing_lines.push(line);
 			}
-		}	
+		}
 		json_set(&mut data, &self.text_field, serde_json::Value::String(passing_lines.join("\n"))).unwrap();
 
 		Ok(Some(data))
@@ -1263,11 +1264,11 @@ pub struct Madlad400SentenceFilter {
 	pub sentence_question_upper_bound: f32, // defaults to 20%
 
 
-	// document consistency 
+	// document consistency
 	pub fast_text_file: String, // path to fasttext model
 	#[serde(skip)]
 	pub model: FastText,
-	pub langid_field: String, // field where the document level language is 
+	pub langid_field: String, // field where the document level language is
 
 	// list case
 	pub case_upper_bound: f32, // defaults to 0.50
@@ -1275,20 +1276,20 @@ pub struct Madlad400SentenceFilter {
 
 	// abnormal lengths
 	pub char_len_lower_bound: usize, // defaults to 20
-	pub char_len_upper_bound: usize, // defaults to 500 
+	pub char_len_upper_bound: usize, // defaults to 500
 
 	// technical chars
 	pub tech_lower_bound: f32, // defaults to 0.20
-    #[derivative(Debug="ignore")]	
+    #[derivative(Debug="ignore")]
     #[serde(skip)]
     pub tech_charset: HashSet<char>,
 
-	// cursed regxes 
+	// cursed regxes
 	pub cursed_regex_file: String, // path to cursed strings // last 4 are regexes
-    #[derivative(Debug="ignore")]	
+    #[derivative(Debug="ignore")]
     #[serde(skip)]
 	pub cursed_inclusions: AhoCorasick,
-    #[derivative(Debug="ignore")]	
+    #[derivative(Debug="ignore")]
     #[serde(skip)]
 	pub cursed_regexes: Vec<Regex>,
 
@@ -1312,7 +1313,7 @@ impl DataProcessor for Madlad400SentenceFilter {
 		let char_len_upper_bound = get_default(config, "char_len_upper_bound", 500);
 
 		let tech_lower_bound = get_default(config, "tech_lower_bound", 0.20) as f32;
-		let tech_charset: HashSet<char> = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 
+		let tech_charset: HashSet<char> = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
                                '{', '}', '+', '/', '(', ')', '>'].into_iter().collect();
 
 		let cursed_regex_file = config.get("cursed_regex_file").unwrap().as_str().unwrap().to_string();
@@ -1323,18 +1324,18 @@ impl DataProcessor for Madlad400SentenceFilter {
 		for el in &cursed_regex_lines[cursed_regex_lines.len() - 4..] {
 			cursed_regexes.push(Regex::new(el).unwrap());
 		}
-		Ok(Self { text_field, sentence_lower_bound, sentence_question_upper_bound, 
+		Ok(Self { text_field, sentence_lower_bound, sentence_question_upper_bound,
 				  fast_text_file, model, langid_field,
 				  case_upper_bound, case_tok_lower_bound,
 				  char_len_lower_bound, char_len_upper_bound,
 				  tech_lower_bound, tech_charset,
-				  cursed_regex_file, cursed_inclusions, cursed_regexes})			
+				  cursed_regex_file, cursed_inclusions, cursed_regexes})
 	}
 
 	fn process(&self, data: Value) -> Result<Option<Value>, Error> {
 
 		// Setup for filtering
-		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();		
+		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
 		let sentence_splitter = Regex::new(r"[.!?]+\s+").unwrap();
 		let sentences: Vec<_> = sentence_splitter.split(&text).filter(|s| s.trim().len() > 0 ).collect();
 		let num_sentences = sentences.len();
@@ -1400,7 +1401,7 @@ impl DataProcessor for Madlad400SentenceFilter {
 			Ok(None)
 		} else {
 			Ok(Some(data))
-		}		
+		}
 	}
 }
 
@@ -1430,7 +1431,7 @@ impl Madlad400SentenceFilter {
 		})
 		.count();
 
-		Ok(cap_counts as f32 > words.len() as f32 * self.case_upper_bound)		
+		Ok(cap_counts as f32 > words.len() as f32 * self.case_upper_bound)
 	}
 
 	pub fn check_cursed_regexes(&self, sentence: &str) -> Result<bool, Error> {
@@ -1444,11 +1445,11 @@ impl Madlad400SentenceFilter {
 				false
 			}
 		});
-		Ok(has_curse)	
+		Ok(has_curse)
 	}
 
 	pub fn document_consistency(&self, sentence: &str, doc_lang: &str) -> Result<bool, Error> {
-		// Do langid 
+		// Do langid
 		let sentence_lang_preds = &self.model.predict(&sentence.replace("\n", " "), 1, 0.0).unwrap();
 		if sentence_lang_preds.len() == 0 {
 			return Ok(true);
@@ -1457,9 +1458,130 @@ impl Madlad400SentenceFilter {
 			.max_by(|a, b| (&a.prob).partial_cmp(&b.prob).unwrap_or(std::cmp::Ordering::Equal))
 			.unwrap()
 			.label;
-		Ok(sentence_lang != doc_lang)	
+		Ok(sentence_lang != doc_lang)
 	}
 }
 
 
 
+#[derive(Serialize, Debug)]
+pub struct OlmocrRulesAdder {
+	// Filters according to average word length
+	pub text_field: String,
+	pub numbers_regex: String,
+
+	#[serde(skip)]
+	compiled_numbers_regex: Regex,
+	}
+
+
+impl DataProcessor for OlmocrRulesAdder {
+	fn new(config: &Value) -> Result<Self, Error> {
+		let text_field = get_default(config, "text_field", String::from("text"));
+		// let default_numbers_regex = r"[-+]?(?:\d{1,3}(?:[,. ]\d{3})+|\d+)?(?:[.,]\d+)?(?:[eE][-+]?\d+)?";
+		let default_numbers_regex = r"\d+";
+		let numbers_regex = get_default(config, "numbers_regex", default_numbers_regex.to_string());
+		let compiled_numbers_regex = Regex::new(&numbers_regex).unwrap();
+		Ok(Self {text_field, numbers_regex, compiled_numbers_regex})
+	}
+
+	fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
+
+		// we process the document line by line; for each line we check:
+		// 		1. whether the line corresponds to a markdown table row (e.g. line starts with "|" and ends with "|")
+		// 		2. whether the line is empty
+		// 		3. whether the line is a header line (i.e. line starts with one or more "#" characters)
+		// 		4. whether the line is a horizontal rule (i.e. line starts with "---")
+		// 		5. whether the line is a code block (i.e. line starts with "```")
+		// 		6. whether the line is a list item (i.e. line starts with "-")
+		// 		7. whether the line contains inline equations (i.e. even number of "$")
+		// 		8. whether the line contains an equation block (i.e. starts and ends with "$$")
+		// 		9. use a regex to find the proportion of characters that are digits. Digits appear in the form:
+
+		let mut all_lines_count = 0;
+		let mut table_lines_count = 0;
+		let mut empty_lines_count = 0;
+		let mut header_lines_count = 0;
+		let mut horizontal_rule_lines_count = 0;
+		let mut code_block_lines_count = 0;
+		let mut list_item_lines_count = 0;
+		let mut inline_equation_lines_count = 0;
+		let mut equation_block_lines_count = 0;
+		let mut all_digits_ratio = 0.0;
+
+		let mut in_code_block = false;
+		let mut in_equation_block = false;
+
+		for line in text.lines() {
+			all_lines_count += 1;
+
+			// remove all whitespace
+			let line = line.trim();
+
+			if line.is_empty() {
+				empty_lines_count += 1;
+				continue;
+			} else if line.starts_with("|") && line.ends_with("|") {
+				table_lines_count += 1;
+			} else if line.starts_with("#") {
+				header_lines_count += 1;
+			} else if line.starts_with("---") {
+				horizontal_rule_lines_count += 1;
+			} else if line.starts_with("- ") || line.starts_with("* ") {
+				list_item_lines_count += 1;
+			} else if line.starts_with("```") {
+				if in_code_block {
+					in_code_block = false;
+					code_block_lines_count += 1;
+				} else {
+					in_code_block = true;
+				}
+			} else if line.starts_with("$$") {
+				if in_equation_block {
+					in_equation_block = false;
+					equation_block_lines_count += 1;
+				} else {
+					in_equation_block = true;
+				}
+			} else if line.matches("$").count() % 2 == 0 {
+				inline_equation_lines_count += 1;
+			}
+
+			// number of characters that are digits
+			let digits_line_prop = (
+				self.compiled_numbers_regex
+					.find_iter(line)
+					.map(|m| m.len())
+					.sum::<usize>() as f32
+			) / line.len() as f32;
+			all_digits_ratio += digits_line_prop;
+		}
+
+		// add all the stats to metadata key in data under a single key "olm_ocr_rules" dictionary
+		let mut metadata = data.get_mut("metadata").unwrap().as_object_mut().unwrap().clone();
+		metadata.insert("olmocr_rules".to_string(), json!({
+			"all_lines_count": all_lines_count,
+			"table_lines_count": table_lines_count,
+			"table_lines_ratio": table_lines_count as f32 / all_lines_count as f32,
+			"empty_lines_count": empty_lines_count,
+			"empty_lines_ratio": empty_lines_count as f32 / all_lines_count as f32,
+			"header_lines_count": header_lines_count,
+			"header_lines_ratio": header_lines_count as f32 / all_lines_count as f32,
+			"horizontal_rule_lines_count": horizontal_rule_lines_count,
+			"horizontal_rule_lines_ratio": horizontal_rule_lines_count as f32 / all_lines_count as f32,
+			"code_block_lines_count": code_block_lines_count,
+			"code_block_lines_ratio": code_block_lines_count as f32 / all_lines_count as f32,
+			"list_item_lines_count": list_item_lines_count,
+			"list_item_lines_ratio": list_item_lines_count as f32 / all_lines_count as f32,
+			"inline_equation_lines_count": inline_equation_lines_count,
+			"inline_equation_lines_ratio": inline_equation_lines_count as f32 / all_lines_count as f32,
+			"equation_block_lines_count": equation_block_lines_count,
+			"equation_block_lines_ratio": equation_block_lines_count as f32 / all_lines_count as f32,
+			"digits_ratio": all_digits_ratio / all_lines_count as f32
+		}));
+		json_set(&mut data, &String::from("metadata"), Value::Object(metadata)).unwrap();
+
+		Ok(Some(data))
+	}
+}
