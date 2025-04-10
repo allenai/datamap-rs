@@ -536,13 +536,17 @@ impl DataProcessor for FastTextAnnotator {
 	fn process(&self, mut data: Value) -> Result<Option<Value> ,Error> {
 
 		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string().replace("\n", " ");
-		let predictions = self.model.predict(&text, self.k, self.threshold).unwrap();
+		let predictions = self.model.predict(&text, self.k, self.threshold).unwrap_or(vec![]);
 
-		let mut map = serde_json::Map::new();
+		let mut map: serde_json::Map<String, Value> = serde_json::Map::new();
 		for pred in predictions {
 			map.insert(pred.label.clone(), json!(pred.prob));
 		}
-		let pred_json = Value::Object(map);
+		// set to null if no predictions
+		let pred_json = match map.len() {
+			0 => json!(null),
+			_ => json!(map)
+		};
 		json_set(&mut data, &self.output_field, pred_json).unwrap();
 		Ok(Some(data))
 	}
