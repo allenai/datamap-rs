@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use anyhow::{Error, Result, ensure, anyhow};
 use rand::Rng;
 use uuid::Uuid;
-use crate::utils::{get_default, json_get, json_set, extract_subdomain, get_tokenizer};
+use crate::utils::{get_default, json_get, json_set, extract_subdomain};
 use serde::Serialize;
 use once_cell::sync::Lazy;
 use std::collections::{HashMap, HashSet};
@@ -21,7 +21,6 @@ use fasttext::FastText;
 use unicode_segmentation::UnicodeSegmentation;
 use regex::Regex;
 use fxhash::FxHasher;
-use tiktoken_rs::CoreBPE;
 use derivative::Derivative;
 //use mj_io::build_pbar;
 
