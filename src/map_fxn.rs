@@ -541,7 +541,13 @@ impl DataProcessor for FastTextAnnotator {
 
 		// truncate text if it's too long
 		if text.len() > self.max_length {
-			text = text[..self.max_length].to_string();
+			// Truncate at a valid UTF-8 character boundary
+			let truncated_text = text.char_indices()
+				.take_while(|(idx, _)| *idx < self.max_length)
+				.last()
+				.map(|(idx, c)| idx + c.len_utf8())
+				.unwrap_or(0);
+			text = text[..truncated_text].to_string();
 		}
 
 		let predictions = self.model.predict(&text, self.k, self.threshold).unwrap();
