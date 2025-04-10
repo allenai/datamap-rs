@@ -1467,21 +1467,13 @@ impl Madlad400SentenceFilter {
 pub struct OlmocrRulesAdder {
 	// Filters according to average word length
 	pub text_field: String,
-	pub numbers_regex: String,
-
-	#[serde(skip)]
-	compiled_numbers_regex: Regex,
-	}
+}
 
 
 impl DataProcessor for OlmocrRulesAdder {
 	fn new(config: &Value) -> Result<Self, Error> {
 		let text_field = get_default(config, "text_field", String::from("text"));
-		// let default_numbers_regex = r"[-+]?(?:\d{1,3}(?:[,. ]\d{3})+|\d+)?(?:[.,]\d+)?(?:[eE][-+]?\d+)?";
-		let default_numbers_regex = r"\d+";
-		let numbers_regex = get_default(config, "numbers_regex", default_numbers_regex.to_string());
-		let compiled_numbers_regex = Regex::new(&numbers_regex).unwrap();
-		Ok(Self {text_field, numbers_regex, compiled_numbers_regex})
+		Ok(Self {text_field})
 	}
 
 	fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
@@ -1496,7 +1488,7 @@ impl DataProcessor for OlmocrRulesAdder {
 		// 		6. whether the line is a list item (i.e. line starts with "-")
 		// 		7. whether the line contains inline equations (i.e. even number of "$")
 		// 		8. whether the line contains an equation block (i.e. starts and ends with "$$")
-		// 		9. use a regex to find the proportion of characters that are digits. Digits appear in the form:
+		//		9. get the fraction of characters that are digits
 
 		let mut all_lines_count = 0;
 		let mut table_lines_count = 0;
@@ -1549,10 +1541,9 @@ impl DataProcessor for OlmocrRulesAdder {
 
 			// number of characters that are digits
 			let digits_line_prop = (
-				self.compiled_numbers_regex
-					.find_iter(line)
-					.map(|m| m.len())
-					.sum::<usize>() as f32
+				line.chars()
+					.filter(|c| c.is_digit(10))
+					.count() as f32
 			) / line.len() as f32;
 			all_digits_ratio += digits_line_prop;
 		}
