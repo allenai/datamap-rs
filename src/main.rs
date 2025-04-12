@@ -26,8 +26,10 @@ use indicatif::ProgressBar;
 
 
 pub mod map_fxn; 
+pub mod sort;
 pub mod utils;
 use datamap_rs::map_fxn::{PipelineProcessor};
+use datamap_rs::sort::single_node_sort;
 pub use map_fxn::DataProcessor;
 /*
 Map Config layout:
@@ -89,6 +91,24 @@ enum Commands {
         #[arg(long, default_value_t=0.0)]
         subsample: f32,
     },
+
+
+    Sort {
+        #[arg(required=true, long)]
+        input_dir: PathBuf,
+
+        #[arg(required=true, long)]
+        working_dir: PathBuf,
+
+        #[arg(required=true, long)]
+        output_dir: PathBuf,
+
+        #[arg(required=true, long)]
+        sort_key: String,
+
+        #[arg(long, default_value_t=256000000)]
+        max_size: usize
+    }
 
 }
 
@@ -402,6 +422,10 @@ fn main() {
         Commands::Reshard{input_dir, output_dir, max_lines, max_size, subsample} => {
             reshard(input_dir, output_dir, *max_lines, *max_size, *subsample)
         },
+
+        Commands::Sort{input_dir, working_dir, output_dir, sort_key, max_size} => {
+            single_node_sort(input_dir, working_dir, output_dir, sort_key, *max_size)
+        }
 
         _ => {Ok(())}
     };

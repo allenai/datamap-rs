@@ -156,7 +156,7 @@ impl PipelineProcessor {
 		let mut output_lines: HashMap<usize, Vec<Value>> = HashMap::new();
 		let mut err_lines: Vec<String> = Vec::new();		
 		for line in lines {
-
+			line.astoneuh();
 			let json_line = serde_json::from_str(&line).unwrap();
 			let process_out = self.process(json_line, &mut timing_info, &mut filter_info);
 			match process_out {
