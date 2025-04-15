@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::atomic::AtomicUsize;
 use anyhow::{Error, Result};
@@ -87,7 +88,7 @@ pub fn single_node_sort(input_dir: &PathBuf, working_dir: &PathBuf, output_dir: 
     time_it!("Final sort", {
     	let pbar = build_pbar(chunks.len(), "Chunks");
     	chunks.into_par_iter().for_each(|c| {
-    		sort_chunk(c, output_dir, sort_key, max_size, &global_chunk_id).unwrap();
+    		sort_chunk_simple(c, output_dir, sort_key, max_size, &global_chunk_id).unwrap();
     		pbar.inc(1);
     	})
     });
@@ -98,7 +99,61 @@ pub fn single_node_sort(input_dir: &PathBuf, working_dir: &PathBuf, output_dir: 
 
 
 
-fn sort_chunk(chunk: Vec<PathBuf>, output_dir: &PathBuf, sort_key: &String, max_size: usize, global_chunk_id: &AtomicUsize) -> Result<(), Error>{
+
+fn sort_chunk_simple(chunk: Vec<PathBuf>, output_dir: &PathBuf, sort_key: &String, max_size: usize, global_chunk_id: &AtomicUsize) -> Result<(), Error> {
+	// Load all elements and then sort from there (ignore hot nodes, w/e)
+	let mut all_data: HashMap<String, Vec<Vec<u8>>> = HashMap::new();
+	let mut none_data: Vec<Vec<u8>> = Vec::new();
+	chunk.iter().for_each(|p| {
+		let contents = read_pathbuf_to_mem(p).unwrap();
+		for line in contents.lines() {
+			let line = line.unwrap();
+			let json_line = serde_json::from_str(&line).unwrap();
+			let sort_val = json_get(&json_line, sort_key).map(|val| val.clone());	
+			match sort_val {
+				None => none_data.push(line.as_bytes().to_vec()),
+				Some(sort_val) => all_data.entry(sort_val.to_string()).or_default().push(line.as_bytes().to_vec())
+			}
+		}
+	});
+
+
+	// Write the groups
+	let mut cur_contents: Vec<u8> = Vec::new();
+	for (_, v) in all_data {
+	    for doc in v {
+	        cur_contents.extend(doc);
+	        cur_contents.push(b'\n');
+	    }
+	    // Save after processing all docs in this group
+	    cur_contents = check_save_output_file(cur_contents, output_dir, global_chunk_id, max_size, false).unwrap();
+	}
+	
+	for doc in none_data {
+		cur_contents.extend(doc);
+		cur_contents.push(b'\n');
+		cur_contents = check_save_output_file(cur_contents, output_dir, global_chunk_id, max_size, false).unwrap();
+	};
+	check_save_output_file(cur_contents, output_dir, global_chunk_id, max_size, true).unwrap();
+	
+	Ok(())
+}
+
+
+fn check_save_output_file(mut contents: Vec<u8>, output_dir: &PathBuf, global_chunk_id: &AtomicUsize, max_size: usize, finalize: bool) -> Result<Vec<u8>, Error> {
+	if contents.len() >= max_size || finalize {
+		let output_shard_name = get_output_shard_file_name(output_dir, global_chunk_id.fetch_add(1, Ordering::SeqCst), None);
+		write_mem_to_pathbuf(&contents, &output_shard_name).unwrap();
+		contents.clear();				
+		return Ok(contents)
+	}
+	Ok(contents)
+
+}
+
+
+#[allow(dead_code)]
+fn sort_chunk_complex(chunk: Vec<PathBuf>, output_dir: &PathBuf, sort_key: &String, max_size: usize, global_chunk_id: &AtomicUsize) -> Result<(), Error>{
 	
 	let mut nonempties : Vec<(String, Vec<u8>)> = Vec::new();
 	let mut empties: Vec<Vec<u8>> = Vec::new();
