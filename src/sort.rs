@@ -109,11 +109,15 @@ fn sort_chunk(chunk: Vec<PathBuf>, output_dir: &PathBuf, sort_key: &String, max_
 			let line = line.unwrap();
 			let json_line = serde_json::from_str(&line).unwrap();
 			let sort_val = json_get(&json_line, sort_key).map(|val| val.clone());			
-			drop(json_line);
+			drop(json_line);	
 			match sort_val {
 				None => empties.push(line.as_bytes().to_vec()),
-				Some(sort_val) => nonempties.push((sort_val.as_str().unwrap().to_string(), line.as_bytes().to_vec()))
-			};
+				Some(sort_val) => { match sort_val.as_str() {
+					Some(s) => nonempties.push((s.to_string(), line.as_bytes().to_vec())),
+					_ => {sort_val.as_str().unwrap();}
+					}	
+				}
+			}
 		}
 	});
 
