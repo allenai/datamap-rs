@@ -189,6 +189,7 @@ fn sort_chunk(chunk: Vec<PathBuf>, output_dir: &PathBuf, sort_key: &String, max_
 			}
 		});		
 	});
+
 	// And finally drain out the unaffiliated/groupless
 	let mut cur_contents: Vec<u8> = Vec::new();
 	empties.into_iter().for_each(|g| {
@@ -275,10 +276,21 @@ impl GenWriter<'_> {
 
 	}
 
-	pub fn finish(&self) -> Result<(), Error> {
+	pub fn finish(self) -> Result<(), Error> {
 		// Flushes all the open writers
-		self.writer.par_iter()
-			.for_each(|entry| entry.value().lock().unwrap().flush().unwrap());
+		self.writer.into_par_iter()
+			.for_each(|(_, value)| {
+				match Arc::try_unwrap(value) {
+					Ok(mutex) => {
+						let mut encoder = mutex.into_inner().unwrap();
+						encoder.flush().unwrap();
+						encoder.finish().unwrap();
+					},
+					_ => panic!("WHAT?")
+				}
+		});
 		Ok(())
 	}
 }
+
+
