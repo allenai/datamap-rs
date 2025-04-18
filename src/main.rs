@@ -1,6 +1,7 @@
 // External crates
 
 
+use std::sync::Arc;
 use std::os::unix::fs::OpenOptionsExt;
 use std::fs::{File, create_dir_all, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter, Write};
@@ -189,7 +190,7 @@ fn gen_map(input_dir: &PathBuf, output_dir: &PathBuf, config: &PathBuf, err_dir:
     let start_main = Instant::now();
     let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
     let json_config = parse_config(config).unwrap();
-    let processor = PipelineProcessor::new(&json_config).unwrap();
+    let processor = Arc::new(PipelineProcessor::new(&json_config).unwrap());
 
     // Setup logging utils
     let global_timer: DashMap<usize, AtomicUsize> = DashMap::new();
@@ -210,7 +211,8 @@ fn gen_map(input_dir: &PathBuf, output_dir: &PathBuf, config: &PathBuf, err_dir:
         } else {
             None
         };
-        gen_map_single(p, input_dir, output_dir, err_file, &processor, &global_timer, &global_filter, &err_count).unwrap();
+        let processor_clone = Arc::clone(&processor);
+        gen_map_single(p, input_dir, output_dir, err_file, &processor_clone, &global_timer, &global_filter, &err_count).unwrap();
         pbar.inc(1);
     });
 
