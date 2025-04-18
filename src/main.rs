@@ -10,7 +10,6 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{ensure, Error, Result};
@@ -208,7 +207,7 @@ fn gen_map(
     let start_main = Instant::now();
     let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
     let json_config = parse_config(config).unwrap();
-    let processor = Arc::new(PipelineProcessor::new(&json_config).unwrap());
+    let processor = PipelineProcessor::new(&json_config).unwrap();
 
     // Setup logging utils
     let global_timer: DashMap<usize, AtomicUsize> = DashMap::new();
@@ -229,7 +228,7 @@ fn gen_map(
         } else {
             None
         };
-        let processor_clone = Arc::clone(&processor);
+        let processor_clone = &processor;
         gen_map_single(
             p,
             input_dir,

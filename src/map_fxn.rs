@@ -1,3 +1,4 @@
+use std::time::Instant;
 use crate::utils::{extract_subdomain, get_default, json_get, json_set};
 use aho_corasick::AhoCorasick;
 use anyhow::{anyhow, ensure, Error, Result};
@@ -142,9 +143,9 @@ impl PipelineProcessor {
 
         let mut filter_step = 0;
         for processor in &self.pipeline {
-            //let start_step = Instant::now();
+            let start_step = Instant::now();
             let proc_result = processor.process(current_data)?;
-            //*_timing_info.entry(filter_step).or_insert(0 as u128) += start_step.elapsed().as_nanos();
+            *_timing_info.entry(filter_step).or_insert(0 as u128) += start_step.elapsed().as_nanos();
 
             match proc_result {
                 Some(data_value) => current_data = data_value,
@@ -156,7 +157,7 @@ impl PipelineProcessor {
 
             filter_step += 1;
         }
-        //*_filter_info.entry(usize::MAX).or_insert(0 as usize) += 1;
+        *_filter_info.entry(usize::MAX).or_insert(0 as usize) += 1;
         Ok((usize::MAX, Some(current_data)))
     }
 
