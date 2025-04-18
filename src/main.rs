@@ -336,10 +336,40 @@ fn reshard(
     let num_threads = current_num_threads();
     let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
     let pbar = build_pbar(all_files.len(), "Files");
-    let chunk_size = (all_files.len() + num_threads - 1) / num_threads;
-    let chunks: Vec<Vec<PathBuf>> = all_files.chunks(chunk_size).map(|c| c.to_vec()).collect();
+    let chunk_size = (all_files.len() + num_threads - 1) / num_threads;    
+
+    let chunks: Vec<Vec<PathBuf>> = if keep_dirs {
+        // group by dir, and then maybe split up dirs if they're too big (to balance thread load)
+        let mut dir_groups: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
+        
+        // Group files by their parent directory
+        for file in all_files {
+            if let Some(parent) = file.parent().map(|p| p.to_path_buf()) {
+                dir_groups.entry(parent).or_default().push(file);
+            } else {
+                // Handle files with no parent (e.g., root files)
+                dir_groups.entry(PathBuf::from(".")).or_default().push(file);
+            }
+        }
+        
+        // Convert HashMap to Vec<Vec<PathBuf>> and split large groups
+        dir_groups
+            .into_values()
+            .flat_map(|files| {
+                if files.len() <= chunk_size {
+                    vec![files]
+                } else {
+                    // Split large directories into multiple chunks
+                    files.chunks(chunk_size).map(|c| c.to_vec()).collect()
+                }
+            })
+            .collect()
+    } else {
+        all_files.chunks(chunk_size).map(|c| c.to_vec()).collect()        
+    };
     let out_num = AtomicUsize::new(0);
     chunks.par_iter().for_each(|chunk| {
+
         reshard_chunk(
             chunk, input_dir, output_dir, &out_num, max_lines, max_size, &pbar, subsample,
             keep_dirs,
@@ -366,82 +396,56 @@ fn reshard_chunk(
     subsample: f32,
     keep_dirs: bool,
 ) -> Result<(), Error> {
-    // faster strat: keep an open writer and append until full
-    let get_new_writer = |out_num: &AtomicUsize,
-                          path: Option<&PathBuf>|
-     -> Result<Encoder<BufWriter<File>>, Error> {
-        let shard_id = out_num.fetch_add(1, Ordering::SeqCst);
-        let shard = if path.is_some() {
-            if keep_dirs {
-                // Create a path that maintains the directory structure relative to input_dir
-                let rel_path = path
-                    .unwrap()
-                    .strip_prefix(input_dir)
-                    .unwrap_or_else(|_| path.unwrap());
-                let empty_path = PathBuf::from("");
-                let parent_rel = rel_path.parent().unwrap_or(&empty_path);
-                let output_subdir = output_dir.join(parent_rel);
-                let filename = format!("shard_{:08}.jsonl.zst", shard_id);
-                output_subdir.join(filename)
-            } else {
-                let filename = format!("shard_{:08}.jsonl.zst", shard_id);
-                output_dir.join(filename)
-            }
-        } else {
-            let filename = format!("shard_{:08}.jsonl.zst", shard_id);
-            output_dir.join(filename)
-        };
 
-        let writer = make_shard_writer(shard).unwrap();
+    // Quick assert: if keep dirs, all parents should be the same, and then we modify the output dir to be the "parent dir"
+    let output_dir: PathBuf = if keep_dirs {
+        let chunk_parents: Vec<Option<PathBuf>> = chunk.iter().map(|file| file.parent().map(|p| p.to_path_buf())).collect();
+        let parent_example = &chunk_parents[0];
+        assert!(chunk_parents.iter().all(|x| x == parent_example));
+        get_output_filename(&parent_example.as_ref().unwrap(), input_dir, output_dir).unwrap()
+        
+    } else {
+        output_dir.clone()
+    };
+
+    // faster strat: keep an open writer and append until full
+    let get_new_writer = |out_num: &AtomicUsize| -> Result<Encoder<BufWriter<File>>, Error> {
+        let shard_id = out_num.fetch_add(1, Ordering::SeqCst);
+        let shard = get_reshard_name(&output_dir, shard_id).unwrap();
+        let writer = make_shard_writer(shard).unwrap();        
         Ok(writer)
     };
 
     let mut rng = rand::rng();
-    let mut writer = get_new_writer(out_num, None).unwrap();
+    let mut writer = get_new_writer(out_num).unwrap();
 
     let mut cur_lines = 0;
     let mut cur_size = 0;
-    let mut current_path: Option<PathBuf> = None;
-
     for path in chunk {
-        if keep_dirs {
-            if current_path.is_none() || current_path.as_ref().unwrap().parent() != path.parent() {
-                if cur_lines > 0 || cur_size > 0 {
-                    writer.flush().unwrap();
-                    writer.do_finish().unwrap();
-                    writer = get_new_writer(out_num, Some(path)).unwrap();
-                    cur_lines = 0;
-                    cur_size = 0;
-                }
-            }
-            current_path = Some(path.clone());
-        }
-
         let data = read_pathbuf_to_mem(path).unwrap();
         for line in data.lines() {
-            if subsample == 0.0 || (subsample > 0.0 && rng.random::<f32>() < subsample) {
+            if subsample == 0.0 || (subsample > 0.0 &&  rng.random::<f32>() < subsample) {
                 let line = line.unwrap();
                 let line = line.as_bytes();
                 cur_lines += 1;
                 cur_size += line.len();
                 writer.write_all(&line).unwrap();
-                writer.write_all(b"\n").unwrap();
+                writer.write(vec![b'\n'].as_slice()).unwrap();
                 if cur_lines >= max_lines || cur_size >= max_size {
                     writer.flush().unwrap();
                     writer.do_finish().unwrap();
-                    writer = get_new_writer(
-                        out_num,
-                        if keep_dirs {
-                            current_path.as_ref()
-                        } else {
-                            None
-                        },
-                    )
-                    .unwrap();
-                    cur_lines = 0;
+                    writer = get_new_writer(out_num).unwrap();
+                    cur_lines = 0; 
                     cur_size = 0;
                 }
             }
+        }
+        if cur_lines >= max_lines || cur_size >= max_size {
+            writer.flush().unwrap();
+            writer.do_finish().unwrap();
+            writer = get_new_writer(out_num).unwrap();
+            cur_lines = 0; 
+            cur_size = 0;            
         }
         pbar.inc(1);
     }
@@ -452,7 +456,6 @@ fn reshard_chunk(
     Ok(())
 }
 
-#[allow(dead_code)]
 fn get_reshard_name(output_dir: &PathBuf, shard_id: usize) -> Result<PathBuf, Error> {
     let basename = PathBuf::from(format!("shard_{:08}.jsonl.zst", shard_id));
     let output_file = output_dir.clone().join(basename);
