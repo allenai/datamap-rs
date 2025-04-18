@@ -131,14 +131,14 @@ impl PipelineProcessor {
 		
 		let mut filter_step = 0;
 	    for processor in &self.pipeline {
-	    	let start_step = Instant::now();
+	    	//let start_step = Instant::now();
 	    	let proc_result = processor.process(current_data)?;
-	        *timing_info.entry(filter_step).or_insert(0 as u128) += start_step.elapsed().as_nanos();
+	        //*timing_info.entry(filter_step).or_insert(0 as u128) += start_step.elapsed().as_nanos();
 
 	    	match proc_result {
 	    		Some(data_value) => current_data = data_value,
 	    		None => {
-	    			*filter_info.entry(filter_step).or_insert(0 as usize) += 1;
+	    			//*filter_info.entry(filter_step).or_insert(0 as usize) += 1;
 	    			return Ok((filter_step, Some(og_copy)));
 	    		}
 
@@ -146,7 +146,7 @@ impl PipelineProcessor {
 
 	        filter_step += 1;
 	    }
-	    *filter_info.entry(usize::MAX).or_insert(0 as usize) += 1;
+	    //*filter_info.entry(usize::MAX).or_insert(0 as usize) += 1;
 	    Ok((usize::MAX, Some(current_data)))
 	}
 
