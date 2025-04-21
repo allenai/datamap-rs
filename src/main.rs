@@ -24,7 +24,7 @@ use mj_io::{
     build_pbar, expand_dirs, get_output_filename, read_pathbuf_to_mem, write_mem_to_pathbuf,
 };
 use zstd::Encoder;
-
+use zstd::stream::write::AutoFinishEncoder;
 pub mod map_fxn;
 pub mod utils;
 use datamap_rs::map_fxn::PipelineProcessor;
@@ -409,12 +409,13 @@ fn reshard_chunk(
     };
 
     // faster strat: keep an open writer and append until full
-    let get_new_writer = |out_num: &AtomicUsize| -> Result<Encoder<BufWriter<File>>, Error> {
+    let get_new_writer = |out_num: &AtomicUsize| -> Result<Box<dyn std::io::Write>, Error> {
         let shard_id = out_num.fetch_add(1, Ordering::SeqCst);
         let shard = get_reshard_name(&output_dir, shard_id).unwrap();
-        let writer = make_shard_writer(shard).unwrap();        
-        Ok(writer)
-    };
+        let writer = make_shard_writer(shard).unwrap();       
+        let auto_finisher = writer.auto_finish();
+        Ok(Box::new(auto_finisher))
+    };    
 
     let mut rng = rand::rng();
     let mut writer = get_new_writer(out_num).unwrap();
@@ -433,7 +434,7 @@ fn reshard_chunk(
                 writer.write(vec![b'\n'].as_slice()).unwrap();
                 if cur_lines >= max_lines || cur_size >= max_size {
                     writer.flush().unwrap();
-                    writer.do_finish().unwrap();
+                    drop(writer);
                     writer = get_new_writer(out_num).unwrap();
                     cur_lines = 0; 
                     cur_size = 0;
@@ -442,7 +443,7 @@ fn reshard_chunk(
         }
         if cur_lines >= max_lines || cur_size >= max_size {
             writer.flush().unwrap();
-            writer.do_finish().unwrap();
+            drop(writer);
             writer = get_new_writer(out_num).unwrap();
             cur_lines = 0; 
             cur_size = 0;            
@@ -451,7 +452,7 @@ fn reshard_chunk(
     }
 
     writer.flush().unwrap();
-    writer.do_finish().unwrap();
+    //writer.do_finish().unwrap();
 
     Ok(())
 }
