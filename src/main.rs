@@ -24,11 +24,13 @@ use mj_io::{
     build_pbar, expand_dirs, get_output_filename, read_pathbuf_to_mem, write_mem_to_pathbuf,
 };
 use zstd::Encoder;
-use zstd::stream::write::AutoFinishEncoder;
 pub mod map_fxn;
 pub mod utils;
+pub mod shuffle;
 use datamap_rs::map_fxn::PipelineProcessor;
 pub use map_fxn::DataProcessor;
+use shuffle::shuffle;
+
 /*
 Map Config layout:
 
@@ -88,6 +90,20 @@ enum Commands {
         #[arg(long)]
         keep_dirs: bool,
     },
+
+    Shuffle {
+        #[arg(required=true, long)]
+        input_dir: PathBuf, 
+
+        #[arg(required=true, long)]
+        working_dir: PathBuf,
+
+        #[arg(required=true, long)]
+        output_dir: PathBuf,
+
+        #[arg(long, default_value_t=0)] // Defaults to same as number of input files
+        num_files: usize        
+    }
 }
 
 /*============================================================
@@ -512,6 +528,12 @@ fn main() {
         } => reshard(
             input_dir, output_dir, *max_lines, *max_size, *subsample, *keep_dirs,
         ),
+        Commands::Shuffle {
+            input_dir,
+            working_dir,
+            output_dir,
+            num_files,
+        } => shuffle(input_dir, working_dir, output_dir, *num_files),
 
         _ => Ok(()),
     };
