@@ -67,6 +67,7 @@ pub fn shuffle(input_dir: &PathBuf, working_dir: &PathBuf, output_dir: &PathBuf,
 
 
 	// Start phase 2 where we loop over intermediate files and shuffle the lines within each to make outputs
+	// This is slow for some reason... idk why
 	let start_phase_2 = Instant::now();
 	println!("Starting phase II shuffle...");
 	let intermed_files = expand_dirs(vec![working_dir.clone()], None).unwrap();
