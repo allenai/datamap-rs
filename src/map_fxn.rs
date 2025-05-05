@@ -73,7 +73,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "line_len_modifier", LineLenModifier);
         register_processor!(m, "substring_line_modifier", SubstringLineModifier);
         register_processor!(m, "word_removal_ratio_filter", WordRemovalRatioFilter);
-        register_processor!(m, "madlad400_sentence_filter", Madlad400SentenceFilter);
+        register_processor!(m, "madlad400_sentence_annotator", Madlad400SentenceAnnotator);
         // Add more processor types as needed
 
         m
@@ -150,7 +150,7 @@ impl PipelineProcessor {
             match proc_result {
                 Some(data_value) => current_data = data_value,
                 None => {
-                    //*_filter_info.entry(filter_step).or_insert(0 as usize) += 1;
+                    *_filter_info.entry(filter_step).or_insert(0 as usize) += 1;
                     return Ok((filter_step, Some(og_copy)));
                 }
             }
@@ -1490,11 +1490,14 @@ impl DataProcessor for WordRemovalRatioFilter {
 #[derive(Derivative)]
 #[derivative(Debug)]
 #[derive(Serialize)]
-pub struct Madlad400SentenceFilter {
+pub struct Madlad400SentenceAnnotator {
     // Does the madlad400 sec2.3 filter : https://openreview.net/pdf?id=Y45ZCxslFx
+    // But just annotates 
     pub text_field: String,
     pub sentence_lower_bound: usize,        // defaults to 5
     pub sentence_question_upper_bound: f32, // defaults to 20%
+    pub annotation_key: String, // defaults to metadata.madlad
+
 
     // document consistency
     pub fast_text_file: String, // path to fasttext model
@@ -1526,12 +1529,14 @@ pub struct Madlad400SentenceFilter {
     pub cursed_regexes: Vec<Regex>,
 }
 
-impl DataProcessor for Madlad400SentenceFilter {
+impl DataProcessor for Madlad400SentenceAnnotator {
     fn new(config: &Value) -> Result<Self, Error> {
         let text_field = get_default(config, "text_field", String::from("text"));
         let sentence_lower_bound = get_default(config, "sentence_lower_bound", 5);
         let sentence_question_upper_bound =
             get_default(config, "sentence_question_upper_bound", 0.20) as f32;
+
+        let annotation_key = get_default(config, "annotation_key", String::from("metadata.madlad"));
 
         let fast_text_file = config
             .get("fast_text_file")
@@ -1580,6 +1585,7 @@ impl DataProcessor for Madlad400SentenceFilter {
             text_field,
             sentence_lower_bound,
             sentence_question_upper_bound,
+            annotation_key,
             fast_text_file,
             model,
             langid_field,
@@ -1595,7 +1601,7 @@ impl DataProcessor for Madlad400SentenceFilter {
         })
     }
 
-    fn process(&self, data: Value) -> Result<Option<Value>, Error> {
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
         // Setup for filtering
         let text = json_get(&data, &self.text_field)
             .unwrap()
@@ -1625,64 +1631,51 @@ impl DataProcessor for Madlad400SentenceFilter {
             .unwrap()
             .0;
 
-        let sentence_threshold = num_sentences as f32 * self.sentence_question_upper_bound;
-        let mut sus_sentences = 0;
-        //let mut sus_levels = vec![0,0,0,0,0];
+        // Tracker maps rule -> sentence ids for which this pops
+
+        let mut tracker: HashMap<usize, Vec<usize>> = HashMap::new();
+
 
         // Loop through sentences
-        for sentence in sentences {
-            // Stop to exit early maybe
-            if sus_sentences as f32 > sentence_threshold {
-                return Ok(None);
-            }
 
-            // Check abnormal len sentences
-            if self.abnormal_len_sentence(sentence).unwrap() {
-                //sus_levels[0] += 1;
-                sus_sentences += 1;
-                continue;
-            }
 
-            // Then check technical character counts
-            if self.technical_characters(sentence).unwrap() {
-                //sus_levels[1] += 1;
-                sus_sentences += 1;
-                continue;
+        for (sentence_num, sentence) in sentences.into_iter().enumerate() {
+            // And finally langid
+            if self.document_consistency(sentence, doc_lang).unwrap() {
+                tracker.entry(0).or_default().push(sentence_num);            
             }
 
             // Then check case
             if self.list_case(sentence).unwrap() {
-                //sus_levels[2] += 1;
-                sus_sentences += 1;
-                continue;
+                tracker.entry(1).or_default().push(sentence_num);
             }
+
+            // Check abnormal len sentences
+            if self.abnormal_len_sentence(sentence).unwrap() {
+                tracker.entry(2).or_default().push(sentence_num);
+            }
+
+
+            // Then check technical character counts
+            if self.technical_characters(sentence).unwrap() {
+                tracker.entry(3).or_default().push(sentence_num);
+            }
+
 
             // Then do cursed regex stuff
             if self.check_cursed_regexes(sentence).unwrap() {
-                //sus_levels[3] += 1;
-                sus_sentences += 1;
-                continue;
-            }
-
-            // And finally langid
-            if self.document_consistency(sentence, doc_lang).unwrap() {
-                //sus_levels[4] += 1;
-                sus_sentences += 1;
-                continue;
+                tracker.entry(4).or_default().push(sentence_num);            
             }
         }
 
-        // If too many questionable setences, filter out
-        //println!("Sus sentences {:?}", sus_levels);
-        if sus_sentences as f32 > sentence_threshold {
-            Ok(None)
-        } else {
-            Ok(Some(data))
-        }
+        let tracker_json: Value = json!(tracker);
+        json_set(&mut data, &self.annotation_key, tracker_json).unwrap();
+        Ok(Some(data))
+
     }
 }
 
-impl Madlad400SentenceFilter {
+impl Madlad400SentenceAnnotator {
     // Individual checks. Returns True if the sentence IS questionable!
     pub fn abnormal_len_sentence(&self, sentence: &str) -> Result<bool, Error> {
         Ok(
