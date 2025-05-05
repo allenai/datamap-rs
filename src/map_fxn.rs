@@ -150,7 +150,7 @@ impl PipelineProcessor {
             match proc_result {
                 Some(data_value) => current_data = data_value,
                 None => {
-                    //*_filter_info.entry(filter_step).or_insert(0 as usize) += 1;
+                    *_filter_info.entry(filter_step).or_insert(0 as usize) += 1;
                     return Ok((filter_step, Some(og_copy)));
                 }
             }
