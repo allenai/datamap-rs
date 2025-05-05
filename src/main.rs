@@ -29,6 +29,8 @@ pub mod map_fxn;
 pub mod utils;
 use datamap_rs::map_fxn::PipelineProcessor;
 pub use map_fxn::DataProcessor;
+pub use reservoir::reservoir;
+
 /*
 Map Config layout:
 
@@ -512,7 +514,14 @@ fn main() {
         } => reshard(
             input_dir, output_dir, *max_lines, *max_size, *subsample, *keep_dirs,
         ),
-
+        Commands::Reservoir {
+            input_dir,
+            key, 
+            reservoir_size,
+            output_file
+        } => reservoir(
+            input_dir, key, *reservoir_size, output_file
+            )
         _ => Ok(()),
     };
     result.unwrap();
