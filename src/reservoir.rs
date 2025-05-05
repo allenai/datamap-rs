@@ -25,7 +25,10 @@ pub fn reservoir(input_dir: &PathBuf, key: &String, reservoir_size: usize, outpu
     let num_threads = current_num_threads();
     let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
     let chunk_size = (all_files.len() + num_threads - 1) / num_threads;    
-    let chunks: Vec<Vec<PathBuf>> = all_files.chunks(chunk_size).map(|c| c.to_vec()).collect();
+    let mut chunks: Vec<Vec<PathBuf>> = all_files.chunks(chunk_size).map(|c| c.to_vec()).collect();
+    while chunks.len() < num_threads {
+    	chunks.push(Vec::new());
+    }
 
     let base_thread_res_size = reservoir_size / num_threads;
     let pbar = build_pbar(all_files.len(), "Paths");
