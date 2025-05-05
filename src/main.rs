@@ -24,12 +24,11 @@ use mj_io::{
     build_pbar, expand_dirs, get_output_filename, read_pathbuf_to_mem, write_mem_to_pathbuf,
 };
 use zstd::Encoder;
-use zstd::stream::write::AutoFinishEncoder;
 pub mod map_fxn;
 pub mod utils;
 use datamap_rs::map_fxn::PipelineProcessor;
 pub use map_fxn::DataProcessor;
-pub use reservoir::reservoir;
+pub use datamap_rs::reservoir::reservoir;
 
 /*
 Map Config layout:
@@ -90,6 +89,20 @@ enum Commands {
         #[arg(long)]
         keep_dirs: bool,
     },
+
+    Reservoir {
+        #[arg(required = true, long)]
+        input_dir: PathBuf,
+
+        #[arg(required = true, long)]
+        key: String,
+
+        #[arg(required = true, long)]
+        reservoir_size: usize,        
+
+        #[arg(required = true, long)]
+        output_file: PathBuf,                
+    }
 }
 
 /*============================================================
@@ -521,7 +534,7 @@ fn main() {
             output_file
         } => reservoir(
             input_dir, key, *reservoir_size, output_file
-            )
+            ),
         _ => Ok(()),
     };
     result.unwrap();
