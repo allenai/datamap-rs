@@ -1613,9 +1613,14 @@ impl DataProcessor for Madlad400SentenceAnnotator {
             .split(&text)
             .filter(|s| s.trim().len() > 0)
             .collect();
-        let num_sentences = sentences.len();
-        if num_sentences < self.sentence_lower_bound {
-            return Ok(None);
+        let num_sentences = sentences.len();    
+        let madlad_status = self.annotation_key.clone() + "_status";
+        let mut tracker: HashMap<&str, Vec<usize>> = HashMap::new();
+        tracker.entry("num_sentences").or_default().push(num_sentences);
+
+        if num_sentences < self.sentence_lower_bound {            
+            json_set(&mut data, &madlad_status, json!("killed:too_short")).unwrap();
+            return Ok(Some(data));
         }
 
         let doc_lang = json_get(&data, &self.langid_field)
@@ -1633,42 +1638,55 @@ impl DataProcessor for Madlad400SentenceAnnotator {
 
         // Tracker maps rule -> sentence ids for which this pops
 
-        let mut tracker: HashMap<usize, Vec<usize>> = HashMap::new();
-
-
+        let mut sus_sentences: HashSet<usize> = HashSet::new();
+        let sentence_threshold = num_sentences as f32 * self.sentence_question_upper_bound;
         // Loop through sentences
 
 
         for (sentence_num, sentence) in sentences.into_iter().enumerate() {
             // And finally langid
             if self.document_consistency(sentence, doc_lang).unwrap() {
-                tracker.entry(0).or_default().push(sentence_num);            
+                tracker.entry("rule.1").or_default().push(sentence_num);            
+                sus_sentences.insert(sentence_num);
             }
 
             // Then check case
             if self.list_case(sentence).unwrap() {
-                tracker.entry(1).or_default().push(sentence_num);
+                tracker.entry("rule.2").or_default().push(sentence_num);
+                sus_sentences.insert(sentence_num);
+
             }
 
             // Check abnormal len sentences
             if self.abnormal_len_sentence(sentence).unwrap() {
-                tracker.entry(2).or_default().push(sentence_num);
+                tracker.entry("rule.3").or_default().push(sentence_num);
+                sus_sentences.insert(sentence_num);
+
             }
 
 
             // Then check technical character counts
             if self.technical_characters(sentence).unwrap() {
-                tracker.entry(3).or_default().push(sentence_num);
+                tracker.entry("rule.4").or_default().push(sentence_num);
+                sus_sentences.insert(sentence_num);
+
             }
 
 
             // Then do cursed regex stuff
             if self.check_cursed_regexes(sentence).unwrap() {
-                tracker.entry(4).or_default().push(sentence_num);            
+                tracker.entry("rule.5").or_default().push(sentence_num);            
+                sus_sentences.insert(sentence_num);
+
             }
         }
 
         let tracker_json: Value = json!(tracker);
+        if sus_sentences.len() as f32 > sentence_threshold {
+            json_set(&mut data, &madlad_status, json!("killed:too_many_sus_sentences")).unwrap();
+        } else {
+            json_set(&mut data, &madlad_status, json!("survived")).unwrap();
+        }
         json_set(&mut data, &self.annotation_key, tracker_json).unwrap();
         Ok(Some(data))
 
