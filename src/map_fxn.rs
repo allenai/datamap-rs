@@ -1579,3 +1579,18 @@ impl DataProcessor for OlmocrRulesAdder {
 		Ok(Some(data))
 	}
 }
+
+
+
+#[derive(Serialize, Debug)]
+pub struct KeywordsEnricher {
+	// Filters according to average word length
+	pub text_field: String,
+}
+
+
+impl DataProcessor for OlmocrRulesAdder {
+	fn new(config: &Value) -> Result<Self, Error> {
+		let text_field = get_default(config, "text_field", String::from("text"));
+		Ok(Self {text_field})
+	}
