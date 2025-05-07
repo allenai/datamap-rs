@@ -19,7 +19,7 @@ use rand::prelude::*;
 use rand::seq::SliceRandom;
 
 
-pub fn shuffle(input_dir: &PathBuf, working_dir: &PathBuf, output_dir: &PathBuf, num_files: usize) -> Result<(), Error> {
+pub fn shuffle(input_dir: &PathBuf, working_dir: &PathBuf, output_dir: &PathBuf, full: bool, num_files: usize) -> Result<(), Error> {
 
 	let start_main = Instant::now();
 	println!("Starting shuffle...");
@@ -31,16 +31,28 @@ pub fn shuffle(input_dir: &PathBuf, working_dir: &PathBuf, output_dir: &PathBuf,
 	};
 	let num_files_u64 = num_files as u64;
 
+
+
 	// Start phase 1 where we write the outputs in a streaming fashion to intermed files
 	println!("Starting phase I shuffle...");
 	let start_phase_1 = Instant::now();
 
+
+
 	let writers: DashMap<u64, Mutex<Encoder<'static, BufWriter<File>>>> = DashMap::new();
-	(0..num_files).into_par_iter().for_each(|i| {
-		let shard_name = working_dir.clone().join(format!("intermed_shard_{:08}.jsonl.zst", i));
-		let writer = make_intermed_writer(shard_name).unwrap();
-		writers.insert(i as u64, writer);
-	});
+	if full {
+		(0..num_files).into_par_iter().for_each(|i| {
+			let shard_name = working_dir.clone().join(format!("intermed_shard_{:08}.jsonl.zst", i));
+			let writer = make_intermed_writer(shard_name).unwrap();
+			writers.insert(i as u64, writer);
+		});
+	} else {
+		(0..num_files).into_par_iter().for_each(|i| {
+			let shard_name = output_dir.clone().join(format!("shuffled_shard_{:08}.jsonl.zst", i));
+			let writer = make_intermed_writer(shard_name).unwrap();
+			writers.insert(i as u64, writer);
+		});		
+	}
 
 	let pbar = build_pbar(input_files.len(), "Input paths");
 	input_files.into_par_iter().for_each(|p| {
@@ -63,7 +75,10 @@ pub fn shuffle(input_dir: &PathBuf, working_dir: &PathBuf, output_dir: &PathBuf,
 			encoder.finish().unwrap();
 		});
 	println!("Finished phase I in {:?} secs", start_phase_1.elapsed().as_secs());
-
+	if full {
+		println!("Shuffled in {:?} secs", start_main.elapsed().as_secs());
+		return Ok(());
+	}
 
 
 	// Start phase 2 where we loop over intermediate files and shuffle the lines within each to make outputs

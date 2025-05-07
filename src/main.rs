@@ -101,6 +101,9 @@ enum Commands {
         #[arg(required=true, long)]
         output_dir: PathBuf,
 
+        #[arg(long, default_value_t=false)] // if true, shuffles lines within files at end;
+        full: bool,
+
         #[arg(long, default_value_t=0)] // Defaults to same as number of input files
         num_files: usize        
     }
@@ -532,8 +535,9 @@ fn main() {
             input_dir,
             working_dir,
             output_dir,
+            full,
             num_files,
-        } => shuffle(input_dir, working_dir, output_dir, *num_files),
+        } => shuffle(input_dir, working_dir, output_dir, *full, *num_files),
 
         _ => Ok(()),
     };
