@@ -75,7 +75,7 @@ pub fn shuffle(input_dir: &PathBuf, working_dir: &PathBuf, output_dir: &PathBuf,
 			encoder.finish().unwrap();
 		});
 	println!("Finished phase I in {:?} secs", start_phase_1.elapsed().as_secs());
-	if full {
+	if !full {
 		println!("Shuffled in {:?} secs", start_main.elapsed().as_secs());
 		return Ok(());
 	}
