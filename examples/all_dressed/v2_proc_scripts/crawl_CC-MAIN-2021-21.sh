@@ -3,7 +3,7 @@
 
 
 # Store the input argument
-X=crawl_CC-MAIN-2021-21
+X=crawl=CC-MAIN-2021-21
 
 
 echo "Processing directory: $X"
