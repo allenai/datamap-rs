@@ -74,6 +74,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "substring_line_modifier", SubstringLineModifier);
         register_processor!(m, "word_removal_ratio_filter", WordRemovalRatioFilter);
         register_processor!(m, "madlad400_sentence_annotator", Madlad400SentenceAnnotator);
+        register_processor!(m, "madlad400_rule_filter", Madlad400RuleFilter);
         // Add more processor types as needed
 
         m
@@ -1763,5 +1764,70 @@ impl Madlad400SentenceAnnotator {
             .unwrap()
             .label;
         Ok(sentence_lang != doc_lang)
+    }
+}
+
+
+
+#[derive(Derivative)]
+#[derivative(Debug)]
+#[derive(Serialize)]
+pub struct Madlad400RuleFilter {
+    // Filters based on the madlad rules
+    // Removes if too_short OR if any of the rule filters applies
+    pub annotation_key: String, // defaults to metadata.madlad
+    pub sentence_lower_bound: usize,
+    pub rules_to_remove: Vec<Vec<usize>>,
+    pub threshold: f64, // defaults to 0.2
+}
+
+impl DataProcessor for Madlad400RuleFilter {
+    fn new(config: &Value) -> Result<Self, Error> {
+
+        let annotation_key = get_default(config, "annotation_key", String::from("metadata.madlad"));
+        let sentence_lower_bound = get_default(config, "sentence_lower_bound", usize::MAX);
+        let rules_to_remove = get_default(config, "rules_to_remove", Vec::new());
+        let rules_to_remove: Vec<Vec<usize>> = if rules_to_remove.len() == 0 {
+            Vec::new()
+        } else {
+            rules_to_remove.into_iter().map(|v| v.as_array().unwrap().into_iter().map(|k| k.clone().as_u64().unwrap() as usize).collect::<Vec<usize>>()).collect::<Vec<Vec<usize>>>()
+        };
+
+        let threshold = get_default(config, "threshold", 0.2);
+
+        Ok(Self {
+            annotation_key,
+            sentence_lower_bound,
+            rules_to_remove,
+            threshold
+        })
+    }
+
+    fn process(&self, data: Value) -> Result<Option<Value>, Error> {        
+        let annotation_data: HashMap<String, Vec<usize>> = serde_json::from_value(json_get(&data, &self.annotation_key).unwrap().clone()).unwrap();
+
+        let num_sentences = annotation_data.get("num_sentences").unwrap()[0];
+        if num_sentences < self.sentence_lower_bound {
+            return Ok(None);            
+        };
+        let sus_threshold = num_sentences as f64 * &self.threshold;
+        for rule in &self.rules_to_remove {
+            let mut sus_sentences: HashSet<usize> = HashSet::new();
+            for subrule in rule {
+                let key = format!("rule.{:}", subrule);
+                if let Some(sentence_ids) = annotation_data.get(&key) {
+                    for sentence_id in sentence_ids {
+                        sus_sentences.insert(*sentence_id);
+                    }
+                }
+            }
+            if sus_sentences.len() as f64 >= sus_threshold {
+                return Ok(None);
+            }
+        }
+        
+
+        Ok(Some(data))
+
     }
 }
