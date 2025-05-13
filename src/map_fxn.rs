@@ -55,6 +55,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "newline_removal_modifier", NewlineRemovalModifier);
         register_processor!(m, "fasttext_annotator", FastTextAnnotator);
         register_processor!(m, "float_filter", FloatFilter);
+        register_processor!(m, "string_eq_filter", StringEqFilter);
         register_processor!(m, "page_len_filter", PageLenFilter);
         register_processor!(m, "word_len_filter", WordLenFilter);
         register_processor!(m, "symbol_ratio_filter", SymbolRatioFilter);
@@ -657,6 +658,45 @@ impl DataProcessor for FloatFilter {
         }
     }
 }
+
+
+#[derive(Serialize, Debug)]
+pub struct StringEqFilter {
+    // Filters based on string equality 
+    pub str_field: String,
+    pub eq: String,
+    pub keep_matches: bool  // defaults to true, which means we keep docs that have this trait; o/w docs that don't
+}
+
+impl DataProcessor for StringEqFilter {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let str_field = config
+            .get("str_field")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+        let eq = config
+            .get("eq")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+        let keep_matches = get_default(config, "keep_matches", true);
+
+        Ok(Self {str_field, eq, keep_matches})    
+    }
+
+    fn process(&self, data: Value) -> Result<Option<Value>, Error> {
+        let val = json_get(&data, &self.str_field).unwrap().as_str().unwrap().to_string();        
+        
+        if (&val == &self.eq) == self.keep_matches {
+            return Ok(Some(data));
+        }
+        Ok(None)
+    }
+}
+
 
 #[derive(Serialize, Debug)]
 pub struct PageLenFilter {
