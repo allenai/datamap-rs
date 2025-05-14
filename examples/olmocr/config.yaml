@@ -28,14 +28,16 @@ pipeline:
   - name: float_filter
     kwargs:
       float_field: metadata.dclm_quality.__label__hq
-      lower_bound: 0.03311014
+      lower_bound: 0.018112 # DCLM baseline
+      # lower_bound: 0.03311014 # DCLM HQ
       default: 0.0
   - name: fasttext_annotator
     kwargs:
       fast_text_file: /mnt/raid0/models/fineweb_edu_gt2_bigram_200k.bin
       output_field: metadata.fineweb_edu
-  # - name: float_filter
-  #   kwargs:
-  #     float_field: metadata.fineweb_edu.__label__1
-  #     lower_bound: 0.30
-  #     default: 0.0
+  - name: float_filter
+    kwargs:
+      float_field: metadata.fineweb_edu.__label__1
+      # lower_bound: 0.10
+      lower_bound: 0.30
+      default: 0.0

@@ -516,6 +516,7 @@ pub struct FastTextAnnotator {
 	pub output_field: String,
 	pub k: i32,
 	pub threshold: f32,
+	pub max_chars: usize,
 	#[serde(skip)]
 	pub model: FastText
 }
@@ -528,15 +529,28 @@ impl DataProcessor for FastTextAnnotator {
 		let output_field = get_default(config, "output_field", String::from("metadata.fasttext"));
 		let k = get_default(config, "k", 10 as usize) as i32;
 		let threshold = get_default(config, "threshold", 0.0) as f32;
+		let max_chars = get_default(config, "max_chars", 200_000);
 		let mut model = FastText::new();
 		model.load_model(&fast_text_file).unwrap();
-		Ok(Self {fast_text_file, text_field, output_field, k, threshold, model})
+		Ok(Self {fast_text_file, text_field, output_field, k, threshold, max_chars, model})
 	}
 
 
 	fn process(&self, mut data: Value) -> Result<Option<Value> ,Error> {
 
-		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string().replace("\n", " ");
+		let mut text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string().replace("\n", " ");
+
+		// truncate text if it's too long; we have to walk to closest valid UTF-8 boundary
+		if text.len() > self.max_chars {
+			// find the largest byte‐index ≤ max_chars that is a valid UTF-8 boundary
+			let mut idx = self.max_chars;
+			while !text.is_char_boundary(idx) {
+				idx -= 1;
+			}
+			// now `idx` is on a char boundary
+			text.truncate(idx);
+		}
+
 		let predictions = self.model.predict(&text, self.k, self.threshold).unwrap();
 
 		let mut map = serde_json::Map::new();
