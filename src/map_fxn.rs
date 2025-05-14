@@ -1825,7 +1825,7 @@ impl DataProcessor for Madlad400RuleFilter {
     fn new(config: &Value) -> Result<Self, Error> {
 
         let annotation_key = get_default(config, "annotation_key", String::from("metadata.madlad"));
-        let sentence_lower_bound = get_default(config, "sentence_lower_bound", usize::MAX);
+        let sentence_lower_bound = get_default(config, "sentence_lower_bound", 0);
         let rules_to_remove = get_default(config, "rules_to_remove", Vec::new());
         let rules_to_remove: Vec<Vec<usize>> = if rules_to_remove.len() == 0 {
             Vec::new()
