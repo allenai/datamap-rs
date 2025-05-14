@@ -17,7 +17,7 @@ use std::collections::{HashMap, HashSet};
 
 use url::Url;
 use mj_io::read_pathbuf_to_mem;
-use fasttext::FastText;
+use fasttext::{FastText, Prediction};
 use unicode_segmentation::UnicodeSegmentation;
 use regex::Regex;
 use fxhash::FxHasher;
@@ -516,7 +516,7 @@ pub struct FastTextAnnotator {
 	pub output_field: String,
 	pub k: i32,
 	pub threshold: f32,
-	pub max_chars: usize,
+	pub max_words: usize,
 	#[serde(skip)]
 	pub model: FastText
 }
@@ -529,10 +529,10 @@ impl DataProcessor for FastTextAnnotator {
 		let output_field = get_default(config, "output_field", String::from("metadata.fasttext"));
 		let k = get_default(config, "k", 10 as usize) as i32;
 		let threshold = get_default(config, "threshold", 0.0) as f32;
-		let max_chars = get_default(config, "max_chars", 200_000);
+		let max_words = get_default(config, "max_words", 10_000);
 		let mut model = FastText::new();
 		model.load_model(&fast_text_file).unwrap();
-		Ok(Self {fast_text_file, text_field, output_field, k, threshold, max_chars, model})
+		Ok(Self {fast_text_file, text_field, output_field, k, threshold, max_words, model})
 	}
 
 
@@ -540,18 +540,22 @@ impl DataProcessor for FastTextAnnotator {
 
 		let mut text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string().replace("\n", " ");
 
-		// truncate text if it's too long; we have to walk to closest valid UTF-8 boundary
-		if text.len() > self.max_chars {
-			// find the largest byte‐index ≤ max_chars that is a valid UTF-8 boundary
-			let mut idx = self.max_chars;
-			while !text.is_char_boundary(idx) {
-				idx -= 1;
-			}
-			// now `idx` is on a char boundary
-			text.truncate(idx);
+		// count the number of whitespace characters in the text
+		let whitespace_count = text.chars().filter(|c| c.is_whitespace()).count();
+		if whitespace_count > self.max_words {
+			// truncate the text to the first max_words whitespace characters
+			// to do so, split the text by whitespace and take the first max_words elements,
+			// then join them back together
+			text = text.split_whitespace().take(self.max_words).collect::<Vec<&str>>().join(" ");
 		}
 
-		let predictions = self.model.predict(&text, self.k, self.threshold).unwrap();
+		let predictions = match self.model.predict(&text, self.k, self.threshold) {
+			Ok(preds) => preds,
+			Err(_e) => {
+				println!("Error predicting for document: {:?}", json_get(&data, "id").unwrap_or(&json!("unknown")));
+				vec![]
+			}
+		};
 
 		let mut map = serde_json::Map::new();
 		for pred in predictions {
@@ -1486,7 +1490,10 @@ pub struct OlmocrRulesAdder {
 
 	#[serde(skip)]
 	compiled_numbers_regex: Regex,
-	}
+
+	#[serde(skip)]
+	compiled_whitespace_regex: Regex,
+}
 
 
 impl DataProcessor for OlmocrRulesAdder {
@@ -1496,7 +1503,8 @@ impl DataProcessor for OlmocrRulesAdder {
 		let default_numbers_regex = r"\d+";
 		let numbers_regex = get_default(config, "numbers_regex", default_numbers_regex.to_string());
 		let compiled_numbers_regex = Regex::new(&numbers_regex).unwrap();
-		Ok(Self {text_field, numbers_regex, compiled_numbers_regex})
+		let compiled_whitespace_regex = Regex::new(r"\s+").unwrap();
+		Ok(Self {text_field, numbers_regex, compiled_numbers_regex, compiled_whitespace_regex})
 	}
 
 	fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
@@ -1526,6 +1534,16 @@ impl DataProcessor for OlmocrRulesAdder {
 
 		let mut in_code_block = false;
 		let mut in_equation_block = false;
+
+		// use regex to count the number of whitespace characters in the text;
+		// contiguous whitespace is counted as one
+		let whitespace_count = self.compiled_whitespace_regex.find_iter(&text).count();
+
+		// we increment the word count by 1 to account for the last word
+		let word_count = whitespace_count + 1;
+
+		// count the number of utf-8 characters in the text; multi-byte characters are counted as 1
+		let utf8_char_count = text.chars().count();
 
 		for line in text.lines() {
 			all_lines_count += 1;
@@ -1592,7 +1610,9 @@ impl DataProcessor for OlmocrRulesAdder {
 			"inline_equation_lines_ratio": inline_equation_lines_count as f32 / all_lines_count as f32,
 			"equation_block_lines_count": equation_block_lines_count,
 			"equation_block_lines_ratio": equation_block_lines_count as f32 / all_lines_count as f32,
-			"digits_ratio": all_digits_ratio / all_lines_count as f32
+			"digits_ratio": all_digits_ratio / all_lines_count as f32,
+			"word_count": word_count,
+			"utf8_char_count": utf8_char_count,
 		}));
 		json_set(&mut data, &String::from("metadata"), Value::Object(metadata)).unwrap();
 
