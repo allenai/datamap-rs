@@ -14,7 +14,7 @@ pipeline:
       default: 1.0
   - name: fasttext_annotator
     kwargs:
-      fast_text_file: examples/olmocr/lid.176.bin
+      fast_text_file: /mnt/raid0/models/lid.176.bin
       output_field: metadata.lang
   - name: float_filter
     kwargs:
@@ -23,7 +23,7 @@ pipeline:
       default: 0.0
   - name: fasttext_annotator
     kwargs:
-      fast_text_file: examples/olmocr/openhermes_reddit_eli5_vs_rw_v2_bigram_200k_train.bin
+      fast_text_file: /mnt/raid0/models/openhermes_reddit_eli5_vs_rw_v2_bigram_200k_train.bin
       output_field: metadata.dclm_quality
   - name: float_filter
     kwargs:
@@ -32,7 +32,7 @@ pipeline:
       default: 0.0
   - name: fasttext_annotator
     kwargs:
-      fast_text_file: examples/olmocr/fineweb_edu_gt2_bigram_200k.bin
+      fast_text_file: /mnt/raid0/models/fineweb_edu_gt2_bigram_200k.bin
       output_field: metadata.fineweb_edu
   # - name: float_filter
   #   kwargs:
