@@ -1,3 +1,4 @@
+use std::cmp;
 use std::time::Instant;
 use crate::utils::{extract_subdomain, get_default, json_get, json_set};
 use aho_corasick::AhoCorasick;
@@ -77,6 +78,8 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "madlad400_sentence_annotator", Madlad400SentenceAnnotator);
         register_processor!(m, "madlad400_rule_filter", Madlad400RuleFilter);
         // Add more processor types as needed
+        register_processor!(m, "interval_filter", IntervalFilter);
+
 
         m
     });
@@ -1871,3 +1874,166 @@ impl DataProcessor for Madlad400RuleFilter {
 
     }
 }
+
+
+#[derive(Derivative)]
+#[derivative(Debug)]
+#[derive(Serialize)]
+pub struct IntervalFilter {
+    pub text_field: String, // defaults to global text field, or "text"
+    pub interval_field: String, // Required! If intervals don't exist, doc is left as is
+    pub fuzzy_merge: bool, // defaults to false
+    pub merge_fuzziness: f64 // only necessary if fuzzy_merge is true
+}
+
+impl DataProcessor for IntervalFilter {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let text_field = get_default(config, "text_field", String::from("text_field"));
+        let interval_field = json_get(config, "interval_field").unwrap().as_str().unwrap().to_string();
+        let fuzzy_merge = get_default(config, "fuzzy_merge", false);
+        let merge_fuzziness = get_default(config, "merge_fuzziness", 1.0 as f64);
+
+        Ok(Self {text_field, interval_field, fuzzy_merge, merge_fuzziness})
+    }
+
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+
+        // Collect things we need frorm the data
+        let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
+        let intervals: Vec<(usize, usize)> = if let Some(base_intervals) = json_get(&data, &self.interval_field) {
+            base_intervals.as_array().unwrap().iter().map(|interval| {
+                let interval = interval.as_array().unwrap();
+                (interval[0].as_u64().unwrap() as usize, interval[1].as_u64().unwrap() as usize)
+            }).collect::<Vec<(usize, usize)>>()
+        } else {
+            return Ok(Some(data));
+        };
+
+        // Merge the intervals if that's a thing we need to do
+        let intervals = if self.fuzzy_merge {
+            fuzzy_interval_merge(intervals, self.merge_fuzziness)
+        } else {
+            intervals
+        };
+
+
+        // Scrub out the interval data from the text
+        let mut output = String::with_capacity(text.len());
+        let mut last_excluded = 0;
+        for interval in intervals {
+            let start = interval.0;
+            let end = interval.1;
+            output.push_str(&text[last_excluded..start]);
+            last_excluded = end;            
+        }
+        if last_excluded < text.len() {
+            output.push_str(&text[last_excluded..]);
+        }
+
+        if output.len() == 0 {
+            return Ok(None);
+        }
+        json_set(&mut data, &self.text_field, serde_json::Value::String(output)).unwrap();
+        Ok(Some(data))
+    }
+
+}
+
+fn fuzzy_interval_merge(intervals: Vec<(usize, usize)>, merge_fuzziness: f64) -> Vec<(usize, usize)> {
+    let forward = fuzzy_sandwich_intervals(&intervals, true, merge_fuzziness);
+    let backward = fuzzy_sandwich_intervals(&intervals, false, merge_fuzziness);
+    merge_sorted_interval_pair(forward, backward)
+}
+
+
+fn merge_intervals(mut v: Vec<(usize, usize)>, already_sorted: bool) -> Vec<(usize, usize)>{    
+    if !already_sorted {
+        v.sort_by_key(|(key, _)| key.clone());
+    }
+    let mut merged: Vec<(usize, usize)> = Vec::new();
+    for (s, e) in v {
+        if merged.len() == 0 {
+            merged.push((s, e));
+        } else if merged.last().unwrap().1 >= s {
+            let (old_s, old_e) = merged.pop().unwrap();
+            merged.push((old_s, cmp::max(e, old_e)));
+        } else {
+            merged.push((s, e));
+        }
+    }
+    merged
+}
+
+fn merge_sorted_interval_pair(u: Vec<(usize, usize)>, w: Vec<(usize, usize)>) -> Vec<(usize, usize)> {
+    // Given two sorted lists of intervals, does a merge of the pairs, and then unions all intervals
+    let mut v : Vec<(usize, usize)> = Vec::new();
+    let mut ui = 0;
+    let mut wi = 0;
+    while ui < u.len() && wi < w.len() {
+        let (us, ue) = u[ui];
+        let (ws, we) = w[wi];
+        if us < ws || (us == ws && ue <= we){
+            v.push((us, ue));
+            ui += 1;
+        } else {
+            v.push((ws, we));
+            wi += 1
+        } 
+    }
+    while ui < u.len() {
+        v.push(u[ui]);
+        ui += 1;
+    }
+
+    while wi < w.len() {
+        v.push(w[wi]);
+        wi += 1;
+    }
+
+    merge_intervals(v, true)
+}
+
+
+fn fuzzy_sandwich_intervals(v: &Vec<(usize, usize)>, foward: bool, threshold: f64) -> Vec<(usize, usize)> {
+    // Given SORTED list of DISJOINT intervals, scans in the forward/!forward direction
+    // And collects all intervals that: 
+    // 1. Start and end at an interval
+    // 2. Have >=threshold of the range contained in an input interval
+    // e.g. [(0,9), (10, 20)] -> [(0,20)] (when the threshold is <=0.95)
+
+    let n = v.len();
+    let iter_range : Vec<_> = if foward {
+        (0..n).collect()
+    } else {
+        (0..n).rev().collect()
+    };
+    let mut output : Vec<(i32, i32, i32)> = Vec::new();
+    for idx in iter_range {
+
+        let (next_s, next_e) = v[idx];
+        let next_s = next_s as i32;
+        let next_e = next_e as i32;
+
+        if output.len() == 0 {
+            output.push((next_s, next_e, next_e - next_s));
+            continue;
+        }
+        let (cur_s, cur_e, cur_w) = output.last().unwrap();
+        let new_interval = (cmp::min(next_s, *cur_s as i32), 
+                            cmp::max(next_e, *cur_e as i32), 
+                            *cur_w  as i32 + next_e - next_s);
+        if new_interval.2 as f64 >= (new_interval.1 - new_interval.0) as f64 * threshold {
+            output.pop().unwrap();
+            output.push(new_interval);
+        } else {
+            output.push((next_s, next_e, next_e - next_s));
+        }
+    }
+
+    output
+        .iter()
+        .map(|(a,b, _)| (*a as usize, *b as usize))
+        .collect()
+}
+
+
