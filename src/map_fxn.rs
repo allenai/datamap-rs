@@ -1883,7 +1883,9 @@ pub struct IntervalFilter {
     pub text_field: String, // defaults to global text field, or "text"
     pub interval_field: String, // Required! If intervals don't exist, doc is left as is
     pub fuzzy_merge: bool, // defaults to false
-    pub merge_fuzziness: f64 // only necessary if fuzzy_merge is true
+
+    pub merge_fuzziness: f64, // only necessary if fuzzy_merge is true
+    pub output_text_field: String, // defaults to text field if not present
 }
 
 impl DataProcessor for IntervalFilter {
@@ -1892,8 +1894,8 @@ impl DataProcessor for IntervalFilter {
         let interval_field = json_get(config, "interval_field").unwrap().as_str().unwrap().to_string();
         let fuzzy_merge = get_default(config, "fuzzy_merge", false);
         let merge_fuzziness = get_default(config, "merge_fuzziness", 1.0 as f64);
-
-        Ok(Self {text_field, interval_field, fuzzy_merge, merge_fuzziness})
+        let output_text_field = get_default(config, "output_text_field", text_field.clone());
+        Ok(Self {text_field, interval_field, fuzzy_merge, merge_fuzziness, output_text_field})
     }
 
     fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
@@ -1933,7 +1935,8 @@ impl DataProcessor for IntervalFilter {
         if output.len() == 0 {
             return Ok(None);
         }
-        json_set(&mut data, &self.text_field, serde_json::Value::String(output)).unwrap();
+
+        json_set(&mut data, &self.output_text_field, serde_json::Value::String(output)).unwrap();
         Ok(Some(data))
     }
 
@@ -2009,6 +2012,7 @@ fn fuzzy_sandwich_intervals(v: &Vec<(usize, usize)>, foward: bool, threshold: f6
     };
     let mut output : Vec<(i32, i32, i32)> = Vec::new();
     for idx in iter_range {
+
 
         let (next_s, next_e) = v[idx];
         let next_s = next_s as i32;
