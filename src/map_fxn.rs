@@ -1819,7 +1819,8 @@ pub struct Madlad400RuleFilter {
     // Filters based on the madlad rules
     // Removes if too_short OR if any of the rule filters applies
     pub annotation_key: String, // defaults to metadata.madlad
-    pub sentence_lower_bound: usize,
+    pub status_key: String, // defaults to metadata.madlad_status
+    pub remove_too_short: bool, // remove if status is too short, defaults to false
     pub rules_to_remove: Vec<Vec<usize>>,
     pub threshold: f64, // defaults to 0.2
 }
@@ -1828,7 +1829,8 @@ impl DataProcessor for Madlad400RuleFilter {
     fn new(config: &Value) -> Result<Self, Error> {
 
         let annotation_key = get_default(config, "annotation_key", String::from("metadata.madlad"));
-        let sentence_lower_bound = get_default(config, "sentence_lower_bound", 0);
+        let status_key = get_default(config, "status_key", String::from("metadata.madlad_status"));
+        let remove_too_short = get_default(config, "remove_too_short", false);
         let rules_to_remove = get_default(config, "rules_to_remove", Vec::new());
         let rules_to_remove: Vec<Vec<usize>> = if rules_to_remove.len() == 0 {
             Vec::new()
@@ -1840,19 +1842,28 @@ impl DataProcessor for Madlad400RuleFilter {
 
         Ok(Self {
             annotation_key,
-            sentence_lower_bound,
+            status_key,
+            remove_too_short,
             rules_to_remove,
             threshold
         })
     }
 
     fn process(&self, data: Value) -> Result<Option<Value>, Error> {        
-        let annotation_data: HashMap<String, Vec<usize>> = serde_json::from_value(json_get(&data, &self.annotation_key).unwrap().clone()).unwrap();
+    	let status: String = json_get(&data, &self.status_key).unwrap().as_str().unwrap().to_string();
 
+    	if status == "killed:too_short" {
+    		if self.remove_too_short {
+    			return Ok(None);
+    		} else {
+    			return Ok(Some(data));
+    		}
+
+    	}
+
+
+        let annotation_data: HashMap<String, Vec<usize>> = serde_json::from_value(json_get(&data, &self.annotation_key).unwrap().clone()).unwrap();
         let num_sentences = annotation_data.get("num_sentences").unwrap()[0];
-        if num_sentences < self.sentence_lower_bound {
-            return Ok(None);            
-        };
         let sus_threshold = num_sentences as f64 * &self.threshold;
         for rule in &self.rules_to_remove {
             let mut sus_sentences: HashSet<usize> = HashSet::new();
