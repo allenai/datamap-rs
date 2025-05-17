@@ -1,0 +1,9 @@
+name: madlad
+text_field: text
+pipeline:
+  - name: madlad400_rule_filter
+    kwargs:
+      annotation_key: metadata.madlad
+      sentence_lower_bound: 5
+      rules_to_remove: [[2,5]]
+      threshold: 0.2
