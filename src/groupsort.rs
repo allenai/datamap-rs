@@ -1,3 +1,7 @@
+use std::sync::atomic;
+use serde_json::Value;
+use std::sync::atomic::AtomicUsize;
+use std::collections::HashMap;
 use anyhow::{Error, Result};
 use dashmap::DashMap;
 use std::{
@@ -12,11 +16,11 @@ use std::{
 use serde_json;
 use rayon::prelude::*;
 use crate::utils::json_get;
-use mj_io::{expand_dirs, read_pathbuf_to_mem, build_pbar};
+use mj_io::{expand_dirs, read_pathbuf_to_mem, build_pbar, write_mem_to_pathbuf};
 use zstd::stream::Encoder;
 use serde::{Deserialize, Serialize};
-
-
+use regex::Regex;
+use std::cmp::Ordering;
 
 /*
 Multinode grouping and sorting
@@ -49,7 +53,7 @@ fn default_max_file_size() -> usize {
 =                            GROUP SORT STUFF                =
 ============================================================*/
 
-pub fn distributed_group(input_dir: &PathBuf, group_dir: &PathBuf, config_path: &PathBuf) -> Result<(), Error> {
+pub fn distributed_group(input_dir: &PathBuf, group_dir: &PathBuf, config_path: &PathBuf, subext: Option<String>) -> Result<(), Error> {
 
 	let start_main = Instant::now();
 	println!("Starting group operation");	
@@ -57,7 +61,12 @@ pub fn distributed_group(input_dir: &PathBuf, group_dir: &PathBuf, config_path: 
 	let config_contents = read_pathbuf_to_mem(config_path).unwrap();
 	let config: GroupsortConfig = serde_yaml::from_reader(config_contents).unwrap();
 	let num_buckets = config.num_buckets;
-	let writer = GenWriter::new(group_dir, num_buckets, "group", config.max_file_size);
+	let subext = if let Some(subext) = subext {
+		subext
+	} else {
+		"group".to_string()
+	};
+	let writer = GenWriter::new(group_dir, num_buckets, &subext, config.max_file_size);
 	let pbar = build_pbar(input_paths.len(), "Paths");
 	input_paths.par_iter().for_each(|p| {
 		group_path(p, &config.group_keys, &writer).unwrap();
@@ -76,22 +85,175 @@ fn group_path(path: &PathBuf, group_keys: &Vec<String>, writer: &GenWriter) -> R
 	for line in contents.lines() {
 		let line = line.unwrap();
 		let value : serde_json::Value = serde_json::from_str(&line).unwrap();
+		let hash_val = get_group_hash(&value, group_keys).unwrap();
+		writer.write_line(hash_val % num_chunks, line.into()).unwrap();
+	}
+	Ok(())
+}
 
-		let mut hasher = DefaultHasher::new();
-		for k in group_keys {
-			let group_val = json_get(&value, &k).unwrap();
-			let group_val_string = group_val.to_string();
-			group_val_string.hash(&mut hasher)
+
+fn get_group_hash(value: &serde_json::Value, group_keys: &Vec<String>) -> Result<usize, Error> {
+	let mut hasher = DefaultHasher::new();
+	for k in group_keys {
+		let group_val = json_get(value, &k).unwrap();
+		let group_val_string = group_val.to_string();
+		group_val_string.hash(&mut hasher)
+	}
+	Ok(hasher.finish() as usize)
+}
+
+
+pub fn distributed_sort(group_dir: &PathBuf, sorted_dir: &PathBuf, config_path: &PathBuf) -> Result<(), Error> {
+	let start_main = Instant::now();
+	println!("Starting main sort operation");
+	let group_paths = expand_dirs(vec![group_dir.clone()], None).unwrap();
+	let config_contents = read_pathbuf_to_mem(config_path).unwrap();
+	let config: GroupsortConfig = serde_yaml::from_reader(config_contents).unwrap();
+
+	// Group the "grouped" files according to the hashes of their values
+	let group_groups: DashMap<usize, Vec<PathBuf>> = DashMap::new();
+	group_paths.into_par_iter().for_each(|p| {
+		let chunk_id = extract_chunk_regex(&p).unwrap();
+		group_groups.entry(chunk_id).or_default().push(p);
+	});
+
+	// And then group and sort all chunks here
+	let shard_id = AtomicUsize::new(0);
+	let pbar = build_pbar(group_groups.len(), "Groups");
+	group_groups.into_par_iter().for_each(|(_k,v)| {
+		sort_group(v, sorted_dir, &config, &shard_id).unwrap();
+		pbar.inc(1);
+	});
+
+
+	println!("Finished sort in {:?} secs | wrote {:} new shards", 
+			 start_main.elapsed().as_secs(),
+			 shard_id.fetch_add(0, atomic::Ordering::SeqCst));
+	Ok(())
+}
+
+
+fn extract_chunk_regex(filename: &PathBuf) -> Result<usize, Error> {
+    let re = Regex::new(r"chunk_(\d{8})\.").unwrap();
+    let caps = re.captures(filename.to_str().unwrap()).unwrap();
+    let chunk_id = caps.get(1).unwrap().as_str().parse::<usize>().unwrap();
+    Ok(chunk_id)
+}
+
+
+fn sort_group(group: Vec<PathBuf>, sorted_dir: &PathBuf, config: &GroupsortConfig, shard_id: &AtomicUsize) -> Result<(), Error> {
+	let mut value_group: HashMap<usize, Vec<serde_json::Value>> = HashMap::new();
+	// First load all elements in the group into values
+	for path in group {
+		let contents = read_pathbuf_to_mem(&path).unwrap();
+		for line in contents.lines() {
+			let line = line.unwrap();
+			let line_value : serde_json::Value = serde_json::from_str(&line).unwrap();
+			let group_hash = get_group_hash(&line_value, &config.group_keys).unwrap();
+			value_group.entry(group_hash).or_default().push(line_value);
 		}
-		let hash_val = hasher.finish() as usize % num_chunks;
-		writer.write_line(hash_val, line.into()).unwrap();
 	}
 
+	// And then for each group, sort and write as bytes
+	let sorted_contents: Vec<Vec<u8>> = value_group.into_iter().map(|(_k, mut vals)| {
+		vals.sort_by(|a, b| {
+			for k in &config.sort_keys {
+				let a_val = json_get(&a, k);
+				let b_val = json_get(&b, k);
+
+				match (a_val, b_val) {
+					(Some(a_v), Some(b_v)) => {
+						let cmp = compare_json_values(a_v, b_v);
+						if cmp != Ordering::Equal {
+							return cmp;
+						}
+					}
+					(Some(_), None) => return Ordering::Less,
+					(None, Some(_)) => return Ordering::Greater,
+					(None, None) => {}
+				}
+			}
+			return Ordering::Equal
+		});
+		let mut output_bytes: Vec<u8> = Vec::new();
+		for val in vals {
+			output_bytes.extend(serde_json::to_vec(&val).unwrap());
+			output_bytes.push(b'\n');
+		}		
+		output_bytes
+	}).collect::<Vec<Vec<u8>>>();
+
+
+
+	// And then write into output files
+	let mut cur_size = 0;
+	let mut cur_contents: Vec<u8> = Vec::new();
+	for content in sorted_contents {
+		cur_size += content.len();		
+		cur_contents.extend(content);
+		if cur_size >= config.max_file_size {
+			write_output_contents(&cur_contents, sorted_dir, shard_id).unwrap();
+			cur_size = 0;
+			cur_contents.clear();
+		}
+	}
+	if cur_contents.len() > 0 {
+		write_output_contents(&cur_contents, sorted_dir, shard_id).unwrap();
+	}
 
 	Ok(())
 }
 
 
+fn compare_json_values(a: &Value, b: &Value) -> Ordering {
+    match (a, b) {
+        (Value::Null, Value::Null) => Ordering::Equal,
+        (Value::Null, _) => Ordering::Less,
+        (_, Value::Null) => Ordering::Greater,
+        
+        (Value::Bool(a_bool), Value::Bool(b_bool)) => a_bool.cmp(b_bool),
+        (Value::Bool(_), _) => Ordering::Less,
+        (_, Value::Bool(_)) => Ordering::Greater,
+        
+        (Value::Number(a_num), Value::Number(b_num)) => {
+            // For numbers, we need to handle the comparison more carefully
+            if let (Some(a_f), Some(b_f)) = (a_num.as_f64(), b_num.as_f64()) {
+                a_f.partial_cmp(&b_f).unwrap_or(Ordering::Equal)
+            } else {
+                Ordering::Equal
+            }
+        },
+        (Value::Number(_), _) => Ordering::Less,
+        (_, Value::Number(_)) => Ordering::Greater,
+        
+        (Value::String(a_str), Value::String(b_str)) => a_str.cmp(b_str),
+        (Value::String(_), _) => Ordering::Less,
+        (_, Value::String(_)) => Ordering::Greater,
+        
+        (Value::Array(a_arr), Value::Array(b_arr)) => {
+            // Compare arrays element by element
+            let min_len = a_arr.len().min(b_arr.len());
+            for i in 0..min_len {
+                let cmp = compare_json_values(&a_arr[i], &b_arr[i]);
+                if cmp != Ordering::Equal {
+                    return cmp;
+                }
+            }
+            // If all elements are equal, shorter array comes first
+            a_arr.len().cmp(&b_arr.len())
+        },
+        (Value::Array(_), _) => Ordering::Less,
+        (_, Value::Array(_)) => Ordering::Greater,
+        
+        (Value::Object(_), Value::Object(_)) => Ordering::Equal, // Objects are considered equal for this purpose
+    }
+}
+
+fn write_output_contents(contents: &Vec<u8>, sorted_dir: &PathBuf, shard_id: &AtomicUsize) -> Result<(), Error> {
+	let proper_shard_id = shard_id.fetch_add(1, atomic::Ordering::SeqCst);
+	let output_path = sorted_dir.clone().join(format!("sorted_chunk_{:8}.jsonl.zst", proper_shard_id));
+	write_mem_to_pathbuf(contents, &output_path)
+}
 
 
 /*==========================================================

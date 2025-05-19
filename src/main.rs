@@ -30,6 +30,7 @@ pub mod sort;
 pub mod utils;
 use datamap_rs::map_fxn::{PipelineProcessor};
 use datamap_rs::sort::single_node_sort;
+use datamap_rs::groupsort::{distributed_group, distributed_sort};
 pub use map_fxn::DataProcessor;
 /*
 Map Config layout:
@@ -108,6 +109,31 @@ enum Commands {
 
         #[arg(long, default_value_t=256000000)]
         max_size: usize
+    },
+
+
+    DistGroup {
+        #[arg(required=true, long)]
+        input_dir: PathBuf,
+
+        #[arg(required=true, long)]        
+        group_dir: PathBuf,
+
+        #[arg(required=true, long)]
+        config: PathBuf,
+        subext: Option<String>
+    },
+
+    DistSort {
+        #[arg(required=true, long)]
+        input_dir: PathBuf,
+
+        #[arg(required=true, long)]
+        output_dir: PathBuf,
+
+
+        #[arg(required=true, long)]
+        config: PathBuf,
     }
 
 }
@@ -425,6 +451,14 @@ fn main() {
 
         Commands::Sort{input_dir, working_dir, output_dir, sort_key, max_size} => {
             single_node_sort(input_dir, working_dir, output_dir, sort_key, *max_size)
+        },
+
+        Commands::DistGroup{input_dir, group_dir, config, subext} => {
+            distributed_group(input_dir, group_dir, config, subext.clone())
+        },
+
+        Commands::DistSort{input_dir, output_dir, config} => {
+            distributed_sort(input_dir, output_dir, config)
         }
 
         _ => {Ok(())}
