@@ -95,9 +95,10 @@ fn group_path(path: &PathBuf, group_keys: &Vec<String>, writer: &GenWriter) -> R
 			let random_usize: usize = rng.random_range(0..=usize::MAX);
 			random_usize 
 		};
+		let mut line_bytes: Vec<u8> = line.into();
+		line_bytes.push(b'\n');
 
-
-		writer.write_line(hash_val % num_chunks, line.into()).unwrap();
+		writer.write_line(hash_val % num_chunks, line_bytes).unwrap();
 	}
 	Ok(())
 }
