@@ -21,6 +21,8 @@ use zstd::stream::Encoder;
 use serde::{Deserialize, Serialize};
 use regex::Regex;
 use std::cmp::Ordering;
+use rand::Rng;
+
 
 /*
 Multinode grouping and sorting
@@ -85,21 +87,33 @@ fn group_path(path: &PathBuf, group_keys: &Vec<String>, writer: &GenWriter) -> R
 	for line in contents.lines() {
 		let line = line.unwrap();
 		let value : serde_json::Value = serde_json::from_str(&line).unwrap();
-		let hash_val = get_group_hash(&value, group_keys).unwrap();
+		let hash_val = if let Some(hash_val) = get_group_hash(&value, group_keys).unwrap() {
+			hash_val
+		} else {
+			// missing group info, put in random shard 			
+			let mut rng = rand::rng();
+			let random_usize: usize = rng.random_range(0..=usize::MAX);
+			random_usize 
+		};
+
+
 		writer.write_line(hash_val % num_chunks, line.into()).unwrap();
 	}
 	Ok(())
 }
 
 
-fn get_group_hash(value: &serde_json::Value, group_keys: &Vec<String>) -> Result<usize, Error> {
+fn get_group_hash(value: &serde_json::Value, group_keys: &Vec<String>) -> Result<Option<usize>, Error> {
 	let mut hasher = DefaultHasher::new();
 	for k in group_keys {
-		let group_val = json_get(value, &k).unwrap();
-		let group_val_string = group_val.to_string();
-		group_val_string.hash(&mut hasher)
+		if let Some(group_val) = json_get(value, &k) {
+			let group_val_string = group_val.to_string();
+			group_val_string.hash(&mut hasher)
+		} else {
+			return Ok(None);
+		}
 	}
-	Ok(hasher.finish() as usize)
+	Ok(Some(hasher.finish() as usize))
 }
 
 
@@ -143,19 +157,25 @@ fn extract_chunk_regex(filename: &PathBuf) -> Result<usize, Error> {
 
 fn sort_group(group: Vec<PathBuf>, sorted_dir: &PathBuf, config: &GroupsortConfig, shard_id: &AtomicUsize) -> Result<(), Error> {
 	let mut value_group: HashMap<usize, Vec<serde_json::Value>> = HashMap::new();
+	let mut null_group: Vec<Value> = Vec::new();
 	// First load all elements in the group into values
+	// 
+
 	for path in group {
 		let contents = read_pathbuf_to_mem(&path).unwrap();
 		for line in contents.lines() {
 			let line = line.unwrap();
 			let line_value : serde_json::Value = serde_json::from_str(&line).unwrap();
-			let group_hash = get_group_hash(&line_value, &config.group_keys).unwrap();
-			value_group.entry(group_hash).or_default().push(line_value);
+			if let Some(group_hash) = get_group_hash(&line_value, &config.group_keys).unwrap() {
+				value_group.entry(group_hash).or_default().push(line_value);
+			} else {
+				null_group.push(line_value);
+			}
 		}
 	}
 
 	// And then for each group, sort and write as bytes
-	let sorted_contents: Vec<Vec<u8>> = value_group.into_iter().map(|(_k, mut vals)| {
+	let mut sorted_contents: Vec<Vec<u8>> = value_group.into_iter().map(|(_k, mut vals)| {
 		vals.sort_by(|a, b| {
 			for k in &config.sort_keys {
 				let a_val = json_get(&a, k);
@@ -182,7 +202,11 @@ fn sort_group(group: Vec<PathBuf>, sorted_dir: &PathBuf, config: &GroupsortConfi
 		}		
 		output_bytes
 	}).collect::<Vec<Vec<u8>>>();
-
+	for val in null_group.into_iter() {
+		let mut output_bytes = serde_json::to_vec(&val).unwrap();
+		output_bytes.push(b'\n');
+		sorted_contents.push(output_bytes);
+	}
 
 
 	// And then write into output files
