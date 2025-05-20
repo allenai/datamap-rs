@@ -75,6 +75,7 @@ pub fn distributed_group(input_dir: &PathBuf, group_dir: &PathBuf, config_path: 
 		pbar.inc(1);
 	});
 
+	writer.finish().unwrap();
 	println!("Finished group op in {:?} secs", start_main.elapsed().as_secs());
 
 	Ok(())
