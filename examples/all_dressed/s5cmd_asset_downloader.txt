@@ -1,4 +1,5 @@
 cp s3://allennlp-mattj/profanity/dclm/lid.176.bin examples/dclm/
+cp s3://ai2-llm/pretraining-data/sources/dclm/refinedweb/dolma_reformat/fineweb_edu_6way_bigram_200k.bin examples/dclm/
 cp s3://allennlp-mattj/profanity/dclm/madlad400_cursed.txt examples/dclm/
 cp s3://allennlp-mattj/profanity/dclm/refinedweb_banned_domains_curated.txt examples/dclm/
 cp s3://allennlp-mattj/profanity/dclm/refinedweb_banned_words_hard_reverse_engineered.txt examples/dclm/

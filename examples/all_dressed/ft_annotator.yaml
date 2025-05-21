@@ -1,0 +1,15 @@
+name: ft_annotator
+text_field: text
+pipeline:
+  - name: fasttext_annotator
+    kwargs:
+      fast_text_file: examples/dclm/fineweb_edu_gt2_bigram_200k.bin
+      output_field: metadata.fineweb_edu_gt2
+  - name: fasttext_annotator
+    kwargs:
+      fast_text_file: examples/dclm/fineweb_edu_6way_bigram_200k.bin
+      output_field: metadata.fineweb_edu_6way  
+  - name: fasttext_annotator
+    kwargs:
+      fast_text_file: examples/dclm/openhermes_reddit_eli5_vs_rw_v2_bigram_200k_train.bin
+      output_field: metadata.dclm        
