@@ -25,7 +25,7 @@ use fxhash::{FxHasher};
 use scraper::{Html, Selector};
 
 use derivative::Derivative; 
-// use enry::{is_generated};
+use enry::{is_generated};
 //use mj_io::build_pbar;
 
 /*================================================================================
@@ -49,9 +49,7 @@ macro_rules! register_processor {
 
 // Static map of processor types to their constructor wrapper functions
 static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>> = Lazy::new(|| {
-    let mut m: HashMap<&'static str, ProcessorConstructor> = HashMap::new();
-
-    
+    let mut m: HashMap<&'static str, ProcessorConstructor> = HashMap::new();    
     register_processor!(m, "text_len_filter", TextLenFilter);
     register_processor!(m, "subsample", SubsampleFilter);
     register_processor!(m, "santcoder_pl_filter", SantaCoderPLFilter);
@@ -77,6 +75,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
     register_processor!(m, "word_removal_ratio_filter", WordRemovalRatioFilter);
     register_processor!(m, "madlad400_sentence_filter", Madlad400SentenceFilter);
     register_processor!(m, "string_sub_modifier", StringSubModifier);
+    register_processor!(m, "pl_line_num_filter", PLLineNumFilter);
     // Add more processor types as needed    
     m
 });
@@ -1537,6 +1536,11 @@ pub struct StringSubModifier {
 
 #[derive(Serialize, Debug)]
 pub struct DotTXTFileNameFilter {
+    // Starcoder2 bulletpoint 3 in the language-specific filters section
+    /* raw instructions:
+     For Text, we keep only files with “requirement” in the lowercased filename, or if the filename without
+     the extension is one of {“readme”, “notes”, “todo”, “description”, “cmakelists”}.    
+    */
 	pl_field: String,
 	filename_field: String
 	
@@ -1550,7 +1554,7 @@ pub struct DotTXTFileNameFilter {
 
 
 	fn process(&self, data: Value) -> Result<Option<Value>, Error> {
-		let pl = json_get(&data, &self.pl_field).unwrap().as_str().unwrap();
+		let pl = json_get(&data, &self.pl_field).unwrap().as_str().unwrap().to_lowercase();
 		let filename = Path::new(json_get(&data, &self.filename_field).unwrap().as_str().unwrap());
 		if pl != "txt" {
 			return Ok(Some(data));
@@ -1560,7 +1564,7 @@ pub struct DotTXTFileNameFilter {
 		if let Some(file_stem) = filename.file_stem() {
 			if let Some(basename) = file_stem.to_str() {
 				let basename_lower = basename.to_lowercase();
-				if basename_lower.contains("requirements") {
+				if basename_lower.contains("requirement") {
 					return Ok(Some(data));
 				}
 				match basename_lower.as_str() { 
@@ -1578,41 +1582,13 @@ pub struct DotTXTFileNameFilter {
 
 
 
-#[derive(Serialize, Debug)]
-pub struct PLLineFilter {
-	text_field: String, 
-	pl_field: String,
-	valid_pls: Vec<String>,
-	line_upper_bound: usize
-}
-
-impl DataProcessor for PLLineFilter {
-	fn new(config: &Value) -> Result<Self, Error> {
-		let text_field = config.get("text_field").unwrap().as_str().unwrap().to_string();
-		let pl_field = config.get("pl_field").unwrap().as_str().unwrap().to_string();		
-		let valid_pls: Vec<String> = config.get("valid_pls").unwrap().as_array().unwrap().into_iter().map(|s| s.as_str().unwrap().to_string()).collect();
-		let line_upper_bound = config.get("line_upper_bound").unwrap().as_u64().unwrap() as usize;
-		Ok(Self {text_field, pl_field, valid_pls, line_upper_bound})
-	}
-
-	fn process(&self, data: Value) -> Result<Option<Value>, Error> {
-		let pl = json_get(&data, &self.pl_field).unwrap().as_str().unwrap().to_string();
-		if !self.valid_pls.contains(&pl) {
-			return Ok(Some(data));
-		}
-
-		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap();
-		let line_count = text.lines().count();
-		if line_count > self.line_upper_bound {
-			return Ok(None)
-		}
-		Ok(Some(data))
-	}
-}
-
 
 #[derive(Serialize, Debug)]
 pub struct HTMLSpecificFilter {
+    /* raw instructions: 
+    For HTML, we keep only the files where visible text is at least 100 characters long and makes up at
+    least 20% of the code, similar to the processing pipeline of StarCoder
+    */
 	text_field: String, 
 	pl_field: String,
 	visible_lower_bound_count: usize,
@@ -1660,6 +1636,14 @@ impl DataProcessor for HTMLSpecificFilter {
 pub struct CodeLongLineFilter {
 	// Long line filtering rules from starcoder2
 	// All default to <type>::MAX
+    /* raw instructions:
+    Long line filters: we first remove all files with more than 100k lines as those files are likely to be data
+    or generated code. We also remove files with an average line length of more than 100 characters or
+    a maximum line length of more than 1000 characters for all languages, excluding HTML, JSON,
+    Markdown, Roff, Roff Manpage, SMT, TeX, Text, and XML. For the mentioned languages, we
+    remove files where the longest line exceeds 100k characters.    
+    */
+
 	text_field: String, 
 	pl_field: Option<String>,
 	max_num_lines: usize, // (sc2: 100k)
@@ -1703,7 +1687,7 @@ impl DataProcessor for CodeLongLineFilter {
 
 		if self.pl_field.is_none() | !&self.excluded_pls.contains(&json_get(&data, &self.pl_field.clone().unwrap()).unwrap().as_str().unwrap().to_string()) {
 			// Main flow
-			if (max_line > self.max_line_len) & (avg_line_len > self.max_avg_line_len)  {
+			if (max_line > self.max_line_len) || (avg_line_len > self.max_avg_line_len)  {
 				return Ok(None)
 			}
 		} else {
@@ -1719,6 +1703,12 @@ impl DataProcessor for CodeLongLineFilter {
 
 #[derive(Serialize, Debug)]
 pub struct CodeEnryAutoGenFilter {
+    /* raw instructions: 
+    Autogenerated filter: we remove files classified as auto-generated by the is_generated function
+    of go-enry (go-enry, 2024). Additionally, we exclude files containing one of {“auto-generated”,
+    “autogenerated”, “automatically generated”, “generated automatically”, “this file is generated”} in
+    the first 5 lines of the file
+    */
 	text_field: String, 
 	path_field: String,
 }
@@ -1734,7 +1724,7 @@ impl DataProcessor for CodeEnryAutoGenFilter {
 		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
 		let path = json_get(&data, &self.path_field).unwrap().as_str().unwrap();
 		// Check forbidden phrases in the first 5 lines
-		let forbidden_phrases = vec!["auto-generated", "autogenerated", "automatically generated", "generated automatically", "this_file_is_generated"];
+		let forbidden_phrases = vec!["auto-generated", "autogenerated", "automatically generated", "generated automatically", "this file is generated"];
 		for (line_num, line) in text.lines().enumerate() {
 			if line_num >= 5 { break; }	
 			if forbidden_phrases.iter().any(|phrase| line.contains(phrase)) {
@@ -1743,9 +1733,9 @@ impl DataProcessor for CodeEnryAutoGenFilter {
 		}
 		let text_bytes = text.as_bytes();
 
-		//if is_generated(&path, &text_bytes).unwrap() {
-		//	return Ok(None)
-		//};
+		if is_generated(&path, &text_bytes).unwrap() {
+			return Ok(None)
+		};
 
 		Ok(Some(data))
 	}
@@ -1754,10 +1744,23 @@ impl DataProcessor for CodeEnryAutoGenFilter {
 #[derive(Serialize, Debug)]
 pub struct CodeAlphaFilter {	
 	// Keeps only files with >= x% of content being alphanumeric characters
+    /* raw instructions:
+    Alpha filter: we remove files with less than 25% of alphabetic characters for all languages except
+    Motorola 68K Assembly and WebAssembly, where we only remove files with less than 25% of
+    alpha-numeric characters due to the syntax of those languages.
+
+    FIX THIS
+    */
 	text_field: String, 
 	alpha_lower_bound: f64,
 	exclude_field: Option<String>, // field in json that we check for exclusions
-	exclude_vals: Vec<String> // ^ if any of data.exclude_field matches here, we don't apply filter
+	exclude_vals: Vec<String>, // ^ if any of data.exclude_field matches here, we don't apply filter
+    include_vals: Vec<String>, // ^ if any of the data.exclude_field matches here, we DO apply filter
+    alphabetic_only: bool // if true, checks alphabetic, if false checks alphanumeric
+
+    // since this is confusing, this looks like:
+    // if data.exclude_field is in exclude_vals, we SKIP
+    // if data.exclude_field is in include_vals, we DO NOT SKIP (but skip everything else)
 }
 
 impl DataProcessor for CodeAlphaFilter {
@@ -1768,21 +1771,35 @@ impl DataProcessor for CodeAlphaFilter {
 		let exclude_field: Option<String> = get_default(&config, "exclude_field", None);
 		let exclude_vals: Vec<Value> = get_default(&config, "exclude_vals", vec![]);
 		let exclude_vals = exclude_vals.into_iter().map(|v| v.as_str().unwrap().to_string()).collect();
+        let include_vals: Vec<Value> = get_default(&config, "include_vals", vec![]);
+        let include_vals = include_vals.into_iter().map(|v| v.as_str().unwrap().to_string()).collect();
 
-		Ok(Self {text_field, alpha_lower_bound, exclude_field, exclude_vals})
+        let alphabetic_only = get_default(&config, "alphabetic_only", true);
+
+		Ok(Self {text_field, alpha_lower_bound, exclude_field, exclude_vals, include_vals, alphabetic_only})
 	}
 
 	fn process(&self, data: Value) -> Result<Option<Value>, Error> {
-		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
+		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();        
 		if let Some(exclude_field) = &self.exclude_field {
-			let exclude_val = json_get(&data, &exclude_field).unwrap().as_str().unwrap().to_string();
-			if self.exclude_vals.contains(&exclude_val) {
-				return Ok(Some(data))
-			}
+            let exclude_val = json_get(&data, &exclude_field).unwrap().as_str().unwrap().to_string();
+
+            if self.exclude_vals.len() > 0 && self.exclude_vals.contains(&exclude_val) {
+                return Ok(Some(data))
+            } else if self.include_vals.len() > 0 && !self.include_vals.contains(&exclude_val) {
+                return Ok(Some(data))
+            }
+
 		}
 
 		let total_len = text.len() as f64;
-		let alpha_len = text.chars().filter(|c| c.is_alphanumeric()).count() as f64;
+
+
+		let alpha_len = if self.alphabetic_only {
+            text.chars().filter(|c| c.is_alphabetic()).count()
+        } else {
+            text.chars().filter(|c| c.is_alphanumeric()).count()
+        } as f64;
 
 		if alpha_len < total_len * self.alpha_lower_bound {
 			return Ok(None)
@@ -1796,6 +1813,14 @@ impl DataProcessor for CodeAlphaFilter {
 
 #[derive(Serialize, Debug)]
 pub struct CodeEncodedData {
+    /* raw instructions:
+    Encoded data filter: we detect files with inline encoded data using the following regular expressions:
+    – Base64 strings: [a-zA-Z0-9+/\n=]{64,}
+    – Hexadecimal sequences: (?:\b(?:0x|\\x)?[0-9a-fA-F]{2}(?:,|\b\s*)){8,}
+    – Unicode strings: (?:\\u[0-9a-fA-F]{4}){8,}
+    We remove the file if any of the substrings matching these expressions is longer than 1024 characters
+    or if the fraction of matched characters is more than 50% of the file
+    */
 	text_field: String,
 	single_match_upper_bound_len: usize,
 	total_match_upper_bound_frac: f64
@@ -1895,5 +1920,60 @@ impl DataProcessor for DSCoderMarkdownFilters {
 		Ok(Some(data))
 	}
 }
+
+
+#[derive(Serialize, Debug)] 
+pub struct PLLineNumFilter {
+    /*  raw_instructions:
+       For Text, JSON, YAML, Web Ontology Language, and Graphviz (DOT), we remove files with more
+       than 512 lines to minimize the impact of repeated tokens in data files.
+    */
+
+    text_field: String, 
+    pl_field: String, 
+    target_pls: HashSet<String>,
+    line_num_upper_bound: usize, // Defaults to 512
+}
+
+
+impl DataProcessor for PLLineNumFilter {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let text_field = config.get("text_field").unwrap().as_str().unwrap().to_string();
+        let pl_field = config.get("pl_field").unwrap().as_str().unwrap().to_string();
+
+        let default_pls: Vec<String> = vec![
+            "text".to_string(),
+            "JSON".to_string(),
+            "JSON with Comments".to_string(),
+            "JSON5".to_string(),
+            "JSONLD".to_string(),
+            "JSONiq".to_string(),
+            "Web Ontology Language".to_string(),
+            "Graphviz (DOT)".to_string()
+        ];        
+        let target_pls: HashSet<String> = default_pls.into_iter().map(|s| s.to_lowercase()).collect::<HashSet<String>>();
+
+        let line_num_upper_bound: usize = get_default(config, "line_num_upper_bound", 512);
+
+        Ok(Self {text_field, pl_field, target_pls, line_num_upper_bound})
+
+    }
+
+    fn process(&self, data: Value) -> Result<Option<Value>, Error> {
+        let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
+        let pl = json_get(&data, &self.pl_field).unwrap().as_str().unwrap().to_string().to_lowercase();
+
+        if !self.target_pls.contains(&pl) {
+            return Ok(Some(data));
+        }
+
+        let num_lines = text.lines().count();
+        if num_lines > self.line_num_upper_bound {
+            return Ok(None);
+        }
+        Ok(Some(data))
+    }
+}
+
 
 
