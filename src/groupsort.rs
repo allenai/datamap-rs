@@ -16,7 +16,7 @@ use std::{
 use serde_json;
 use rayon::prelude::*;
 use crate::utils::json_get;
-use mj_io::{expand_dirs, read_pathbuf_to_mem, build_pbar, write_mem_to_pathbuf};
+use mj_io::{expand_dirs, read_pathbuf_to_mem, build_pbar, write_mem_to_pathbuf, get_output_filename};
 use zstd::stream::Encoder;
 use serde::{Deserialize, Serialize};
 use regex::Regex;
@@ -37,11 +37,11 @@ Proceeds in phases:
 struct GroupsortConfig {
 	name: String,
 	group_keys: Vec<String>,
-	sort_keys: Vec<String>,
+	sort_keys: Vec<Vec<String>>, // of the form [[sortkey1, backup_sortkey1, ...], [sortkey2, ...]]
 	num_buckets: usize,
 	#[serde(default="default_max_file_size")]
-	max_file_size: usize
-
+	max_file_size: usize,
+	keep_idx: i32 // 0 means keep first, -1 means keep last
 }
 
 
@@ -179,9 +179,10 @@ fn sort_group(group: Vec<PathBuf>, sorted_dir: &PathBuf, config: &GroupsortConfi
 	// And then for each group, sort and write as bytes
 	let mut sorted_contents: Vec<Vec<u8>> = value_group.into_iter().map(|(_k, mut vals)| {
 		vals.sort_by(|a, b| {
-			for k in &config.sort_keys {
-				let a_val = json_get(&a, k);
-				let b_val = json_get(&b, k);
+			for kgroup in &config.sort_keys {
+
+				let a_val = get_backup_sortval(&a, kgroup);
+				let b_val = get_backup_sortval(&b, kgroup);
 
 				match (a_val, b_val) {
 					(Some(a_v), Some(b_v)) => {
@@ -228,6 +229,15 @@ fn sort_group(group: Vec<PathBuf>, sorted_dir: &PathBuf, config: &GroupsortConfi
 	}
 
 	Ok(())
+}
+
+fn get_backup_sortval<'a>(val: &'a Value, sortkey: &Vec<String>) -> Option<&'a Value> {
+	for k in sortkey {
+		if let Some(sort_val) = json_get(val, k) {
+			return Some(sort_val);
+		}
+	}
+	return None
 }
 
 
@@ -277,9 +287,97 @@ fn compare_json_values(a: &Value, b: &Value) -> Ordering {
 
 fn write_output_contents(contents: &Vec<u8>, sorted_dir: &PathBuf, shard_id: &AtomicUsize) -> Result<(), Error> {
 	let proper_shard_id = shard_id.fetch_add(1, atomic::Ordering::SeqCst);
-	let output_path = sorted_dir.clone().join(format!("sorted_chunk_{:8}.jsonl.zst", proper_shard_id));
+	let output_path = sorted_dir.clone().join(format!("sorted_chunk_{:08}.jsonl.zst", proper_shard_id));
 	write_mem_to_pathbuf(contents, &output_path)
 }
+
+
+
+pub fn groupsort_filter(input_dir: &PathBuf, output_dir: &PathBuf, config_path: &PathBuf) -> Result<(), Error> {
+	let start_main = Instant::now();
+	println!("Starting filter operation");	
+	let input_paths = expand_dirs(vec![input_dir.clone()], None).unwrap();
+	let config_contents = read_pathbuf_to_mem(config_path).unwrap();
+	let config: GroupsortConfig = serde_yaml::from_reader(config_contents).unwrap();	
+	let pbar = build_pbar(input_paths.len(), "Paths");
+
+	let docs_seen = AtomicUsize::new(0);
+	let docs_kept = AtomicUsize::new(0);
+
+	input_paths.into_par_iter().for_each(|p| {
+		let output_path = get_output_filename(&p, input_dir, output_dir).unwrap();	
+		let (path_seen, path_kept) = groupsort_filter_path(&p, &output_path, &config).unwrap();
+		docs_seen.fetch_add(path_seen, atomic::Ordering::SeqCst);
+		docs_kept.fetch_add(path_kept, atomic::Ordering::SeqCst);
+		pbar.inc(1);
+	});
+
+	println!("Finished filtering in {:?} secs", start_main.elapsed().as_secs());
+	println!("Saw {:?} docs", docs_seen.into_inner());
+	println!("Kept {:?} docs", docs_kept.into_inner());
+	Ok(())
+}
+
+
+fn groupsort_filter_path(input_path: &PathBuf, output_path: &PathBuf, config: &GroupsortConfig) -> Result<(usize, usize), Error> {
+	let mut docs_seen = 0;
+	let mut docs_kept = 0;
+
+	let contents = read_pathbuf_to_mem(input_path).unwrap();
+	let mut output_bytes : Vec<u8> = Vec::new();
+	let mut cur_group: Option<usize> = None;
+	let mut prev_line: Option<String> = None;
+	for line in contents.lines() {
+		docs_seen += 1;
+		let line = line.unwrap();
+		let line_value: Value = serde_json::from_str(&line).unwrap();
+		let group_hash = get_group_hash(&line_value, &config.group_keys).unwrap();
+
+
+		if let Some(group_hash_full) = group_hash {
+			// Logic: if new group hash is different from old group hash
+			//        if keep_idx == 0, add this doc
+			//        if keep_idx == -1, add previous doc
+			if Some(group_hash_full) != cur_group {
+				if config.keep_idx == 0 {
+					docs_kept += 1;
+					output_bytes.extend(line.as_bytes());
+					output_bytes.push(b'\n');				
+				} else if config.keep_idx == -1 && prev_line != None{
+					docs_kept += 1;
+					output_bytes.extend(prev_line.unwrap().as_bytes());
+					output_bytes.push(b'\n');
+				}				
+			} 
+		} else {
+			// Logic: if group_hash is None :
+			// - we always add this particular doc
+			// - and if keep_idx == -1, and cur_group is not None, we add that doc too
+			if config.keep_idx == -1 && cur_group != None {
+				docs_kept += 1;
+				output_bytes.extend(prev_line.unwrap().as_bytes());
+				output_bytes.push(b'\n');
+			}
+			docs_kept += 1;
+			output_bytes.extend(line.as_bytes());
+			output_bytes.push(b'\n');			
+		}
+		cur_group = group_hash;
+		prev_line = Some(line);
+	}
+	if config.keep_idx == -1 && cur_group != None {
+		docs_kept += 1;
+		output_bytes.extend(prev_line.unwrap().as_bytes());
+		output_bytes.push(b'\n');			
+	}
+
+	write_mem_to_pathbuf(&output_bytes, output_path).unwrap();
+
+	Ok((docs_seen, docs_kept))
+}
+
+
+
 
 
 /*==========================================================

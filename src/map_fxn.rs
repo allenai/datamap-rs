@@ -1459,6 +1459,3 @@ impl Madlad400SentenceFilter {
 		Ok(sentence_lang != doc_lang)	
 	}
 }
-
-
-
