@@ -116,6 +116,50 @@ pub fn json_set(input: &mut Value, key: &String, val: Value) -> Result<(), Error
 	Ok(())
 }
 
+pub fn json_remove(data: &mut Value, key: &str) -> Result<(), Error> {
+    let parts: Vec<&str> = key.split('.').collect();
+    
+    // Handle special case of a single key (no dots)
+    if parts.len() == 1 {
+        if data.is_object() {
+            let obj = data.as_object_mut().unwrap();
+            obj.remove(parts[0]);
+            return Ok(());
+        } else {
+            return Err(anyhow!("Root is not an object"));
+        }
+    }
+    
+    // For nested keys, navigate to the parent object
+    let parent_path = parts[..parts.len()-1].join(".");
+    let field_to_remove = parts[parts.len()-1];
+    
+    // Get mutable reference to the parent object
+    let parent = match json_get(data, &parent_path) {
+        Some(_) => {
+            // We need a mutable reference, so we'll navigate to it again
+            let mut current = data;
+            for &part in &parts[..parts.len()-1] {
+                if !current.is_object() {
+                    return Err(anyhow!("Path contains non-object element"));
+                }
+                current = &mut current[part];
+            }
+            current
+        },
+        None => return Err(anyhow!("Parent path not found: {}", parent_path))
+    };
+    
+    // Remove the field from the parent object
+    if parent.is_object() {
+        let obj = parent.as_object_mut().unwrap();
+        obj.remove(field_to_remove);
+        Ok(())
+    } else {
+        Err(anyhow!("Parent is not an object"))
+    }
+}
+
 
 /*====================================================================
 =                            URL HELPERS                             =

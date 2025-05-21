@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use anyhow::{Error, Result, ensure, anyhow};
 use rand::Rng;
 use uuid::Uuid;
-use crate::utils::{get_default, json_get, json_set, extract_subdomain};
+use crate::utils::{get_default, json_get, json_set, json_remove, extract_subdomain};
 use serde::Serialize;
 use once_cell::sync::Lazy;
 use std::collections::{HashMap, HashSet};
@@ -50,6 +50,7 @@ macro_rules! register_processor {
 // Static map of processor types to their constructor wrapper functions
 static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>> = Lazy::new(|| {
     let mut m: HashMap<&'static str, ProcessorConstructor> = HashMap::new();    
+    register_processor!(m, "move_field_modifier", MoveFieldModifier);
     register_processor!(m, "text_len_filter", TextLenFilter);
     register_processor!(m, "subsample", SubsampleFilter);
     register_processor!(m, "santcoder_pl_filter", SantaCoderPLFilter);
@@ -210,6 +211,33 @@ pub trait DataProcessor {
 /*================================================================================
 =                            DATA PROCESSOR VARIANTS                             =
 ================================================================================*/
+#[derive(Serialize, Debug)]
+pub struct MoveFieldModifier {
+    // Puts contents of input_field into output_field, and maybe deletes 'input_field'
+    input_field: String, 
+    output_field: String,
+    remove_input: bool
+}
+ impl DataProcessor for MoveFieldModifier {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let input_field = json_get(&config, "input_field").unwrap().as_str().unwrap().to_string();
+        let output_field = json_get(&config, "output_field").unwrap().as_str().unwrap().to_string();
+        let remove_input = json_get(&config, "remove_input").unwrap().as_bool().unwrap();
+
+        Ok(Self {input_field, output_field, remove_input})
+    }
+
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {            
+        let input_value = json_get(&data, &self.input_field).unwrap().clone();
+        json_set(&mut data, &self.output_field, input_value).unwrap();
+        if self.remove_input {
+            json_remove(&mut data, &self.input_field).unwrap();
+        }
+        Ok(Some(data))
+    }
+}
+
+
 #[derive(Serialize, Debug)]
 pub struct TextLenFilter {
 	// Filters to only keep docs that have text length in range [lower_bound, upper_bound]
