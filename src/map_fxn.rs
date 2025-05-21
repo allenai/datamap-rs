@@ -77,6 +77,13 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
     register_processor!(m, "madlad400_sentence_filter", Madlad400SentenceFilter);
     register_processor!(m, "string_sub_modifier", StringSubModifier);
     register_processor!(m, "pl_line_num_filter", PLLineNumFilter);
+    register_processor!(m, "code_long_line_filter", CodeLongLineFilter);
+    register_processor!(m, "code_enry_auto_gen_filter", CodeEnryAutoGenFilter);
+    register_processor!(m, "code_alpha_filter", CodeAlphaFilter);
+    register_processor!(m, "encoded_data_filter", EncodedDataFilter);
+    register_processor!(m, "html_specific_filter", HTMLSpecificFilter);
+    register_processor!(m, "dot_txt_filename_filter", DotTXTFileNameFilter);
+
     // Add more processor types as needed    
     m
 });
@@ -1713,7 +1720,7 @@ impl DataProcessor for CodeLongLineFilter {
 		}
 
 
-		if self.pl_field.is_none() | !&self.excluded_pls.contains(&json_get(&data, &self.pl_field.clone().unwrap()).unwrap().as_str().unwrap().to_string()) {
+		if self.pl_field.is_none() | !&self.excluded_pls.contains(&json_get(&data, &self.pl_field.clone().unwrap()).unwrap().as_str().unwrap().to_string().to_lowercase()) {
 			// Main flow
 			if (max_line > self.max_line_len) || (avg_line_len > self.max_avg_line_len)  {
 				return Ok(None)
@@ -1810,7 +1817,7 @@ impl DataProcessor for CodeAlphaFilter {
 	fn process(&self, data: Value) -> Result<Option<Value>, Error> {
 		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();        
 		if let Some(exclude_field) = &self.exclude_field {
-            let exclude_val = json_get(&data, &exclude_field).unwrap().as_str().unwrap().to_string();
+            let exclude_val = json_get(&data, &exclude_field).unwrap().as_str().unwrap().to_string().to_lowercase();
 
             if self.exclude_vals.len() > 0 && self.exclude_vals.contains(&exclude_val) {
                 return Ok(Some(data))
@@ -1840,7 +1847,7 @@ impl DataProcessor for CodeAlphaFilter {
 
 
 #[derive(Serialize, Debug)]
-pub struct CodeEncodedData {
+pub struct EncodedDataFilter {
     /* raw instructions:
     Encoded data filter: we detect files with inline encoded data using the following regular expressions:
     – Base64 strings: [a-zA-Z0-9+/\n=]{64,}
@@ -1854,7 +1861,7 @@ pub struct CodeEncodedData {
 	total_match_upper_bound_frac: f64
 }
 
-impl DataProcessor for CodeEncodedData {
+impl DataProcessor for EncodedDataFilter {
 	fn new(config: &Value) -> Result<Self, Error> {
 		let text_field = config.get("text_field").unwrap().as_str().unwrap().to_string();
 		let single_match_upper_bound_len = get_default(&config, "single_match_upper_bound_len", usize::MAX);
