@@ -1,0 +1,54 @@
+name: spring2code
+pipeline:
+  - name: move_field_modifier
+    kwargs:
+      input_field: contents
+      output_field: text
+      remove_input: true
+  - name: code_long_line_filter
+    kwargs:
+      text_field: text
+      pl_field: language
+      max_num_lines: 100000
+      max_avg_line_len: 100.0
+      excluded_pls: ["html", "json", "markdown", "roff", "roff manpage", "smt", "tex", "text", "xml"]
+      excluded_max_line_len: 100000
+  - name: code_alpha_filter
+    kwargs:
+      text_field: text      
+      alpha_lower_bound: 0.25 
+      exclude_field: language
+      exclude_vals: ["motorola 68k assembly", "assembly"]
+      alphabetic_only: true
+  - name: code_alpha_filter
+    kwargs:
+      text_field: text
+      alpha_lower_bound: 0.25
+      exclude_field: language
+      include_vals: ["motorola 68k assembly", "assembly"]
+      alphabetic_only: false
+  - name: encoded_data_filter
+    kwargs:
+      text_field: text
+      single_match_upper_bound_len: 1024
+      total_match_upper_bound_len: 0.50
+  - name: pl_line_num_filter
+    kwargs:
+      text_field: text
+      pl_field: language
+      line_num_upper_bound: 512
+  - name: html_specific_filter
+    kwargs:
+      text_field: text
+      pl_field: language
+      visible_lower_bound_count: 100
+      visible_lower_bound_ratio: 0.20
+  - name: dot_txt_filename_filter
+    kwargs:
+      pl_field: language 
+      filename_field: path
+  - name: code_enry_auto_gen_filter 
+    kwargs:
+      text_field: text
+      path_field: path
+
