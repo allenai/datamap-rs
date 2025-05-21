@@ -79,7 +79,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "madlad400_rule_filter", Madlad400RuleFilter);
         // Add more processor types as needed
         register_processor!(m, "interval_filter", IntervalFilter);
-
+        register_processor!(m, "dd_max_getter", DDMaxGetter);
 
         m
     });
@@ -2049,6 +2049,62 @@ fn fuzzy_sandwich_intervals(v: &Vec<(usize, usize)>, foward: bool, threshold: f6
         .iter()
         .map(|(a,b, _)| (*a as usize, *b as usize))
         .collect()
+}
+
+
+
+
+#[derive(Serialize, Debug)]
+pub struct DDMaxGetter {
+    /* {attributes: {
+        <prefix>_KEY : [[val]]
+    }}
+    of attributes keys that start with prefix, returns the max KEY 
+    */
+    pub main_attribute: String, // default to "attributes"
+    pub prefix: String,
+    pub output_attribute: String,  // where the max KEY goes
+}
+
+impl DataProcessor for DDMaxGetter {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let main_attribute = get_default(config, "main_attribute", String::from("attributes"));
+
+        let prefix = json_get(config, "prefix").unwrap().as_str().unwrap().to_string();
+        let output_attribute = json_get(config, "output_attribute").unwrap().as_str().unwrap().to_string();
+        Ok(Self {
+            main_attribute,
+            prefix,
+            output_attribute       
+        })
+
+    }
+
+
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+        let input_dict = json_get(&data, &self.main_attribute).unwrap();
+        // claude: loop over key,val pairs in input_dict
+        // and for keys that start with prefix, get their value as a [[f64]] (or just an f64)
+
+        let mut max_key = String::from("null");
+        let mut max_val: f64 = -1.0;
+
+        if let Value::Object(map) = input_dict {
+            for (key, value) in map {
+                if key.starts_with(&self.prefix) {
+                    let parsed_val = &value[0][0].as_f64().unwrap();
+                    if *parsed_val > max_val {
+                        max_key = key.clone();
+                        max_val = *parsed_val;
+                    }
+                }
+            }
+        }
+
+        json_set(&mut data, &self.output_attribute, serde_json::Value::String(max_key)).unwrap();
+        Ok(Some(data))
+
+    }
 }
 
 
