@@ -1,0 +1,5 @@
+name: minhash10x_groupsort
+group_keys: [metadata.minhash.cc_id]
+sort_keys: [[WARC-Date, warc_date]]
+num_buckets: 64000
+keep_idx: -1
