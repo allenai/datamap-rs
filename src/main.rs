@@ -121,6 +121,8 @@ enum Commands {
 
         #[arg(required=true, long)]
         config: PathBuf,
+
+        #[arg(required=true, long)]        
         subext: Option<String>
     },
 
