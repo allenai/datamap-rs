@@ -1,0 +1,10 @@
+name: olmocr_v2
+text_field: text
+pipeline:
+  - name: fasttext_line_filter
+    kwargs:
+      fast_text_file: tmp/models/test_pdfs_references_fasttext_model_v2_pretok_wn3_ws10_lr05_e20_short.bin
+      output_field: metadata.no_references
+      threshold: 0.5
+      negative_label: "__label__reference"
+      words_extraction: "((?:\\p{Lu}|\\p{Lt})+\\.?|(?:\\p{Ll}|\\p{Lm}|\\p{Lo})+|\\p{N}+|(?:\\p{Z}|\\s|\\p{C})+|\\p{P}+)"

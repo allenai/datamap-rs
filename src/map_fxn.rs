@@ -21,7 +21,6 @@ use fasttext::{FastText, Prediction};
 use unicode_segmentation::UnicodeSegmentation;
 use regex::Regex;
 use fxhash::FxHasher;
-use tiktoken_rs::CoreBPE;
 use derivative::Derivative;
 //use mj_io::build_pbar;
 
@@ -56,6 +55,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
     register_processor!(m, "url_substring_filter", UrlSubstringFilter);
     register_processor!(m, "newline_removal_modifier", NewlineRemovalModifier);
     register_processor!(m, "fasttext_annotator", FastTextAnnotator);
+    register_processor!(m, "fasttext_line_filter", FastTextLineFilter);
     register_processor!(m, "float_filter", FloatFilter);
     register_processor!(m, "page_len_filter", PageLenFilter);
     register_processor!(m, "word_len_filter", WordLenFilter);
@@ -113,7 +113,7 @@ impl PipelineProcessor {
     		let default_json = json!({});
     		let mut subconfig_kwargs: Value = subconfig.get("kwargs").or(Some(&default_json)).unwrap().clone();
     		json_set(&mut subconfig_kwargs, &String::from("text_field"), serde_json::Value::String(text_field.clone())).unwrap();
-    		let constructor = PROCESSOR_CONSTRUCTORS[subconfig_name];
+    		let constructor: fn(&Value) -> std::result::Result<Box<dyn AnyDataProcessor + 'static>, Error> = PROCESSOR_CONSTRUCTORS[subconfig_name];
     		pipeline.push(constructor(&subconfig_kwargs).unwrap());
     	}
         Ok(Self { pipeline })
@@ -549,13 +549,7 @@ impl DataProcessor for FastTextAnnotator {
 			text = text.split_whitespace().take(self.max_words).collect::<Vec<&str>>().join(" ");
 		}
 
-		let predictions = match self.model.predict(&text, self.k, self.threshold) {
-			Ok(preds) => preds,
-			Err(_e) => {
-				println!("Error predicting for document: {:?}", json_get(&data, "id").unwrap_or(&json!("unknown")));
-				vec![]
-			}
-		};
+		let predictions = self.model.predict(&text, self.k, self.threshold).unwrap();
 
 		let mut map = serde_json::Map::new();
 		for pred in predictions {
@@ -568,15 +562,23 @@ impl DataProcessor for FastTextAnnotator {
 }
 
 
+    //   fast_text_file: tmp/models/test_pdfs_references_fasttext_model_v2_pretok_wn3_ws10_lr05_e20.bin
+    //   output_field: metadata.no_references
+    //   threshold: 0.5
+    //   label_value: "__label__text"
+    //   words_extraction: "((?:\\p{Lu}|\\p{Lt})+\\.?|(?:\\p{Ll}|\\p{Lm}|\\p{Lo})+|\\p{N}+|(?:\\p{Z}|\\s|\\p{C})+|\\p{P}+)"
+
+
 #[derive(Serialize, Debug)]
 pub struct FastTextLineFilter {
 	// Enriches the data with the top k predictions from a fast text classifier
 	pub fast_text_file: String,
 	pub text_field: String,
 	pub output_field: String,
-	pub label_value: String,
+	pub negative_label: String,
 	pub threshold: f32,
-	pub lines_splitter_str: String,
+	pub lines_splitter: String,
+	pub words_extraction: String,
 
 	#[serde(skip)]
 	pub model: FastText,
@@ -593,17 +595,17 @@ pub struct FastTextLineFilter {
 impl DataProcessor for FastTextLineFilter {
 	fn new(config: &Value) -> Result<Self, Error> {
 		let fast_text_file = config.get("fast_text_file").unwrap().as_str().unwrap().to_string();
-		let label_value = config.get("label_value").unwrap().as_str().unwrap().to_string();
+		let negative_label = config.get("negative_label").unwrap().as_str().unwrap().to_string();
 
 		let text_field = get_default(config, "text_field", String::from("text"));
 		let output_field = get_default(config, "output_field", String::from("metadata.fasttext"));
 
 		let threshold = get_default(config, "threshold", 0.0) as f32;
 
-		let lines_splitter_str: String = get_default(config, "lines_splitter", String::from("\n"));
+		let lines_splitter: String = get_default(config, "lines_splitter", String::from("\n"));
 
-		let words_extraction_str: String = get_default(config, "words_extraction", String::from(r#"[^\s]+"#));
-		let words_extraction_regex = Regex::new(&words_extraction_str).unwrap();
+		let words_extraction: String = get_default(config, "words_extraction", String::from(r#"[^\s]+"#));
+		let words_extraction_regex = Regex::new(&words_extraction).unwrap();
 
 		let mut model = FastText::new();
 		model.load_model(&fast_text_file).unwrap();
@@ -615,9 +617,10 @@ impl DataProcessor for FastTextLineFilter {
 				fast_text_file,
 				text_field,
 				output_field,
-				label_value,
+				negative_label,
 				threshold,
-				lines_splitter_str,
+				lines_splitter,
+				words_extraction,
 				words_extraction_regex,
 				model,
 				whitespace_regex,
@@ -627,28 +630,103 @@ impl DataProcessor for FastTextLineFilter {
 
 	fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
 		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
-		let input_lines = text.split(&self.lines_splitter_str).collect::<Vec<&str>>();
+		let input_lines = text.split(&self.lines_splitter).collect::<Vec<&str>>();
 		let mut output_lines = vec![];
-		for line in input_lines {
-			let mut cleaned_line: String = self.words_extraction_regex.find_iter(line)
-				.map(|m| m.as_str().to_string())
-				.collect::<Vec<String>>()
-				.join(" ");
-			cleaned_line = self.whitespace_regex.replace_all(&cleaned_line, " ").to_string();
-
-			match self.model.predict(&cleaned_line, 1, self.threshold) {
-				Ok(predictions) => {
-					match predictions.iter().any(|p| p.label == self.label_value) {
-						true => { output_lines.push(line.to_string()); }
-						false => {}
-					}
-				}
-				Err(_e) => {}
+		let mut removed_lines: Vec<(String, f32)> = vec![];
+		for sentence in input_lines {
+			// lines that are just whitespace are pushed to output_lines by default
+			if sentence.trim().is_empty() {
+				output_lines.push(sentence.to_string());
+				continue;
 			}
+
+			// let mut cleaned_line: String = self.words_extraction_regex.find_iter(line)
+			// 	.map(|m| m.as_str().to_string())
+			// 	.collect::<Vec<String>>()
+			// 	.join(" ");
+			// cleaned_line = self.whitespace_regex.replace_all(&cleaned_line, " ").trim().to_string();
+			// let cleaned_line = line.to_string();
+
+			// make predictions, if there is an error, return the negative label with prob 1.0
+			// let predictions: Vec<Prediction> = self.model.predict(&cleaned_line, 1, 0.0).unwrap();
+			let predictions = &self.model.predict(&sentence.replace("\n", " "), 1, 0.0).unwrap();
+
+
+			println!("sentence: {:?}, predictions: {:?}", sentence, predictions);
+
+			// // find the prediction with negative label
+			// let negative_pred = predictions.iter().find(|p| p.label == self.negative_label);
+
+			// // if the negative prediction is above the threshold, remove the line
+			// if negative_pred.is_some() && negative_pred.unwrap().prob > self.threshold {
+			// 	println!("cleaned line: {:?}, predictions: {:?}", sentence, predictions);
+			// 		removed_lines.push((sentence.to_string(), negative_pred.unwrap().prob));
+			// 	} else {
+			// 		output_lines.push(sentence.to_string());
+			// }
+
+			// using threshold == 0.0 so we always get a prediciton; we will filter later
+			// match self.model.predict(&cleaned_line, 1, 0.0) {
+			// 	Ok(predictions) => {
+
+			// 		let score = match predictions.iter().find(|p| p.label == self.label_value) {
+			// 			Some(p) => p.prob,
+			// 			None => 0.0 as f32
+			// 		};
+			// 		match score > self.threshold {
+			// 			true => {
+			// 				output_lines.push(line.to_string());
+			// 			}
+			// 			false => {
+			// 				let mut removed_line_obj = serde_json::Map::new();
+			// 				removed_line_obj.insert("text".to_string(), Value::String(line.to_string()));
+			// 				removed_line_obj.insert("score".to_string(), Value::from(score));
+			// 				removed_lines.push(Value::Object(removed_line_obj));
+			// 			}
+			// 		}
+
+
+			// 		// match predictions.iter().map(|p| {
+			// 		// 	match p.label == self.label_value {
+			// 		// 		true => {
+			// 		// 			Value::from(p.prob)
+			// 		// 		}
+			// 		// 		false => {
+			// 		// 			Value::from(0.0 as f32)
+			// 		// 		}
+			// 		// 	}
+			// 		// }
+			// 		// 	true => { output_lines.push(line.to_string()); }
+			// 		// 	false => {
+			// 		// 		let mut removed_line_obj = serde_json::Map::new();
+			// 		// 		removed_line_obj.insert("text".to_string(), Value::String(line.to_string()));
+			// 		// 		removed_line_obj.insert("score".to_string(), Value::from(predictions[0].prob));
+			// 		// 		removed_lines.push(Value::Object(removed_line_obj));
+			// 		// 	}
+			// 		// }
+			// 	}
+			// 	Err(_e) => {
+			// 		let mut removed_line_obj = serde_json::Map::new();
+			// 		removed_line_obj.insert("text".to_string(), Value::String(line.to_string()));
+			// 		removed_line_obj.insert("score".to_string(), Value::from(0.0 as f32));
+			// 		removed_lines.push(Value::Object(removed_line_obj));
+			// 	}
+			// }
 		}
 
-		let new_text = output_lines.join(&self.lines_splitter_str);
+		let new_text = output_lines.join(&self.lines_splitter);
 		json_set(&mut data, &self.text_field, Value::String(new_text)).unwrap();
+
+		let removed_lines_obj = removed_lines.iter().map(|(line, prob)| {
+			{
+				let mut map = serde_json::Map::new();
+				map.insert("text".to_string(), Value::String(line.clone()));
+				map.insert("score".to_string(), Value::from(*prob));
+				Value::Object(map)
+			}
+		}).collect::<Vec<Value>>();
+		json_set(&mut data, &self.output_field, Value::Array(removed_lines_obj)).unwrap();
+
 		Ok(Some(data))
 	}
 }
