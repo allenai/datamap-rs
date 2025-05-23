@@ -70,3 +70,49 @@ fn test_markdown_table_renderer_multiple_tables() {
     assert!(processed_text.contains("Some text between tables."));
     assert!(processed_text.contains("End text."));
 }
+
+#[test]
+fn test_markdown_table_renderer_minimum_two_lines() {
+    let config = json!({
+        "text_field": "text"
+    });
+    
+    let processor = MarkdownTableRenderer::new(&config).unwrap();
+    
+    // Test with single line starting with | - should NOT be converted to HTML
+    let single_line_data = json!({
+        "text": "Some text\n| Single line with pipe\nMore text"
+    });
+    
+    let result = processor.process(single_line_data).unwrap().unwrap();
+    let processed_text = result["text"].as_str().unwrap();
+    
+    // Should keep original pipe line
+    assert_eq!(processed_text, "Some text\n| Single line with pipe\nMore text");
+    
+    // Test with two lines starting with | - SHOULD be converted to HTML (proper table format)
+    let two_line_data = json!({
+        "text": "Some text\n| Header 1 | Header 2 |\n|----------|----------|\n| Cell 1   | Cell 2   |\nMore text"
+    });
+    
+    let result2 = processor.process(two_line_data).unwrap().unwrap();
+    let processed_text2 = result2["text"].as_str().unwrap();
+    
+    // Should contain HTML table elements
+    assert!(processed_text2.contains("<table>"));
+    assert!(processed_text2.contains("Header 1"));
+    assert!(processed_text2.contains("Cell 1"));
+    
+    // Test with exactly two lines starting with | (no separator) - should still be processed but may not become a table
+    let two_lines_no_separator = json!({
+        "text": "Some text\n| Line 1 with pipe |\n| Line 2 with pipe |\nMore text"
+    });
+    
+    let result3 = processor.process(two_lines_no_separator).unwrap().unwrap();
+    let processed_text3 = result3["text"].as_str().unwrap();
+    
+    // Should be processed through markdown (even if it doesn't become a proper table)
+    // The key is that it gets processed, not necessarily that it becomes a table
+    assert!(processed_text3.contains("Line 1 with pipe"));
+    assert!(processed_text3.contains("Line 2 with pipe"));
+}

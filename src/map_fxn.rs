@@ -2157,19 +2157,25 @@ fn render_markdown_tables(text: &str) -> String {
                 i += 1;
             }
             
-            // Process this group through the markdown generator
-            let table_markdown = table_lines.join("\n");
-            let options = Options::gfm();
-            
-            match to_html_with_options(&table_markdown, &options) {
-                Ok(html) => {
-                    let table_html = html.trim();
-                    result.push(table_html.to_string());
+            // Only process through markdown if we have at least 2 lines
+            if table_lines.len() >= 2 {
+                // Process this group through the markdown generator
+                let table_markdown = table_lines.join("\n");
+                let options = Options::gfm();
+                
+                match to_html_with_options(&table_markdown, &options) {
+                    Ok(html) => {
+                        let table_html = html.trim();
+                        result.push(table_html.to_string());
+                    }
+                    Err(_) => {
+                        // If markdown parsing fails, keep the original lines
+                        result.extend(table_lines.into_iter().map(|s| s.to_string()));
+                    }
                 }
-                Err(_) => {
-                    // If markdown parsing fails, keep the original lines
-                    result.extend(table_lines.into_iter().map(|s| s.to_string()));
-                }
+            } else {
+                // Less than 2 lines, keep as original text
+                result.extend(table_lines.into_iter().map(|s| s.to_string()));
             }
         } else {
             // Not a table line, keep as is
