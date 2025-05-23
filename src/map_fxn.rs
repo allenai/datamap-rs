@@ -2141,7 +2141,6 @@ impl DataProcessor for MarkdownTableRenderer {
 }
 
 fn render_markdown_tables(text: &str) -> String {
-    // Split text into lines to process line by line
     let lines: Vec<&str> = text.lines().collect();
     let mut result = Vec::new();
     let mut i = 0;
@@ -2149,77 +2148,37 @@ fn render_markdown_tables(text: &str) -> String {
     while i < lines.len() {
         let line = lines[i];
         
-        // Check if this line could be the start of a table (contains |)
-        if line.trim().contains('|') && !line.trim().is_empty() {
-            // Look for a table starting from this position
-            let table_end = find_table_end(&lines, i);
+        // Check if this line starts with '|'
+        if line.trim_start().starts_with('|') {
+            // Collect all consecutive lines that start with '|'
+            let mut table_lines = Vec::new();
+            while i < lines.len() && lines[i].trim_start().starts_with('|') {
+                table_lines.push(lines[i]);
+                i += 1;
+            }
             
-            if table_end > i {
-                // We found a table, extract it and convert to HTML
-                let table_lines = &lines[i..=table_end];
-                let table_markdown = table_lines.join("\n");
-                
-                // Use markdown-rs to render only the table
-                let options = Options::gfm();
-                
-                // Try to render as markdown and extract just the table
-                match to_html_with_options(&table_markdown, &options) {
-                    Ok(html) => {
-                        // Clean up the HTML output
-                        let table_html = html.trim();
-                        result.push(table_html.to_string());
-                        i = table_end + 1;
-                        continue;
-                    }
-                    Err(_) => {
-                        // If markdown parsing fails, keep the original line
-                        result.push(line.to_string());
-                    }
+            // Process this group through the markdown generator
+            let table_markdown = table_lines.join("\n");
+            let options = Options::gfm();
+            
+            match to_html_with_options(&table_markdown, &options) {
+                Ok(html) => {
+                    let table_html = html.trim();
+                    result.push(table_html.to_string());
                 }
-            } else {
-                // Not a table, keep the original line
-                result.push(line.to_string());
+                Err(_) => {
+                    // If markdown parsing fails, keep the original lines
+                    result.extend(table_lines.into_iter().map(|s| s.to_string()));
+                }
             }
         } else {
             // Not a table line, keep as is
             result.push(line.to_string());
+            i += 1;
         }
-        
-        i += 1;
     }
     
     result.join("\n")
-}
-
-fn find_table_end(lines: &[&str], start: usize) -> usize {
-    let mut end = start;
-    let mut found_separator = false;
-    
-    for (i, line) in lines.iter().enumerate().skip(start) {
-        let trimmed = line.trim();
-        
-        if trimmed.is_empty() {
-            break;
-        }
-        
-        if !trimmed.contains('|') {
-            break;
-        }
-        
-        // Check if this is a separator line (contains - and |)
-        if trimmed.chars().all(|c| c == '|' || c == '-' || c == ':' || c.is_whitespace()) {
-            found_separator = true;
-        }
-        
-        end = i;
-    }
-    
-    // A valid table needs at least a header and separator
-    if found_separator && end > start {
-        end
-    } else {
-        start
-    }
 }
 
 

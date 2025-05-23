@@ -2,5 +2,3 @@ name: md_tables_test
 text_field: text
 pipeline:
   - name: markdown_table_renderer
-    kwargs:
-      text_field: text
