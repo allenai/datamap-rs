@@ -116,3 +116,38 @@ fn test_markdown_table_renderer_minimum_two_lines() {
     assert!(processed_text3.contains("Line 1 with pipe"));
     assert!(processed_text3.contains("Line 2 with pipe"));
 }
+
+#[test]
+fn test_markdown_table_renderer_requires_start_and_end_pipes() {
+    let config = json!({
+        "text_field": "text"
+    });
+    
+    let processor = MarkdownTableRenderer::new(&config).unwrap();
+    
+    // Test with lines that start with | but don't end with | - should NOT be processed as table
+    let incomplete_pipes_data = json!({
+        "text": "Some text\n| Line starts with pipe but doesn't end\n| Another line starts with pipe\nMore text"
+    });
+    
+    let result = processor.process(incomplete_pipes_data).unwrap().unwrap();
+    let processed_text = result["text"].as_str().unwrap();
+    
+    // Should NOT be processed as table, should remain unchanged
+    assert!(!processed_text.contains("<table>"));
+    assert_eq!(processed_text, "Some text\n| Line starts with pipe but doesn't end\n| Another line starts with pipe\nMore text");
+
+    let input_data = json!({
+        "text": "This is some text with a markdown table:\n\n| Column 1 | Column 2 | Column 3   |  \n|----------|----------|----------|\t\n | Cell 1   | Cell 2   | Cell 3   |\n| Cell 4   | Cell 5   | Cell 6   |  \n\n"
+    });
+    
+    let result = processor.process(input_data).unwrap().unwrap();
+    let processed_text = result["text"].as_str().unwrap();
+    
+    // Check that the table was converted to HTML
+    assert!(processed_text.contains("<table>"));
+    assert!(processed_text.contains("<thead>"));
+    assert!(processed_text.contains("<tbody>"));
+    assert!(processed_text.contains("<th>Column 1</th>"));
+    assert!(processed_text.contains("<td>Cell 1</td>"));
+}

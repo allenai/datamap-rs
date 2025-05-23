@@ -2148,11 +2148,12 @@ fn render_markdown_tables(text: &str) -> String {
     while i < lines.len() {
         let line = lines[i];
         
-        // Check if this line starts with '|'
-        if line.trim_start().starts_with('|') {
-            // Collect all consecutive lines that start with '|'
+        // Check if this line starts and ends with '|'
+        let trimmed = line.trim();
+        if trimmed.starts_with('|') && trimmed.ends_with('|') {
+            // Collect all consecutive lines that start and end with '|'
             let mut table_lines = Vec::new();
-            while i < lines.len() && lines[i].trim_start().starts_with('|') {
+            while i < lines.len() && lines[i].trim().starts_with('|') && lines[i].trim().ends_with('|') {
                 table_lines.push(lines[i]);
                 i += 1;
             }
