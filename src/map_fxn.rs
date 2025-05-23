@@ -569,6 +569,91 @@ impl DataProcessor for FastTextAnnotator {
 
 
 #[derive(Serialize, Debug)]
+pub struct FastTextLineFilter {
+	// Enriches the data with the top k predictions from a fast text classifier
+	pub fast_text_file: String,
+	pub text_field: String,
+	pub output_field: String,
+	pub label_value: String,
+	pub threshold: f32,
+	pub lines_splitter_str: String,
+
+	#[serde(skip)]
+	pub model: FastText,
+
+	#[serde(skip)]
+	pub words_extraction_regex: Regex,
+
+	#[serde(skip)]
+	pub whitespace_regex: Regex,
+
+}
+
+
+impl DataProcessor for FastTextLineFilter {
+	fn new(config: &Value) -> Result<Self, Error> {
+		let fast_text_file = config.get("fast_text_file").unwrap().as_str().unwrap().to_string();
+		let label_value = config.get("label_value").unwrap().as_str().unwrap().to_string();
+
+		let text_field = get_default(config, "text_field", String::from("text"));
+		let output_field = get_default(config, "output_field", String::from("metadata.fasttext"));
+
+		let threshold = get_default(config, "threshold", 0.0) as f32;
+
+		let lines_splitter_str: String = get_default(config, "lines_splitter", String::from("\n"));
+
+		let words_extraction_str: String = get_default(config, "words_extraction", String::from(r#"[^\s]+"#));
+		let words_extraction_regex = Regex::new(&words_extraction_str).unwrap();
+
+		let mut model = FastText::new();
+		model.load_model(&fast_text_file).unwrap();
+
+		let whitespace_regex = Regex::new(r#"\s+"#).unwrap();
+
+		Ok(
+			Self {
+				fast_text_file,
+				text_field,
+				output_field,
+				label_value,
+				threshold,
+				lines_splitter_str,
+				words_extraction_regex,
+				model,
+				whitespace_regex,
+			}
+		)
+	}
+
+	fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
+		let input_lines = text.split(&self.lines_splitter_str).collect::<Vec<&str>>();
+		let mut output_lines = vec![];
+		for line in input_lines {
+			let mut cleaned_line: String = self.words_extraction_regex.find_iter(line)
+				.map(|m| m.as_str().to_string())
+				.collect::<Vec<String>>()
+				.join(" ");
+			cleaned_line = self.whitespace_regex.replace_all(&cleaned_line, " ").to_string();
+
+			match self.model.predict(&cleaned_line, 1, self.threshold) {
+				Ok(predictions) => {
+					match predictions.iter().any(|p| p.label == self.label_value) {
+						true => { output_lines.push(line.to_string()); }
+						false => {}
+					}
+				}
+				Err(_e) => {}
+			}
+		}
+
+		let new_text = output_lines.join(&self.lines_splitter_str);
+		json_set(&mut data, &self.text_field, Value::String(new_text)).unwrap();
+		Ok(Some(data))
+	}
+}
+
+#[derive(Serialize, Debug)]
 pub struct FloatFilter {
 	// Filters to only keep docs that have float in doc.float_field in range [lower_bound, upper_bound] (or ![lower_bound, upper_bound])
 	pub float_field: String,
