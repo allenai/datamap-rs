@@ -22,6 +22,7 @@ use mj_io::read_pathbuf_to_mem;
 use regex::Regex;
 use unicode_segmentation::UnicodeSegmentation;
 use url::Url;
+use markdown::{Options, to_html_with_options};
 
 use derivative::Derivative;
 //use mj_io::build_pbar;
@@ -80,6 +81,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         // Add more processor types as needed
         register_processor!(m, "interval_filter", IntervalFilter);
         register_processor!(m, "dd_max_getter", DDMaxGetter);
+        register_processor!(m, "markdown_table_renderer", MarkdownTableRenderer);
 
         m
     });
@@ -2104,6 +2106,119 @@ impl DataProcessor for DDMaxGetter {
         json_set(&mut data, &self.output_attribute, serde_json::Value::String(max_key)).unwrap();
         Ok(Some(data))
 
+    }
+}
+
+#[derive(Serialize, Debug)]
+pub struct MarkdownTableRenderer {
+    pub text_field: String,
+}
+
+impl DataProcessor for MarkdownTableRenderer {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let text_field = get_default(config, "text_field", String::from("text"));
+        Ok(Self { text_field })
+    }
+
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+        let text = json_get(&data, &self.text_field)
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let processed_text = render_markdown_tables(&text);
+
+        json_set(
+            &mut data,
+            &self.text_field,
+            serde_json::Value::String(processed_text),
+        )
+        .unwrap();
+
+        Ok(Some(data))
+    }
+}
+
+fn render_markdown_tables(text: &str) -> String {
+    // Split text into lines to process line by line
+    let lines: Vec<&str> = text.lines().collect();
+    let mut result = Vec::new();
+    let mut i = 0;
+    
+    while i < lines.len() {
+        let line = lines[i];
+        
+        // Check if this line could be the start of a table (contains |)
+        if line.trim().contains('|') && !line.trim().is_empty() {
+            // Look for a table starting from this position
+            let table_end = find_table_end(&lines, i);
+            
+            if table_end > i {
+                // We found a table, extract it and convert to HTML
+                let table_lines = &lines[i..=table_end];
+                let table_markdown = table_lines.join("\n");
+                
+                // Use markdown-rs to render only the table
+                let options = Options::gfm();
+                
+                // Try to render as markdown and extract just the table
+                match to_html_with_options(&table_markdown, &options) {
+                    Ok(html) => {
+                        // Clean up the HTML output
+                        let table_html = html.trim();
+                        result.push(table_html.to_string());
+                        i = table_end + 1;
+                        continue;
+                    }
+                    Err(_) => {
+                        // If markdown parsing fails, keep the original line
+                        result.push(line.to_string());
+                    }
+                }
+            } else {
+                // Not a table, keep the original line
+                result.push(line.to_string());
+            }
+        } else {
+            // Not a table line, keep as is
+            result.push(line.to_string());
+        }
+        
+        i += 1;
+    }
+    
+    result.join("\n")
+}
+
+fn find_table_end(lines: &[&str], start: usize) -> usize {
+    let mut end = start;
+    let mut found_separator = false;
+    
+    for (i, line) in lines.iter().enumerate().skip(start) {
+        let trimmed = line.trim();
+        
+        if trimmed.is_empty() {
+            break;
+        }
+        
+        if !trimmed.contains('|') {
+            break;
+        }
+        
+        // Check if this is a separator line (contains - and |)
+        if trimmed.chars().all(|c| c == '|' || c == '-' || c == ':' || c.is_whitespace()) {
+            found_separator = true;
+        }
+        
+        end = i;
+    }
+    
+    // A valid table needs at least a header and separator
+    if found_separator && end > start {
+        end
+    } else {
+        start
     }
 }
 
