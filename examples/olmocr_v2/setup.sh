@@ -17,7 +17,7 @@ if [ ! -d $local_source_prefix ]; then
     s5cmd cp -sp "${remote_source_prefix}/*" "${local_source_prefix}/"
 fi
 
-model_name="test_pdfs_references_fasttext_model_v2_pretok_wn3_ws10_lr05_e20_short.bin"
+model_name="test_pdfs_references_fasttext_model_v2_pretok_wn3_ws10_lr05_e20_short"
 
 # location of the models
 models_dir="/mnt/raid0/models"
