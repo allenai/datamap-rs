@@ -648,7 +648,12 @@ impl DataProcessor for FastTextLineFilter {
 
 			// make predictions, if there is an error, return the negative label with prob 1.0
 			// let predictions: Vec<Prediction> = self.model.predict(&cleaned_line, 1, 0.0).unwrap();
-			let predictions = &self.model.predict(&cleaned_line, 1, 0.0).unwrap();
+			// let predictions = &self.model.predict(&cleaned_line, 1, 0.0).unwrap();
+
+			let predictions = match self.model.predict(&cleaned_line, 1, 0.0) {
+				Ok(preds) => preds,
+				Err(_e) => vec![]
+			};
 
 			// find the prediction with negative label
 			let negative_pred = predictions.iter().find(|p| p.label == self.negative_label);
