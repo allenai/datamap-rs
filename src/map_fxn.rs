@@ -640,78 +640,25 @@ impl DataProcessor for FastTextLineFilter {
 				continue;
 			}
 
-			// let mut cleaned_line: String = self.words_extraction_regex.find_iter(line)
-			// 	.map(|m| m.as_str().to_string())
-			// 	.collect::<Vec<String>>()
-			// 	.join(" ");
-			// cleaned_line = self.whitespace_regex.replace_all(&cleaned_line, " ").trim().to_string();
-			// let cleaned_line = line.to_string();
+			let mut cleaned_line: String = self.words_extraction_regex.find_iter(sentence)
+				.map(|m| m.as_str().to_string())
+				.collect::<Vec<String>>()
+				.join(" ");
+			cleaned_line = self.whitespace_regex.replace_all(&cleaned_line, " ").trim().to_string() + "\n";
 
 			// make predictions, if there is an error, return the negative label with prob 1.0
 			// let predictions: Vec<Prediction> = self.model.predict(&cleaned_line, 1, 0.0).unwrap();
-			let predictions = &self.model.predict(&sentence.replace("\n", " "), 1, 0.0).unwrap();
+			let predictions = &self.model.predict(&cleaned_line, 1, 0.0).unwrap();
 
+			// find the prediction with negative label
+			let negative_pred = predictions.iter().find(|p| p.label == self.negative_label);
 
-			println!("sentence: {:?}, predictions: {:?}", sentence, predictions);
-
-			// // find the prediction with negative label
-			// let negative_pred = predictions.iter().find(|p| p.label == self.negative_label);
-
-			// // if the negative prediction is above the threshold, remove the line
-			// if negative_pred.is_some() && negative_pred.unwrap().prob > self.threshold {
-			// 	println!("cleaned line: {:?}, predictions: {:?}", sentence, predictions);
-			// 		removed_lines.push((sentence.to_string(), negative_pred.unwrap().prob));
-			// 	} else {
-			// 		output_lines.push(sentence.to_string());
-			// }
-
-			// using threshold == 0.0 so we always get a prediciton; we will filter later
-			// match self.model.predict(&cleaned_line, 1, 0.0) {
-			// 	Ok(predictions) => {
-
-			// 		let score = match predictions.iter().find(|p| p.label == self.label_value) {
-			// 			Some(p) => p.prob,
-			// 			None => 0.0 as f32
-			// 		};
-			// 		match score > self.threshold {
-			// 			true => {
-			// 				output_lines.push(line.to_string());
-			// 			}
-			// 			false => {
-			// 				let mut removed_line_obj = serde_json::Map::new();
-			// 				removed_line_obj.insert("text".to_string(), Value::String(line.to_string()));
-			// 				removed_line_obj.insert("score".to_string(), Value::from(score));
-			// 				removed_lines.push(Value::Object(removed_line_obj));
-			// 			}
-			// 		}
-
-
-			// 		// match predictions.iter().map(|p| {
-			// 		// 	match p.label == self.label_value {
-			// 		// 		true => {
-			// 		// 			Value::from(p.prob)
-			// 		// 		}
-			// 		// 		false => {
-			// 		// 			Value::from(0.0 as f32)
-			// 		// 		}
-			// 		// 	}
-			// 		// }
-			// 		// 	true => { output_lines.push(line.to_string()); }
-			// 		// 	false => {
-			// 		// 		let mut removed_line_obj = serde_json::Map::new();
-			// 		// 		removed_line_obj.insert("text".to_string(), Value::String(line.to_string()));
-			// 		// 		removed_line_obj.insert("score".to_string(), Value::from(predictions[0].prob));
-			// 		// 		removed_lines.push(Value::Object(removed_line_obj));
-			// 		// 	}
-			// 		// }
-			// 	}
-			// 	Err(_e) => {
-			// 		let mut removed_line_obj = serde_json::Map::new();
-			// 		removed_line_obj.insert("text".to_string(), Value::String(line.to_string()));
-			// 		removed_line_obj.insert("score".to_string(), Value::from(0.0 as f32));
-			// 		removed_lines.push(Value::Object(removed_line_obj));
-			// 	}
-			// }
+			// if the negative prediction is above the threshold, remove the line
+			if negative_pred.is_some() && negative_pred.unwrap().prob > self.threshold {
+				removed_lines.push((sentence.to_string(), negative_pred.unwrap().prob));
+			} else {
+				output_lines.push(sentence.to_string());
+			}
 		}
 
 		let new_text = output_lines.join(&self.lines_splitter);
