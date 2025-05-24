@@ -32,7 +32,7 @@ fi
 cd $script_dir/../../
 
 # run the project
-cargo run --release -- map --input-dir $source_data --output-dir $output_data --config $script_dir/config.yaml
+cargo run --release -- map --input-dir $local_source_prefix --output-dir $local_destination_prefix --config $script_dir/config.yaml
 
 # return to the directory the script was run from
 cd $current_dir
