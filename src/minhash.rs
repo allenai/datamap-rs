@@ -293,6 +293,15 @@ impl MinHashLSH {
             })
             .collect();
 
+        // let mut already_seen = HashSet::new();
+        // for (idx1, idx2) in &verified_pairs {
+        //     if !already_seen.contains(&lines[*idx1]) || !already_seen.contains(&lines[*idx2]) {
+        //         println!("Similarity ({}, {})\n\t{}\n\t{}\n\n", idx1, idx2, lines[*idx1], lines[*idx2]);
+        //         already_seen.insert(lines[*idx1]);
+        //         already_seen.insert(lines[*idx2]);
+        //     }
+        // }
+
         // Build groups (sequential - hard to parallelize efficiently)
         let mut groups: Vec<HashSet<usize>> = Vec::new();
         let mut line_to_group: HashMap<usize, usize> = HashMap::new();

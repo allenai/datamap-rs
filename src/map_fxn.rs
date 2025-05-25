@@ -1801,7 +1801,10 @@ impl DataProcessor for LineMinhashFilter {
 			"lines_removal_ratio": (lines_before_cnt - lines_after_cnt) as f32 / lines_before_cnt as f32,
 		}));
 
+		// replace with new metadata and text
+		json_set(&mut data, &String::from("metadata"), Value::Object(metadata)).unwrap();
 		json_set(&mut data, &self.text_field, Value::String(deduplicated_text)).unwrap();
+
 		Ok(Some(data))
 	}
 }

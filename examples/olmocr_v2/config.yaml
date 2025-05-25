@@ -11,6 +11,6 @@ pipeline:
   - name: line_minhash_filter
     kwargs:
       num_perm: 128
-      threshold: 0.9
-      line_filter: "\\w+" # only keep lines with at least one word
-      min_line_length: 50 # at least 20 characters
+      threshold: 0.8
+      line_filter: "(\\w+|\\d+)" # only keep lines with at least one word or number
+      min_line_length: 20 # at least 20 characters
