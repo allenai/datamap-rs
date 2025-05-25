@@ -10,19 +10,20 @@ use serde_json::{json, Value};
 use anyhow::{Error, Result, ensure, anyhow};
 use rand::Rng;
 use uuid::Uuid;
-use crate::utils::{get_default, json_get, json_set, extract_subdomain, get_tokenizer};
+use crate::utils::{get_default, json_get, json_set, extract_subdomain};
 use serde::Serialize;
 use once_cell::sync::Lazy;
 use std::collections::{HashMap, HashSet};
 
 use url::Url;
 use mj_io::read_pathbuf_to_mem;
-use fasttext::{FastText, Prediction};
+use fasttext::{FastText};
 use unicode_segmentation::UnicodeSegmentation;
 use regex::Regex;
 use fxhash::FxHasher;
 use derivative::Derivative;
-//use mj_io::build_pbar;
+
+use crate::minhash::MinHashLSH;
 
 /*================================================================================
 =                            PIPELINE PROCESSING                                 =
@@ -73,6 +74,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
     register_processor!(m, "word_removal_ratio_filter", WordRemovalRatioFilter);
     register_processor!(m, "madlad400_sentence_filter", Madlad400SentenceFilter);
     register_processor!(m, "olmocr_rules_adder", OlmocrRulesAdder);
+	register_processor!(m, "line_minhash_filter", LineMinhashFilter);
     // Add more processor types as needed
 
     m
@@ -1731,6 +1733,75 @@ impl DataProcessor for OlmocrRulesAdder {
 		}));
 		json_set(&mut data, &String::from("metadata"), Value::Object(metadata)).unwrap();
 
+		Ok(Some(data))
+	}
+}
+
+
+#[derive(Serialize, Debug)]
+pub struct LineMinhashFilter {
+	pub text_field: String,
+	pub num_perm: usize,
+	pub threshold: f32,
+	pub shingle_size: usize,
+	pub min_line_length: usize,
+	pub line_filter: Option<String>,
+}
+
+
+impl DataProcessor for LineMinhashFilter {
+	fn new(config: &Value) -> Result<Self, Error> {
+		let text_field = get_default(config, "text_field", String::from("text"));
+		let num_perm = get_default(config, "num_perm", 128);
+		let threshold = get_default(config, "threshold", 0.8) as f32;
+		let min_line_length = get_default(config, "min_line_length", 0);
+		let line_filter = config.get("line_filter")
+			.and_then(|v| v.as_str())
+			.map(|s| s.to_string());
+		let shingle_size = get_default(config, "shingle_size", 20);
+		Ok(Self {
+			text_field,
+			num_perm,
+			threshold,
+			shingle_size,
+			min_line_length,
+			line_filter
+		})
+	}
+
+	fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
+
+		let minhash_lsh = MinHashLSH::new(
+			self.num_perm,
+			self.threshold,
+			self.line_filter.as_deref(),
+			self.min_line_length
+		);
+		let deduplicated_text = minhash_lsh.deduplicate(&text, self.shingle_size);
+
+		// add to metadata:
+		// - the number of lines before and after deduplication
+		// - the number of characters before and after deduplication
+		// - characters removal ratio
+		// - line removal ratio
+
+		let lines_before_cnt = text.lines().count();
+		let lines_after_cnt = deduplicated_text.lines().count();
+		let characters_before_cnt = text.len();
+		let characters_after_cnt = deduplicated_text.len();
+
+		let mut metadata = data.get_mut("metadata").unwrap().as_object_mut().unwrap().clone();
+		metadata.insert("minhash_filter".to_string(), json!({
+			"lines_before": lines_before_cnt,
+			"lines_after": lines_after_cnt,
+			"characters_before": characters_before_cnt,
+			"characters_after": characters_after_cnt,
+			"characters_removal_ratio": (characters_before_cnt - characters_after_cnt) as f32 / characters_before_cnt as f32,
+			"lines_removal_ratio": (lines_before_cnt - lines_after_cnt) as f32 / lines_before_cnt as f32,
+		}));
+
+		json_set(&mut data, &self.text_field, Value::String(deduplicated_text)).unwrap();
 		Ok(Some(data))
 	}
 }

@@ -25,15 +25,16 @@ use mj_io::{expand_dirs, read_pathbuf_to_mem, write_mem_to_pathbuf, build_pbar, 
 use indicatif::ProgressBar;
 
 
-pub mod map_fxn; 
+pub mod map_fxn;
 pub mod utils;
 use datamap_rs::map_fxn::{PipelineProcessor};
 pub use map_fxn::DataProcessor;
+pub mod minhash;
 /*
 Map Config layout:
 
 pipeline: list with:
-    [{name, 
+    [{name,
      kwargs: {arg1: val1, ...}},
     ]
 
@@ -123,7 +124,7 @@ fn parse_config(config: &PathBuf) -> Result<serde_json::Value, Error> {
 fn write_output_lines(output_values: Vec<Value>, output_file: &PathBuf) -> Result<(), Error> {
     if output_values.len() == 0 {
         return Ok(());
-    } 
+    }
 
     let mut output_bytes: Vec<u8> = Vec::new();
     output_values.into_iter().for_each(|v| {
@@ -142,7 +143,7 @@ fn print_global_stats_stuff(start_time: Instant, global_timer: DashMap<usize, At
     let total_step_time = step_times.values().sum::<usize>();
     let step_fracs: HashMap<usize, f64> = step_times.iter().map(|(k,v)| (*k, *v as f64 / total_step_time as f64)).collect();
 
-    // Filtering info 
+    // Filtering info
     let total_docs: usize = global_filter.iter().map(|e| *e.value()).sum::<usize>();
     let mut remaining_docs: usize = total_docs;
 
@@ -179,7 +180,7 @@ fn print_global_stats_stuff(start_time: Instant, global_timer: DashMap<usize, At
 
 
 fn gen_map(input_dir: &PathBuf, output_dir: &PathBuf, config: &PathBuf, err_dir: Option<PathBuf>) -> Result<(), Error> {
-    /* Generic mapping/filtration function. 
+    /* Generic mapping/filtration function.
 
     Processes each *.jsonl.* in input_dir and makes an identically named copy in output_dir
     with the changes specified in the config applied
@@ -204,7 +205,7 @@ fn gen_map(input_dir: &PathBuf, output_dir: &PathBuf, config: &PathBuf, err_dir:
     // Loop over input files
     let pbar = build_pbar(all_files.len(), "Files");
     all_files.par_iter().for_each(|p| {
-        //let output_file = get_output_filename(p, input_dir, output_dir).unwrap();        
+        //let output_file = get_output_filename(p, input_dir, output_dir).unwrap();
         let err_file: Option<PathBuf> = if let Some(err_dir_real) = &err_dir {
             Some(get_output_filename(p, input_dir, &err_dir_real).unwrap())
         } else {
@@ -215,12 +216,12 @@ fn gen_map(input_dir: &PathBuf, output_dir: &PathBuf, config: &PathBuf, err_dir:
     });
 
     print_global_stats_stuff(start_main, global_timer, global_filter, &processor);
-    Ok(())    
+    Ok(())
 }
 
 
 
-fn gen_map_single(input_file: &PathBuf, input_dir: &PathBuf, output_dir: &PathBuf, err_file: Option<PathBuf>, processor: &PipelineProcessor, 
+fn gen_map_single(input_file: &PathBuf, input_dir: &PathBuf, output_dir: &PathBuf, err_file: Option<PathBuf>, processor: &PipelineProcessor,
                   global_timer: &DashMap<usize, AtomicUsize>, global_filter: &DashMap<usize, usize>,
                   err_count: &AtomicUsize) -> Result<(), Error> {
     /* Single-file mapping/filtration function
@@ -233,7 +234,7 @@ fn gen_map_single(input_file: &PathBuf, input_dir: &PathBuf, output_dir: &PathBu
     let lines: Vec<_> = data.lines().map(|el| el.unwrap()).collect();
 
     // Process data
-    let (output_lines, err_lines, timing_info, filter_info) = processor.process_lines(lines).unwrap();    
+    let (output_lines, err_lines, timing_info, filter_info) = processor.process_lines(lines).unwrap();
     let err_lines_len = err_lines.len();
 
     output_lines.into_iter().for_each(|(k, v)| {
@@ -295,7 +296,7 @@ fn reshard(input_dir: &PathBuf, output_dir: &PathBuf, max_lines: usize, max_size
         max_size
     };
 
-    let num_threads = current_num_threads();    
+    let num_threads = current_num_threads();
     let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
     let pbar = build_pbar(all_files.len(), "Files");
     let chunk_size = (all_files.len() + num_threads - 1) / num_threads;
@@ -315,7 +316,7 @@ fn reshard_chunk(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUsi
     let get_new_writer = |out_num: &AtomicUsize| -> Result<Encoder<BufWriter<File>>, Error> {
         let shard_id = out_num.fetch_add(1, Ordering::SeqCst);
         let shard = get_reshard_name(output_dir, shard_id).unwrap();
-        let writer = make_shard_writer(shard).unwrap();        
+        let writer = make_shard_writer(shard).unwrap();
         Ok(writer)
     };
     let mut rng = rand::rng();
@@ -337,7 +338,7 @@ fn reshard_chunk(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUsi
                     writer.flush().unwrap();
                     writer.do_finish().unwrap();
                     writer = get_new_writer(out_num).unwrap();
-                    cur_lines = 0; 
+                    cur_lines = 0;
                     cur_size = 0;
                 }
             }
@@ -365,7 +366,7 @@ fn make_shard_writer(shard_name: PathBuf) -> Result<Encoder<'static, BufWriter<F
     if let Some(parent_dir) = shard_name.parent() {
         if !parent_dir.exists() {
             create_dir_all(parent_dir).unwrap()
-         }    
+         }
     }
     let buf_writer = BufWriter::new(
             OpenOptions::new()
@@ -407,4 +408,3 @@ fn main() {
     };
     result.unwrap();
 }
-
