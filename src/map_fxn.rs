@@ -22,6 +22,7 @@ use mj_io::read_pathbuf_to_mem;
 use regex::Regex;
 use unicode_segmentation::UnicodeSegmentation;
 use url::Url;
+use xxhash_rust::xxh3::{xxh3_128, xxh3_64};
 
 use derivative::Derivative;
 //use mj_io::build_pbar;
@@ -80,6 +81,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         // Add more processor types as needed
         register_processor!(m, "interval_filter", IntervalFilter);
         register_processor!(m, "dd_max_getter", DDMaxGetter);
+        register_processor!(m, "hash_annotator", HashAnnotator);
 
         m
     });
@@ -589,12 +591,13 @@ impl DataProcessor for FastTextAnnotator {
     }
 
     fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
-        let text = json_get(&data, &self.text_field)
+        let mut text = json_get(&data, &self.text_field)
             .unwrap()
             .as_str()
             .unwrap()
             .to_string()
             .replace("\n", " ");
+        text.push_str("\n");
         let predictions = self.model.predict(&text, self.k, self.threshold).unwrap();
 
         let mut map = serde_json::Map::new();
@@ -1101,29 +1104,26 @@ impl MassiveWebRepetitionFilter {
     ) -> Result<f32, Error> {
         let mut ngram: VecDeque<&'a str> = VecDeque::with_capacity(ngram_size); // temp to hold current "ngram"
         let mut ngram_char_len = 0; // temp to current ngram len?
-
+        let mut rolling_hash = CompatibleRollingHash::new(ngram_size);
         let mut ngram_counts: HashMap<(u64, usize), Vec<usize>> = HashMap::new(); //(ngram_hash, ngram_char_len) -> [idxs where this ngram starts, ...]
         let total_elements = elements.len();
         let mut total_ngrams = 0;
         let total_charlen = elements.iter().map(|v| v.len()).sum::<usize>();
 
-        for (idx, &element) in elements.iter().enumerate() {
-            ngram.push_back(element);
-            ngram_char_len += element.len();
-            if ngram.len() >= ngram_size {
-                // if enough "elements" to make ngram
-                // hash ngram and add it to counts
-
-                let mut hasher = FxHasher::default();
-                ngram.hash(&mut hasher);
-                let hash_val: u64 = hasher.finish();
+        
+        for (idx, &element) in elements.iter().enumerate() {    
+            rolling_hash.roll(element);
+            
+            if rolling_hash.is_full() {
+                let hash_val = rolling_hash.get_hash();
+                let char_len = rolling_hash.get_char_length();
+                
                 ngram_counts
-                    .entry((hash_val, ngram_char_len))
-                    .or_insert(Vec::new())
-                    .push((idx + 1) - ngram_size);
-
+                    .entry((hash_val, char_len))
+                    .or_insert_with(Vec::new)
+                    .push(idx + 1 - ngram_size);
+                
                 total_ngrams += 1;
-                ngram_char_len -= ngram.pop_front().unwrap().len();
             }
         }
 
@@ -1207,6 +1207,59 @@ impl MassiveWebRepetitionFilter {
         Ok(repeat_frac)
     }
 }
+
+
+
+/// Alternative: True rolling hash that matches original hash values
+/// This version computes the same hash as the original but still optimizes other aspects
+struct CompatibleRollingHash<'a> {
+    window: VecDeque<&'a str>,
+    window_size: usize,
+    char_length: usize,
+}
+
+impl<'a> CompatibleRollingHash<'a> {
+    fn new(window_size: usize) -> Self {
+        Self {
+            window: VecDeque::with_capacity(window_size),
+            window_size,
+            char_length: 0,
+        }
+    }
+    
+    fn roll(&mut self, new_element: &'a str) -> Option<&'a str> {
+        // Add new element
+        self.window.push_back(new_element);
+        self.char_length += new_element.len();
+        
+        // Remove oldest if window is full
+        if self.window.len() > self.window_size {
+            let removed = self.window.pop_front().unwrap();
+            self.char_length -= removed.len();
+            Some(removed)
+        } else {
+            None
+        }
+    }
+    
+    fn get_hash(&self) -> u64 {
+        // Hash the entire VecDeque to match original
+        let mut hasher = FxHasher::default();
+        self.window.hash(&mut hasher);
+        hasher.finish()
+    }
+    
+    fn get_char_length(&self) -> usize {
+        self.char_length
+    }
+    
+    fn is_full(&self) -> bool {
+        self.window.len() >= self.window_size
+    }
+}
+
+
+
 
 #[derive(Serialize, Debug)]
 pub struct WordCountAdder {
@@ -1461,7 +1514,7 @@ impl DataProcessor for SubstringLineModifier {
 
         for line in lines {
             let line = line.to_string();
-            
+
             if line.len() == 0 {
                 passing_lines.push(line);
                 continue;
@@ -1550,7 +1603,7 @@ pub struct Madlad400SentenceAnnotator {
     pub sentence_lower_bound: usize,        // defaults to 5
     pub sentence_question_upper_bound: f32, // defaults to 20%
     pub annotation_key: String, // defaults to metadata.madlad
-
+    pub rules_to_include: Vec<usize>, // If empty, includes ALL rules. Otherwise just counts the rules here
 
     // document consistency
     pub fast_text_file: String, // path to fasttext model
@@ -1590,7 +1643,8 @@ impl DataProcessor for Madlad400SentenceAnnotator {
             get_default(config, "sentence_question_upper_bound", 0.20) as f32;
 
         let annotation_key = get_default(config, "annotation_key", String::from("metadata.madlad"));
-
+        let rules_to_include: Vec<usize> = get_default(config, "rules_to_include", vec![])
+            .into_iter().map(|v| v.as_u64().unwrap() as usize).collect::<Vec<usize>>();
         let fast_text_file = config
             .get("fast_text_file")
             .unwrap()
@@ -1639,6 +1693,7 @@ impl DataProcessor for Madlad400SentenceAnnotator {
             sentence_lower_bound,
             sentence_question_upper_bound,
             annotation_key,
+            rules_to_include,
             fast_text_file,
             model,
             langid_field,
@@ -1662,6 +1717,13 @@ impl DataProcessor for Madlad400SentenceAnnotator {
             .unwrap()
             .to_string();
         let sentence_splitter = Regex::new(r"[.!?]+\s+").unwrap();
+
+        let rules_to_include: HashSet<usize> = if self.rules_to_include.len() == 0 {
+            vec![1,2,3,4,5].into_iter().map(|v| v).collect()
+        } else {
+            self.rules_to_include.iter().map(|v| *v).collect()
+        };
+
         let sentences: Vec<_> = sentence_splitter
             .split(&text)
             .filter(|s| s.trim().len() > 0)
@@ -1698,20 +1760,20 @@ impl DataProcessor for Madlad400SentenceAnnotator {
 
         for (sentence_num, sentence) in sentences.into_iter().enumerate() {
             // And finally langid
-            if self.document_consistency(sentence, doc_lang).unwrap() {
+            if rules_to_include.contains(&1) && self.document_consistency(sentence, doc_lang).unwrap() {
                 tracker.entry("rule.1").or_default().push(sentence_num);            
                 sus_sentences.insert(sentence_num);
             }
 
             // Then check case
-            if self.list_case(sentence).unwrap() {
+            if rules_to_include.contains(&2) && self.list_case(sentence).unwrap() {
                 tracker.entry("rule.2").or_default().push(sentence_num);
                 sus_sentences.insert(sentence_num);
 
             }
 
             // Check abnormal len sentences
-            if self.abnormal_len_sentence(sentence).unwrap() {
+            if rules_to_include.contains(&3) && self.abnormal_len_sentence(sentence).unwrap() {
                 tracker.entry("rule.3").or_default().push(sentence_num);
                 sus_sentences.insert(sentence_num);
 
@@ -1719,7 +1781,7 @@ impl DataProcessor for Madlad400SentenceAnnotator {
 
 
             // Then check technical character counts
-            if self.technical_characters(sentence).unwrap() {
+            if rules_to_include.contains(&4) && self.technical_characters(sentence).unwrap() {
                 tracker.entry("rule.4").or_default().push(sentence_num);
                 sus_sentences.insert(sentence_num);
 
@@ -1727,7 +1789,7 @@ impl DataProcessor for Madlad400SentenceAnnotator {
 
 
             // Then do cursed regex stuff
-            if self.check_cursed_regexes(sentence).unwrap() {
+            if rules_to_include.contains(&5) && self.check_cursed_regexes(sentence).unwrap() {
                 tracker.entry("rule.5").or_default().push(sentence_num);            
                 sus_sentences.insert(sentence_num);
 
@@ -2116,4 +2178,47 @@ impl DataProcessor for DDMaxGetter {
     }
 }
 
+
+
+
+#[derive(Serialize, Debug)]
+pub struct HashAnnotator {
+    // Adds a hash id to 
+    pub hash_source: String, // field that gets hashed
+    pub hash_destination: String, // where the target gets hashed and save
+    pub num_bits: usize // defaults to 128    
+}
+
+impl DataProcessor for HashAnnotator {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let hash_source = get_default(config, "hash_source", String::from("text"));
+        let hash_destination = get_default(config, "hash_destination", String::from("metadata.text_hash"));
+        let num_bits = get_default(config, "num_bits", 128);
+
+        assert!(num_bits == 64 || num_bits == 128);
+
+        Ok(Self {
+            hash_source,
+            hash_destination, 
+            num_bits
+        })
+    }
+
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+        let text = json_get(&data, &self.hash_source)
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let hash_val = if self.num_bits == 128 {            
+            Value::from(xxh3_128(text.as_bytes()).to_string())
+        } else {
+            Value::from(xxh3_64(text.as_bytes()))
+        };
+
+        json_set(&mut data, &self.hash_destination, hash_val).unwrap();
+        Ok(Some(data))
+    }
+}
 
