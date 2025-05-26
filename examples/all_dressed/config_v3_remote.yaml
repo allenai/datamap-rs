@@ -181,7 +181,7 @@ pipeline:
   - name: fasttext_annotator
     kwargs:
       #fast_text_file: examples/dclm/models--cis-lmu--glotlid/snapshots/74cb50b709c9eefe0f790030c6c95c461b4e3b77/model.bin
-      fast_text_file: examples/dclm/fineweb_edu_gt2_bigram_200k.bin 
+      fast_text_file: /mnt/raid0/ft_models/fineweb_edu_gt2_bigram_200k.bin 
       output_field: metadata.fineweb_edu_gt2    
 
 
