@@ -1393,7 +1393,7 @@ impl DataProcessor for LineLenModifier {
 
         let passing_lines: Vec<_> = lines
             .iter()
-            .filter(|line| line.unicode_words().collect::<Vec<_>>().len() >= self.lower_bound)
+            .filter(|line| line.unicode_words().collect::<Vec<_>>().len() >= self.lower_bound || line.len() == 0)
             .map(|&l| l)
             .collect();
         if passing_lines.len() == 0 {
