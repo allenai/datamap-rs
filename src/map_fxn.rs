@@ -1,3 +1,4 @@
+
 use std::cmp;
 use std::time::Instant;
 use crate::utils::{extract_subdomain, get_default, json_get, json_set};
@@ -17,13 +18,13 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 use fasttext::FastText;
-use fxhash::FxHasher;
+use fxhash::{FxHasher, FxHashMap};
 use mj_io::read_pathbuf_to_mem;
 use regex::Regex;
 use unicode_segmentation::UnicodeSegmentation;
 use url::Url;
 use xxhash_rust::xxh3::{xxh3_128, xxh3_64};
-
+use once_cell::sync::OnceCell;
 use derivative::Derivative;
 //use mj_io::build_pbar;
 
@@ -318,6 +319,7 @@ impl DataProcessor for SubsampleFilter {
         }
     }
 }
+
 #[derive(Derivative)]
 #[derivative(Debug)]
 #[derive(Serialize)]
@@ -356,6 +358,11 @@ pub struct UrlSubstringFilter {
     #[derivative(Debug = "ignore")]
     #[serde(skip)]
     pub ac_banlist: Option<AhoCorasick>,
+
+
+    #[derivative(Debug = "ignore")]
+    #[serde(skip)]
+    pub part_splitter: Option<Regex>,    
 }
 
 impl DataProcessor for UrlSubstringFilter {
@@ -427,11 +434,12 @@ impl DataProcessor for UrlSubstringFilter {
 
         // Exact part match
         if self.exact_part_match {
-            let splitter_re = Regex::new(r"[^a-zA-Z0-9]+").unwrap();
-            let mut parts = splitter_re.split(&url);
-            if parts.any(|p| self.banlist.contains(p)) {
-                return Ok(None);
-            } else {
+            if let Some(ref splitter) = self.part_splitter {
+                for part in splitter.split(&url) {
+                    if !part.is_empty() && self.banlist.contains(part) {
+                        return Ok(None)
+                    }
+                }
                 return Ok(Some(data));
             }
         }
@@ -501,6 +509,12 @@ impl UrlSubstringFilter {
                 Some(AhoCorasick::new(banlist_vec).unwrap())
             };
 
+        let part_splitter = if exact_part_match {
+            Some(Regex::new(r"[^a-zA-Z0-9]+").unwrap())
+        } else { 
+            None
+        };
+
         Ok(Self {
             url_key,
             alt_url_key,
@@ -514,6 +528,7 @@ impl UrlSubstringFilter {
             num_banned_substrs,
             banlist,
             ac_banlist,
+            part_splitter
         })
     }
 }
@@ -706,37 +721,52 @@ impl DataProcessor for StringEqFilter {
 
 #[derive(Serialize, Debug)]
 pub struct PageLenFilter {
-    /*
-    This function measures page length according to a specified atomic unit (e.g., char, word, sentence,
-    line, paragraph).
-    If the length is less than `min_length`, it returns None
-    If the length is greater/equal to `min_length`, it returns the original JSON object.
-    */
     pub text_field: String,
-    pub length_type: String,
+    pub length_type: LengthType,
     pub lower_bound: usize,
     pub upper_bound: usize,
     pub ignore_punctuation: bool,
 }
 
+#[derive(Serialize, Debug, Clone, Copy)]
+pub enum LengthType {
+    Word,
+    Sentence,
+    Line,
+    Paragraph,
+    Char,
+}
+
+impl std::str::FromStr for LengthType {
+    type Err = Error;
+    
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "word" => Ok(LengthType::Word),
+            "sentence" => Ok(LengthType::Sentence),
+            "line" => Ok(LengthType::Line),
+            "paragraph" => Ok(LengthType::Paragraph),
+            "char" => Ok(LengthType::Char),
+            _ => Err(anyhow!(
+                "Length type must be one of {{word, sentence, line, paragraph, char}} and not {:?}",
+                s
+            )),
+        }
+    }
+}
+
 impl DataProcessor for PageLenFilter {
     fn new(config: &Value) -> Result<Self, Error> {
         let text_field = get_default(config, "text_field", String::from("text"));
-        let length_type = config
+        
+        let length_type_str = config
             .get("length_type")
-            .unwrap()
-            .as_str()
-            .unwrap()
-            .to_string();
-        ensure!(
-            ["word", "sentence", "line", "paragraph", "char"].contains(&&length_type.as_str()),
-            format!(
-                "Length type must be one of {{word, sentence, line, paragraph, char}} and not {:?}",
-                length_type
-            )
-        );
-
-        let lower_bound = get_default(config, "lower_bound", 1 as usize);
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("length_type is required and must be a string"))?;
+        
+        let length_type = length_type_str.parse::<LengthType>()?;
+        
+        let lower_bound = get_default(config, "lower_bound", 1_usize);
         let upper_bound = get_default(config, "upper_bound", usize::MAX);
         let ignore_punctuation = get_default(config, "ignore_punctuation", true);
 
@@ -751,22 +781,11 @@ impl DataProcessor for PageLenFilter {
 
     fn process(&self, data: Value) -> Result<Option<Value>, Error> {
         let text = json_get(&data, &self.text_field)
-            .unwrap()
-            .as_str()
-            .unwrap()
-            .to_string();
-        let len = match self.length_type.as_str() {
-            "word" => text
-                .as_str()
-                .split_word_bounds()
-                .filter(|v| {
-                    v.trim().len() > 0
-                        && (v.chars().next().unwrap().is_alphanumeric() || !self.ignore_punctuation)
-                })
-                .collect::<Vec<_>>()
-                .len(),
-            _ => return Err(anyhow!("Only implemented for words for now!")),
-        };
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Text field '{}' not found or not a string", self.text_field))?;
+        
+        let len = self.calculate_length(text)?;
+        
         if self.lower_bound <= len && len <= self.upper_bound {
             Ok(Some(data))
         } else {
@@ -774,6 +793,73 @@ impl DataProcessor for PageLenFilter {
         }
     }
 }
+
+impl PageLenFilter {
+    fn calculate_length(&self, text: &str) -> Result<usize, Error> {
+        match self.length_type {
+            LengthType::Word => Ok(self.count_words(text)),
+            LengthType::Char => Ok(if self.ignore_punctuation {
+                text.chars().filter(|c| c.is_alphanumeric()).count()
+            } else {
+                text.chars().count()
+            }),
+            LengthType::Line => Ok(text.lines().count()),
+            LengthType::Sentence => Ok(self.count_sentences(text)),
+            LengthType::Paragraph => Ok(self.count_paragraphs(text)),
+        }
+    }
+    fn count_words(&self, text: &str) -> usize {
+        if !text.is_ascii() {
+            return self.count_words_uni(text);
+        }
+        
+        let mut count = 0;
+        let mut in_word = false;
+        
+        for &byte in text.as_bytes() {
+            let is_word_char = if self.ignore_punctuation {
+                byte.is_ascii_alphanumeric()
+            } else {
+                !byte.is_ascii_whitespace()
+            };
+            
+            if is_word_char && !in_word {
+                count += 1;
+                in_word = true;
+            } else if !is_word_char {
+                in_word = false;
+            }
+        }
+        
+        count
+    }
+
+    
+    fn count_words_uni(&self, text: &str) -> usize {
+        if self.ignore_punctuation {
+            text.unicode_words().count()
+        } else {
+            text.split_word_bounds()
+                .filter(|s| !s.trim().is_empty())
+                .count()
+        }
+    }    
+    
+    fn count_sentences(&self, text: &str) -> usize {
+        text.chars()
+            .filter(|&c| matches!(c, '.' | '!' | '?'))
+            .count()
+            .max(1) // At least 1 sentence if text is non-empty
+    }
+    
+    fn count_paragraphs(&self, text: &str) -> usize {
+        text.split("\n\n")
+            .filter(|p| !p.trim().is_empty())
+            .count()
+            .max(1) // At least 1 paragraph if text is non-empty
+    }
+}
+
 
 #[derive(Serialize, Debug)]
 pub struct WordLenFilter {
@@ -984,14 +1070,14 @@ impl DataProcessor for AlphabeticWordRatioFilter {
     }
 }
 
+
 #[derive(Serialize, Debug)]
 pub struct StopWordFilter {
-    // Filters to only include docs that have min_stop_words stopwords
     pub text_field: String,
     pub count_unique: bool,
     pub min_stop_word: usize,
-    /////////
-    pub stop_words: HashSet<String>,
+    // Use &'static str for better performance
+    pub stop_words: HashSet<&'static str>,
 }
 
 impl DataProcessor for StopWordFilter {
@@ -999,9 +1085,11 @@ impl DataProcessor for StopWordFilter {
         let text_field = get_default(config, "text_field", String::from("text"));
         let count_unique = get_default(config, "count_unique", false);
         let min_stop_word = get_default(config, "min_stop_word", 2);
-        let stop_words: HashSet<String> = ["the", "be", "to", "of", "and", "that", "have", "with"]
+        
+        // Use &'static str to avoid String allocations
+        let stop_words: HashSet<&'static str> = 
+            ["the", "be", "to", "of", "and", "that", "have", "with"]
             .into_iter()
-            .map(|w| String::from(w))
             .collect();
 
         Ok(Self {
@@ -1013,39 +1101,63 @@ impl DataProcessor for StopWordFilter {
     }
 
     fn process(&self, data: Value) -> Result<Option<Value>, Error> {
+        // Early return optimization
         if self.min_stop_word == 0 {
             return Ok(Some(data));
         }
-        let text = json_get(&data, &self.text_field)
-            .unwrap()
-            .as_str()
-            .unwrap()
-            .to_string();
-        let words: Vec<_> = text.split_whitespace().map(|w| w.to_lowercase()).collect();
-        if self.count_unique {
-            let mut occur_stop_words = HashSet::new();
-            for word in words {
-                if self.stop_words.contains(&word) {
-                    occur_stop_words.insert(word);
-                    if occur_stop_words.len() >= self.min_stop_word {
-                        return Ok(Some(data));
-                    }
-                }
-            }
+        
+        let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap();
+        
+        let meets_threshold = if self.count_unique {
+            self.has_unique_stop_words(text)
         } else {
-            let mut count = 0;
-            for word in words {
-                if self.stop_words.contains(&word) {
-                    count += 1;
-                    if count >= self.min_stop_word {
-                        return Ok(Some(data));
-                    }
+            self.has_enough_stop_words(text)
+        };
+        
+        if meets_threshold {
+            Ok(Some(data))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+impl StopWordFilter {
+    // Return boolean instead of moving data
+    fn has_unique_stop_words(&self, text: &str) -> bool {
+        let mut unique_stop_words = HashSet::new();
+        
+        // Avoid collecting into Vec, process words as iterator
+        for word in text.split_whitespace() {
+            let word_lower = word.to_lowercase();
+            if self.stop_words.contains(word_lower.as_str()) {
+                unique_stop_words.insert(word_lower);
+                if unique_stop_words.len() >= self.min_stop_word {
+                    return true;
                 }
             }
         }
-        Ok(None)
+        false
+    }
+    
+    fn has_enough_stop_words(&self, text: &str) -> bool {
+        let mut count = 0;
+        
+        // Process words as iterator without collecting
+        for word in text.split_whitespace() {
+            let word_lower = word.to_lowercase();
+            if self.stop_words.contains(word_lower.as_str()) {
+                count += 1;
+                if count >= self.min_stop_word {
+                    return true;
+                }
+            }
+        }
+        false
     }
 }
+
+
 
 #[derive(Serialize, Debug)]
 pub struct MassiveWebRepetitionFilter {
@@ -1105,7 +1217,7 @@ impl MassiveWebRepetitionFilter {
         let mut ngram: VecDeque<&'a str> = VecDeque::with_capacity(ngram_size); // temp to hold current "ngram"
         let mut ngram_char_len = 0; // temp to current ngram len?
         let mut rolling_hash = CompatibleRollingHash::new(ngram_size);
-        let mut ngram_counts: HashMap<(u64, usize), Vec<usize>> = HashMap::new(); //(ngram_hash, ngram_char_len) -> [idxs where this ngram starts, ...]
+        let mut ngram_counts: FxHashMap<(u64, usize), Vec<usize>> = FxHashMap::default(); //(ngram_hash, ngram_char_len) -> [idxs where this ngram starts, ...]
         let total_elements = elements.len();
         let mut total_ngrams = 0;
         let total_charlen = elements.iter().map(|v| v.len()).sum::<usize>();
@@ -1208,8 +1320,6 @@ impl MassiveWebRepetitionFilter {
     }
 }
 
-
-
 /// Alternative: True rolling hash that matches original hash values
 /// This version computes the same hash as the original but still optimizes other aspects
 struct CompatibleRollingHash<'a> {
@@ -1286,10 +1396,8 @@ impl DataProcessor for WordCountAdder {
         let text = json_get(&data, &self.text_field)
             .unwrap()
             .as_str()
-            .unwrap()
-            .to_string();
-
-        let word_count = text.unicode_words().collect::<Vec<_>>().len();
+            .unwrap();
+        let word_count = text.unicode_words().count();
         json_set(&mut data, &self.word_count_field, word_count.into()).unwrap();
 
         Ok(Some(data))
@@ -1476,6 +1584,9 @@ pub struct SubstringLineModifier {
     pub max_len: usize,
     pub remove_substring_only: bool,
     pub location: String,
+    #[serde(skip)]
+    regex: OnceCell<Regex>
+
 }
 
 impl DataProcessor for SubstringLineModifier {
@@ -1492,6 +1603,7 @@ impl DataProcessor for SubstringLineModifier {
             max_len,
             remove_substring_only,
             location,
+            regex: OnceCell::new(),
         })
     }
 
@@ -1499,50 +1611,64 @@ impl DataProcessor for SubstringLineModifier {
         let text = json_get(&data, &self.text_field)
             .unwrap()
             .as_str()
-            .unwrap()
-            .to_string();
-        let lines: Vec<&str> = text.split('\n').collect();
-        let (pattern, replacement) = match self.location.as_str() {
-            "prefix" => (format!(r"^(?:{banlist})\s?", banlist = self.banlist), ""),
-            "suffix" => (format!(r"\s?(?:{banlist})$", banlist = self.banlist), ""),
-            _ => (format!(r"\s?(?:{banlist})\s?", banlist = self.banlist), " "),
+            .unwrap();
+
+        // Get or compile regex once
+        let regex = self.regex.get_or_try_init(|| {
+            let (pattern, _) = match self.location.as_str() {
+                "prefix" => (format!(r"^(?:{})\s?", self.banlist), ""),
+                "suffix" => (format!(r"\s?(?:{})$", self.banlist), ""),
+                _ => (format!(r"\s?(?:{})\s?", self.banlist), " "),
+            };
+            Regex::new(&pattern)
+        })?;
+
+        let replacement = match self.location.as_str() {
+            "prefix" | "suffix" => "",
+            _ => " ",
         };
 
-        let regex = Regex::new(&pattern).unwrap();
+        // Use iterator with filter_map for better performance
+        let processed_lines: Vec<String> = text
+            .lines()
+            .filter_map(|line| {
+                // Skip empty lines processing if they should be kept as-is
+                if line.is_empty() {
+                    return Some(String::new());
+                }
 
-        let mut passing_lines: Vec<String> = Vec::new();
+                // Check max_len constraint first (cheaper operation)
+                if self.max_len != usize::MAX {
+                    let word_count = line.unicode_words().count();
+                    if word_count > self.max_len {
+                        return Some(line.to_string());
+                    }
+                }
 
-        for line in lines {
-            let line = line.to_string();
-
-            if line.len() == 0 {
-                passing_lines.push(line);
-                continue;
-            }
-            if self.max_len == usize::MAX
-                || line.unicode_words().collect::<Vec<_>>().len() <= self.max_len
-            {
                 if self.remove_substring_only {
-                    let cleaned = regex.replace_all(&line, replacement).to_string();
+                    let cleaned = regex.replace_all(line, replacement);
+                    // Only keep non-empty trimmed lines
                     if !cleaned.trim().is_empty() {
-                        passing_lines.push(cleaned);
+                        Some(cleaned.into_owned())
+                    } else {
+                        None
                     }
                 } else {
-                    if regex.is_match(&line) {
-                        continue;
+                    // If regex matches, skip the line (return None)
+                    if regex.is_match(line) {
+                        None
+                    } else {
+                        Some(line.to_string())
                     }
-                    passing_lines.push(line);
                 }
-            } else {
-                passing_lines.push(line);
-            }
-        }
+            })
+            .collect();
+
         json_set(
             &mut data,
             &self.text_field,
-            serde_json::Value::String(passing_lines.join("\n")),
-        )
-        .unwrap();
+            serde_json::Value::String(processed_lines.join("\n")),
+        )?;
 
         Ok(Some(data))
     }
@@ -1730,7 +1856,7 @@ impl DataProcessor for Madlad400SentenceAnnotator {
             .collect();
         let num_sentences = sentences.len();    
         let madlad_status = self.annotation_key.clone() + "_status";
-        let mut tracker: HashMap<&str, Vec<usize>> = HashMap::new();
+        let mut tracker: FxHashMap<&str, Vec<usize>> = FxHashMap::default();
         tracker.entry("num_sentences").or_default().push(num_sentences);
 
         if num_sentences < self.sentence_lower_bound {            
