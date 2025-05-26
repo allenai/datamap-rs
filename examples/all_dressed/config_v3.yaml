@@ -1,6 +1,7 @@
 name: alldressed_v3
 text_field: text
 pipeline:
+  - name: non_null_filter
   - name: url_substring_filter
     kwargs:
       url_key: metadata.WARC-Target-URI

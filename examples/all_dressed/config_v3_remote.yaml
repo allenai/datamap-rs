@@ -1,6 +1,7 @@
 name: alldressed_v3
 text_field: text
 pipeline:
+  - name: non_null_filter  
   - name: url_substring_filter
     kwargs:
       url_key: metadata.WARC-Target-URI
@@ -64,18 +65,6 @@ pipeline:
       alt_url_key: metadata.warc_url      
       banlist_file: examples/all_dressed/fineweb_url_filters/banned_subwords.txt
       match_substrings: true
-
-  - name: fasttext_annotator
-    kwargs:
-      #fast_text_file: examples/dclm/models--cis-lmu--glotlid/snapshots/74cb50b709c9eefe0f790030c6c95c461b4e3b77/model.bin
-      fast_text_file: examples/dclm/lid.176.bin
-      output_field: metadata.lang
-  - name: float_filter
-    kwargs:
-      float_field: metadata.lang.__label__en
-      lower_bound: 0.65
-      default: 0.0            
-            
   - name: page_len_filter
     kwargs:
       length_type: char
@@ -152,7 +141,16 @@ pipeline:
   - name: newline_removal_modifier # doubling up in case any new \n\n\n's showed up
     kwargs:
       max_consecutive: 2      
-
+  - name: fasttext_annotator
+    kwargs:
+      #fast_text_file: examples/dclm/models--cis-lmu--glotlid/snapshots/74cb50b709c9eefe0f790030c6c95c461b4e3b77/model.bin
+      fast_text_file: examples/dclm/lid.176.bin
+      output_field: metadata.lang
+  - name: float_filter
+    kwargs:
+      float_field: metadata.lang.__label__en
+      lower_bound: 0.65
+      default: 0.0            
   - name: madlad400_sentence_annotator
     kwargs:
       fast_text_file: examples/dclm/lid.176.bin

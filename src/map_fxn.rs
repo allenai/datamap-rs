@@ -49,7 +49,7 @@ macro_rules! register_processor {
 static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>> =
     Lazy::new(|| {
         let mut m: HashMap<&'static str, ProcessorConstructor> = HashMap::new();
-
+        register_processor!(m, "non_null_filter", NonNullFilter);
         register_processor!(m, "text_len_filter", TextLenFilter);
         register_processor!(m, "subsample", SubsampleFilter);
         register_processor!(m, "santcoder_pl_filter", SantaCoderPLFilter);
@@ -230,6 +230,26 @@ pub trait DataProcessor {
 /*================================================================================
 =                            DATA PROCESSOR VARIANTS                             =
 ================================================================================*/
+#[derive(Serialize, Debug)]
+pub struct NonNullFilter {
+
+}
+impl DataProcessor for NonNullFilter {
+    fn new(_config: &Value) -> Result<Self, Error> {
+        Ok(Self { })        
+    }
+
+    fn process(&self, data: Value) -> Result<Option<Value>, Error> {
+        if data.is_null() {
+            Ok(None)
+        }
+        else {
+            Ok(Some(data))
+        }
+    }
+}
+
+
 #[derive(Serialize, Debug)]
 pub struct TextLenFilter {
     // Filters to only keep docs that have text length in range [lower_bound, upper_bound]
