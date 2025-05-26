@@ -343,7 +343,7 @@ fn groupsort_filter_path(input_path: &PathBuf, output_path: &PathBuf, config: &G
 					docs_kept += 1;
 					output_bytes.extend(line.as_bytes());
 					output_bytes.push(b'\n');				
-				} else if config.keep_idx == -1 && prev_line != None{
+				} else if config.keep_idx == -1 && prev_line.is_some() {
 					docs_kept += 1;
 					output_bytes.extend(prev_line.unwrap().as_bytes());
 					output_bytes.push(b'\n');
@@ -354,9 +354,11 @@ fn groupsort_filter_path(input_path: &PathBuf, output_path: &PathBuf, config: &G
 			// - we always add this particular doc
 			// - and if keep_idx == -1, and cur_group is not None, we add that doc too
 			if config.keep_idx == -1 && cur_group != None {
-				docs_kept += 1;
-				output_bytes.extend(prev_line.unwrap().as_bytes());
-				output_bytes.push(b'\n');
+				if let Some(ref prev) = prev_line {
+					docs_kept += 1;
+					output_bytes.extend(prev.as_bytes());
+					output_bytes.push(b'\n');
+				}
 			}
 			docs_kept += 1;
 			output_bytes.extend(line.as_bytes());
