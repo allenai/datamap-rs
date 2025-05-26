@@ -56,7 +56,7 @@ The quick brown fox jumped over the lazy dog"#;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hasher};
 use fxhash::FxHasher;
-// use rayon::prelude::*;
+use rayon::prelude::*;
 use regex::Regex;
 
 #[derive(Debug, Clone)]
@@ -215,7 +215,7 @@ impl MinHashLSH {
 
         // Parallel signature generation with line info
         let line_infos: Vec<LineInfo> = lines
-            .iter()
+            .par_iter()
             .enumerate()
             .map(|(index, line)| {
                 LineInfo {
@@ -279,7 +279,7 @@ impl MinHashLSH {
 
         // Parallel verification of candidates
         let verified_pairs: Vec<(usize, usize)> = candidates
-            .iter()
+            .par_iter()
             .filter_map(|&(idx1, idx2)| {
                 if let Some(sim) = self.estimate_similarity_fast(
                     &line_infos[idx1].signature,
