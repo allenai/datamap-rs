@@ -1285,6 +1285,10 @@ impl DataProcessor for RatioLineModifier {
 
         let mut passing_lines: Vec<&str> = Vec::new();
         for line in lines {
+            if line.len() == 0 {
+                passing_lines.push(line);
+                continue;
+            }
             let line_len = std::cmp::max(line.len(), 1) as f32;
             let count = if &self.check == "uppercase" {
                 line.chars()
@@ -1457,6 +1461,11 @@ impl DataProcessor for SubstringLineModifier {
 
         for line in lines {
             let line = line.to_string();
+            
+            if line.len() == 0 {
+                passing_lines.push(line);
+                continue;
+            }
             if self.max_len == usize::MAX
                 || line.unicode_words().collect::<Vec<_>>().len() <= self.max_len
             {
