@@ -17,6 +17,7 @@ use std::collections::{HashMap, HashSet};
 
 use url::Url;
 use mj_io::read_pathbuf_to_mem;
+use markdown::{Options, to_html_with_options};
 use fasttext::{FastText};
 use unicode_segmentation::UnicodeSegmentation;
 use regex::Regex;
@@ -75,6 +76,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
     register_processor!(m, "madlad400_sentence_filter", Madlad400SentenceFilter);
     register_processor!(m, "olmocr_rules_adder", OlmocrRulesAdder);
 	register_processor!(m, "line_minhash_filter", LineMinhashFilter);
+    register_processor!(m, "markdown_table_renderer", MarkdownTableRenderer);
     // Add more processor types as needed
 
     m
@@ -1807,4 +1809,83 @@ impl DataProcessor for LineMinhashFilter {
 
 		Ok(Some(data))
 	}
+}
+
+#[derive(Serialize, Debug)]
+pub struct MarkdownTableRenderer {
+    pub text_field: String,
+}
+
+impl DataProcessor for MarkdownTableRenderer {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let text_field = get_default(config, "text_field", String::from("text"));
+        Ok(Self { text_field })
+    }
+
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+        let text = json_get(&data, &self.text_field)
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let processed_text = render_markdown_tables(&text);
+
+        json_set(
+            &mut data,
+            &self.text_field,
+            serde_json::Value::String(processed_text),
+        )
+        .unwrap();
+
+        Ok(Some(data))
+    }
+}
+
+fn render_markdown_tables(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut result = Vec::new();
+    let mut i = 0;
+
+    while i < lines.len() {
+        let line = lines[i];
+
+        // Check if this line starts and ends with '|'
+        let trimmed = line.trim();
+        if trimmed.starts_with('|') && trimmed.ends_with('|') {
+            // Collect all consecutive lines that start and end with '|'
+            let mut table_lines = Vec::new();
+            while i < lines.len() && lines[i].trim().starts_with('|') && lines[i].trim().ends_with('|') {
+                table_lines.push(lines[i]);
+                i += 1;
+            }
+
+            // Only process through markdown if we have at least 2 lines
+            if table_lines.len() >= 2 {
+                // Process this group through the markdown generator
+                let table_markdown = table_lines.join("\n");
+                let options = Options::gfm();
+
+                match to_html_with_options(&table_markdown, &options) {
+                    Ok(html) => {
+                        let table_html = html.trim();
+                        result.push(table_html.to_string());
+                    }
+                    Err(_) => {
+                        // If markdown parsing fails, keep the original lines
+                        result.extend(table_lines.into_iter().map(|s| s.to_string()));
+                    }
+                }
+            } else {
+                // Less than 2 lines, keep as original text
+                result.extend(table_lines.into_iter().map(|s| s.to_string()));
+            }
+        } else {
+            // Not a table line, keep as is
+            result.push(line.to_string());
+            i += 1;
+        }
+    }
+
+    result.join("\n")
 }

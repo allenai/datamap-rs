@@ -19,3 +19,4 @@ pub mod line_len_modifier_test;
 pub mod substring_line_modifier_test;
 pub mod word_removal_ratio_filter_test;
 pub mod massive_repetition_filter_test; 
+pub mod markdown_table_renderer_test;

@@ -3,5 +3,10 @@
 /examples/**/*.bin
 Cargo.lock
 .DS_Store
+
 tmp/
 .venv
+
+*.jsonl.gz
+*.jsonl.zstd
+*.jsonl.zst
