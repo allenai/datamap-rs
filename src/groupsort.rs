@@ -1,3 +1,4 @@
+use rayon::ThreadPoolBuilder;
 use std::sync::atomic;
 use serde_json::Value;
 use std::sync::atomic::AtomicUsize;
@@ -136,10 +137,25 @@ pub fn distributed_sort(group_dir: &PathBuf, sorted_dir: &PathBuf, config_path: 
 	// And then group and sort all chunks here
 	let shard_id = AtomicUsize::new(0);
 	let pbar = build_pbar(group_groups.len(), "Groups");
-	group_groups.into_iter().for_each(|(_k,v)| {
-		sort_group(v, sorted_dir, &config, &shard_id).unwrap();
-		pbar.inc(1);
+
+	let group_groups : Vec<Vec<PathBuf>> = group_groups.into_iter().map(|(_k,v)| v).collect::<Vec<Vec<PathBuf>>>();
+	let chunks: Vec<_> = group_groups.chunks(group_groups.len() / 8).map(|chunk| chunk.to_vec()).collect();
+	chunks.into_par_iter().enumerate().for_each(|(i, chunk)| {
+	    // Each chunk gets its own 8-thread pool
+	    let pool = ThreadPoolBuilder::new()
+	        .num_threads(8)
+	        .thread_name(move |idx| format!("pool-{i}-thread-{idx}"))
+	        .build()
+	        .unwrap();
+
+	    pool.install(|| {
+	    	chunk.into_iter().for_each(|group| {
+	    		sort_group(group, sorted_dir, &config, &shard_id).unwrap();
+	    		pbar.inc(1);
+	    	});
+	    });
 	});
+
 
 
 	println!("Finished sort in {:?} secs | wrote {:} new shards", 
