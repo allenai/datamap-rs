@@ -5,3 +5,5 @@ Cargo.lock
 .DS_Store
 
 *.jsonl.gz
+*.jsonl.zstd
+*.jsonl.zst
