@@ -3,3 +3,5 @@
 /examples/**/*.bin
 Cargo.lock
 .DS_Store
+
+*.jsonl.gz
