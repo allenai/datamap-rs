@@ -236,7 +236,7 @@ pub struct NonNullFilter {
 }
 impl DataProcessor for NonNullFilter {
     fn new(_config: &Value) -> Result<Self, Error> {
-        Ok(Self { })        
+        Ok(Self { })
     }
 
     fn process(&self, data: Value) -> Result<Option<Value>, Error> {
@@ -382,7 +382,7 @@ pub struct UrlSubstringFilter {
 
     #[derivative(Debug = "ignore")]
     #[serde(skip)]
-    pub part_splitter: Option<Regex>,    
+    pub part_splitter: Option<Regex>,
 }
 
 impl DataProcessor for UrlSubstringFilter {
@@ -531,7 +531,7 @@ impl UrlSubstringFilter {
 
         let part_splitter = if exact_part_match {
             Some(Regex::new(r"[^a-zA-Z0-9]+").unwrap())
-        } else { 
+        } else {
             None
         };
 
@@ -703,7 +703,7 @@ impl DataProcessor for FloatFilter {
 
 #[derive(Serialize, Debug)]
 pub struct StringEqFilter {
-    // Filters based on string equality 
+    // Filters based on string equality
     pub str_field: String,
     pub eq: String,
     pub keep_matches: bool  // defaults to true, which means we keep docs that have this trait; o/w docs that don't
@@ -725,12 +725,12 @@ impl DataProcessor for StringEqFilter {
             .to_string();
         let keep_matches = get_default(config, "keep_matches", true);
 
-        Ok(Self {str_field, eq, keep_matches})    
+        Ok(Self {str_field, eq, keep_matches})
     }
 
     fn process(&self, data: Value) -> Result<Option<Value>, Error> {
-        let val = json_get(&data, &self.str_field).unwrap().as_str().unwrap().to_string();        
-        
+        let val = json_get(&data, &self.str_field).unwrap().as_str().unwrap().to_string();
+
         if (&val == &self.eq) == self.keep_matches {
             return Ok(Some(data));
         }
@@ -759,7 +759,7 @@ pub enum LengthType {
 
 impl std::str::FromStr for LengthType {
     type Err = Error;
-    
+
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "word" => Ok(LengthType::Word),
@@ -778,14 +778,14 @@ impl std::str::FromStr for LengthType {
 impl DataProcessor for PageLenFilter {
     fn new(config: &Value) -> Result<Self, Error> {
         let text_field = get_default(config, "text_field", String::from("text"));
-        
+
         let length_type_str = config
             .get("length_type")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("length_type is required and must be a string"))?;
-        
+
         let length_type = length_type_str.parse::<LengthType>()?;
-        
+
         let lower_bound = get_default(config, "lower_bound", 1_usize);
         let upper_bound = get_default(config, "upper_bound", usize::MAX);
         let ignore_punctuation = get_default(config, "ignore_punctuation", true);
@@ -803,9 +803,9 @@ impl DataProcessor for PageLenFilter {
         let text = json_get(&data, &self.text_field)
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Text field '{}' not found or not a string", self.text_field))?;
-        
+
         let len = self.calculate_length(text)?;
-        
+
         if self.lower_bound <= len && len <= self.upper_bound {
             Ok(Some(data))
         } else {
@@ -832,17 +832,17 @@ impl PageLenFilter {
         if !text.is_ascii() {
             return self.count_words_uni(text);
         }
-        
+
         let mut count = 0;
         let mut in_word = false;
-        
+
         for &byte in text.as_bytes() {
             let is_word_char = if self.ignore_punctuation {
                 byte.is_ascii_alphanumeric()
             } else {
                 !byte.is_ascii_whitespace()
             };
-            
+
             if is_word_char && !in_word {
                 count += 1;
                 in_word = true;
@@ -850,11 +850,11 @@ impl PageLenFilter {
                 in_word = false;
             }
         }
-        
+
         count
     }
 
-    
+
     fn count_words_uni(&self, text: &str) -> usize {
         if self.ignore_punctuation {
             text.unicode_words().count()
@@ -863,15 +863,15 @@ impl PageLenFilter {
                 .filter(|s| !s.trim().is_empty())
                 .count()
         }
-    }    
-    
+    }
+
     fn count_sentences(&self, text: &str) -> usize {
         text.chars()
             .filter(|&c| matches!(c, '.' | '!' | '?'))
             .count()
             .max(1) // At least 1 sentence if text is non-empty
     }
-    
+
     fn count_paragraphs(&self, text: &str) -> usize {
         text.split("\n\n")
             .filter(|p| !p.trim().is_empty())
@@ -1105,9 +1105,9 @@ impl DataProcessor for StopWordFilter {
         let text_field = get_default(config, "text_field", String::from("text"));
         let count_unique = get_default(config, "count_unique", false);
         let min_stop_word = get_default(config, "min_stop_word", 2);
-        
+
         // Use &'static str to avoid String allocations
-        let stop_words: HashSet<&'static str> = 
+        let stop_words: HashSet<&'static str> =
             ["the", "be", "to", "of", "and", "that", "have", "with"]
             .into_iter()
             .collect();
@@ -1125,15 +1125,15 @@ impl DataProcessor for StopWordFilter {
         if self.min_stop_word == 0 {
             return Ok(Some(data));
         }
-        
+
         let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap();
-        
+
         let meets_threshold = if self.count_unique {
             self.has_unique_stop_words(text)
         } else {
             self.has_enough_stop_words(text)
         };
-        
+
         if meets_threshold {
             Ok(Some(data))
         } else {
@@ -1146,7 +1146,7 @@ impl StopWordFilter {
     // Return boolean instead of moving data
     fn has_unique_stop_words(&self, text: &str) -> bool {
         let mut unique_stop_words = HashSet::new();
-        
+
         // Avoid collecting into Vec, process words as iterator
         for word in text.split_whitespace() {
             let word_lower = word.to_lowercase();
@@ -1159,10 +1159,10 @@ impl StopWordFilter {
         }
         false
     }
-    
+
     fn has_enough_stop_words(&self, text: &str) -> bool {
         let mut count = 0;
-        
+
         // Process words as iterator without collecting
         for word in text.split_whitespace() {
             let word_lower = word.to_lowercase();
@@ -1242,19 +1242,19 @@ impl MassiveWebRepetitionFilter {
         let mut total_ngrams = 0;
         let total_charlen = elements.iter().map(|v| v.len()).sum::<usize>();
 
-        
-        for (idx, &element) in elements.iter().enumerate() {    
+
+        for (idx, &element) in elements.iter().enumerate() {
             rolling_hash.roll(element);
-            
+
             if rolling_hash.is_full() {
                 let hash_val = rolling_hash.get_hash();
                 let char_len = rolling_hash.get_char_length();
-                
+
                 ngram_counts
                     .entry((hash_val, char_len))
                     .or_insert_with(Vec::new)
                     .push(idx + 1 - ngram_size);
-                
+
                 total_ngrams += 1;
             }
         }
@@ -1356,12 +1356,12 @@ impl<'a> CompatibleRollingHash<'a> {
             char_length: 0,
         }
     }
-    
+
     fn roll(&mut self, new_element: &'a str) -> Option<&'a str> {
         // Add new element
         self.window.push_back(new_element);
         self.char_length += new_element.len();
-        
+
         // Remove oldest if window is full
         if self.window.len() > self.window_size {
             let removed = self.window.pop_front().unwrap();
@@ -1371,18 +1371,18 @@ impl<'a> CompatibleRollingHash<'a> {
             None
         }
     }
-    
+
     fn get_hash(&self) -> u64 {
         // Hash the entire VecDeque to match original
         let mut hasher = FxHasher::default();
         self.window.hash(&mut hasher);
         hasher.finish()
     }
-    
+
     fn get_char_length(&self) -> usize {
         self.char_length
     }
-    
+
     fn is_full(&self) -> bool {
         self.window.len() >= self.window_size
     }
@@ -1744,7 +1744,7 @@ impl DataProcessor for WordRemovalRatioFilter {
 #[derive(Serialize)]
 pub struct Madlad400SentenceAnnotator {
     // Does the madlad400 sec2.3 filter : https://openreview.net/pdf?id=Y45ZCxslFx
-    // But just annotates 
+    // But just annotates
     pub text_field: String,
     pub sentence_lower_bound: usize,        // defaults to 5
     pub sentence_question_upper_bound: f32, // defaults to 20%
@@ -1874,12 +1874,12 @@ impl DataProcessor for Madlad400SentenceAnnotator {
             .split(&text)
             .filter(|s| s.trim().len() > 0)
             .collect();
-        let num_sentences = sentences.len();    
+        let num_sentences = sentences.len();
         let madlad_status = self.annotation_key.clone() + "_status";
         let mut tracker: FxHashMap<&str, Vec<usize>> = FxHashMap::default();
         tracker.entry("num_sentences").or_default().push(num_sentences);
 
-        if num_sentences < self.sentence_lower_bound {            
+        if num_sentences < self.sentence_lower_bound {
             json_set(&mut data, &madlad_status, json!("killed:too_short")).unwrap();
             return Ok(Some(data));
         }
@@ -1907,7 +1907,7 @@ impl DataProcessor for Madlad400SentenceAnnotator {
         for (sentence_num, sentence) in sentences.into_iter().enumerate() {
             // And finally langid
             if rules_to_include.contains(&1) && self.document_consistency(sentence, doc_lang).unwrap() {
-                tracker.entry("rule.1").or_default().push(sentence_num);            
+                tracker.entry("rule.1").or_default().push(sentence_num);
                 sus_sentences.insert(sentence_num);
             }
 
@@ -1936,7 +1936,7 @@ impl DataProcessor for Madlad400SentenceAnnotator {
 
             // Then do cursed regex stuff
             if rules_to_include.contains(&5) && self.check_cursed_regexes(sentence).unwrap() {
-                tracker.entry("rule.5").or_default().push(sentence_num);            
+                tracker.entry("rule.5").or_default().push(sentence_num);
                 sus_sentences.insert(sentence_num);
 
             }
@@ -2066,7 +2066,7 @@ impl DataProcessor for Madlad400RuleFilter {
         })
     }
 
-    fn process(&self, data: Value) -> Result<Option<Value>, Error> {        
+    fn process(&self, data: Value) -> Result<Option<Value>, Error> {
     	let status: String = json_get(&data, &self.status_key).unwrap().as_str().unwrap().to_string();
 
     	if status == "killed:too_short" {
@@ -2096,7 +2096,7 @@ impl DataProcessor for Madlad400RuleFilter {
                 return Ok(None);
             }
         }
-        
+
 
         Ok(Some(data))
 
@@ -2154,7 +2154,7 @@ impl DataProcessor for IntervalFilter {
             let start = interval.0;
             let end = interval.1;
             output.push_str(&text[last_excluded..start]);
-            last_excluded = end;            
+            last_excluded = end;
         }
         if last_excluded < text.len() {
             output.push_str(&text[last_excluded..]);
@@ -2177,7 +2177,7 @@ fn fuzzy_interval_merge(intervals: Vec<(usize, usize)>, merge_fuzziness: f64) ->
 }
 
 
-fn merge_intervals(mut v: Vec<(usize, usize)>, already_sorted: bool) -> Vec<(usize, usize)>{    
+fn merge_intervals(mut v: Vec<(usize, usize)>, already_sorted: bool) -> Vec<(usize, usize)>{
     if !already_sorted {
         v.sort_by_key(|(key, _)| key.clone());
     }
@@ -2209,7 +2209,7 @@ fn merge_sorted_interval_pair(u: Vec<(usize, usize)>, w: Vec<(usize, usize)>) ->
         } else {
             v.push((ws, we));
             wi += 1
-        } 
+        }
     }
     while ui < u.len() {
         v.push(u[ui]);
@@ -2227,7 +2227,7 @@ fn merge_sorted_interval_pair(u: Vec<(usize, usize)>, w: Vec<(usize, usize)>) ->
 
 fn fuzzy_sandwich_intervals(v: &Vec<(usize, usize)>, foward: bool, threshold: f64) -> Vec<(usize, usize)> {
     // Given SORTED list of DISJOINT intervals, scans in the forward/!forward direction
-    // And collects all intervals that: 
+    // And collects all intervals that:
     // 1. Start and end at an interval
     // 2. Have >=threshold of the range contained in an input interval
     // e.g. [(0,9), (10, 20)] -> [(0,20)] (when the threshold is <=0.95)
@@ -2251,8 +2251,8 @@ fn fuzzy_sandwich_intervals(v: &Vec<(usize, usize)>, foward: bool, threshold: f6
             continue;
         }
         let (cur_s, cur_e, cur_w) = output.last().unwrap();
-        let new_interval = (cmp::min(next_s, *cur_s as i32), 
-                            cmp::max(next_e, *cur_e as i32), 
+        let new_interval = (cmp::min(next_s, *cur_s as i32),
+                            cmp::max(next_e, *cur_e as i32),
                             *cur_w  as i32 + next_e - next_s);
         if new_interval.2 as f64 >= (new_interval.1 - new_interval.0) as f64 * threshold {
             output.pop().unwrap();
@@ -2276,7 +2276,7 @@ pub struct DDMaxGetter {
     /* {attributes: {
         <prefix>_KEY : [[val]]
     }}
-    of attributes keys that start with prefix, returns the max KEY 
+    of attributes keys that start with prefix, returns the max KEY
     */
     pub main_attribute: String, // default to "attributes"
     pub prefix: String,
@@ -2292,7 +2292,7 @@ impl DataProcessor for DDMaxGetter {
         Ok(Self {
             main_attribute,
             prefix,
-            output_attribute       
+            output_attribute
         })
 
     }
@@ -2309,7 +2309,14 @@ impl DataProcessor for DDMaxGetter {
         if let Value::Object(map) = input_dict {
             for (key, value) in map {
                 if key.starts_with(&self.prefix) {
-                    let parsed_val = &value[0][0].as_f64().unwrap();
+
+					// if the value is an array, get the first element of the first element (jake format)
+					// if it is a siple float, just get the value; otherwise throw an error
+                    let parsed_val = match value {
+                        Value::Array(outer) => &outer[0][0].as_f64().unwrap(),
+						Value::Number(num) => &num.as_f64().unwrap(),
+						_ => panic!("Invalid value type: {:?}", value),
+                    };
                     if *parsed_val > max_val {
                         max_key = key.clone();
                         max_val = *parsed_val;
@@ -2329,10 +2336,10 @@ impl DataProcessor for DDMaxGetter {
 
 #[derive(Serialize, Debug)]
 pub struct HashAnnotator {
-    // Adds a hash id to 
+    // Adds a hash id to
     pub hash_source: String, // field that gets hashed
     pub hash_destination: String, // where the target gets hashed and save
-    pub num_bits: usize // defaults to 128    
+    pub num_bits: usize // defaults to 128
 }
 
 impl DataProcessor for HashAnnotator {
@@ -2345,7 +2352,7 @@ impl DataProcessor for HashAnnotator {
 
         Ok(Self {
             hash_source,
-            hash_destination, 
+            hash_destination,
             num_bits
         })
     }
@@ -2357,7 +2364,7 @@ impl DataProcessor for HashAnnotator {
             .unwrap()
             .to_string();
 
-        let hash_val = if self.num_bits == 128 {            
+        let hash_val = if self.num_bits == 128 {
             Value::from(xxh3_128(text.as_bytes()).to_string())
         } else {
             Value::from(xxh3_64(text.as_bytes()))
@@ -2367,4 +2374,3 @@ impl DataProcessor for HashAnnotator {
         Ok(Some(data))
     }
 }
-
