@@ -136,7 +136,7 @@ pub fn distributed_sort(group_dir: &PathBuf, sorted_dir: &PathBuf, config_path: 
 	// And then group and sort all chunks here
 	let shard_id = AtomicUsize::new(0);
 	let pbar = build_pbar(group_groups.len(), "Groups");
-	group_groups.into_par_iter().for_each(|(_k,v)| {
+	group_groups.into_iter().for_each(|(_k,v)| {
 		sort_group(v, sorted_dir, &config, &shard_id).unwrap();
 		pbar.inc(1);
 	});
@@ -158,12 +158,13 @@ fn extract_chunk_regex(filename: &PathBuf) -> Result<usize, Error> {
 
 
 fn sort_group(group: Vec<PathBuf>, sorted_dir: &PathBuf, config: &GroupsortConfig, shard_id: &AtomicUsize) -> Result<(), Error> {
-	let mut value_group: HashMap<usize, Vec<serde_json::Value>> = HashMap::new();
-	let mut null_group: Vec<Value> = Vec::new();
+	let value_group: DashMap<usize, Vec<serde_json::Value>> = DashMap::new();
+	//let mut null_group: Vec<Value> = Vec::new();
 	// First load all elements in the group into values
 	// 
 
-	for path in group {
+	group.par_iter().for_each(|path| {
+		let path = path.clone();
 		let contents = read_pathbuf_to_mem(&path).unwrap();
 		for line in contents.lines() {
 			let line = line.unwrap();
@@ -171,51 +172,29 @@ fn sort_group(group: Vec<PathBuf>, sorted_dir: &PathBuf, config: &GroupsortConfi
 			if let Some(group_hash) = get_group_hash(&line_value, &config.group_keys).unwrap() {
 				value_group.entry(group_hash).or_default().push(line_value);
 			} else {
-				null_group.push(line_value);
+				value_group.entry(usize::MAX).or_default().push(line_value); // hope this never hashes to usize::MAX
 			}
-		}
-	}
-
-	// And then for each group, sort and write as bytes
-	let mut sorted_contents: Vec<Vec<u8>> = value_group.into_iter().map(|(_k, mut vals)| {
-		vals.sort_by(|a, b| {
-			for kgroup in &config.sort_keys {
-
-				let a_val = get_backup_sortval(&a, kgroup);
-				let b_val = get_backup_sortval(&b, kgroup);
-
-				match (a_val, b_val) {
-					(Some(a_v), Some(b_v)) => {
-						let cmp = compare_json_values(a_v, b_v);
-						if cmp != Ordering::Equal {
-							return cmp;
-						}
-					}
-					(Some(_), None) => return Ordering::Less,
-					(None, Some(_)) => return Ordering::Greater,
-					(None, None) => {}
-				}
-			}
-			return Ordering::Equal
-		});
-		let mut output_bytes: Vec<u8> = Vec::new();
-		for val in vals {
-			output_bytes.extend(serde_json::to_vec(&val).unwrap());
-			output_bytes.push(b'\n');
 		}		
-		output_bytes
-	}).collect::<Vec<Vec<u8>>>();
-	for val in null_group.into_iter() {
-		let mut output_bytes = serde_json::to_vec(&val).unwrap();
-		output_bytes.push(b'\n');
-		sorted_contents.push(output_bytes);
-	}
+	});
+
+
+	let value_bytes: DashMap<usize, Vec<u8>> = value_group.into_par_iter().map(|(k,v)| {
+		let mut result: Vec<u8> = Vec::new();
+		for value in v {
+			let line = serde_json::to_vec(&value).unwrap(); // serialize to Vec<u8>
+        	result.extend_from_slice(&line);
+        	result.push(b'\n'); // add newline
+		}
+		(k, result)
+	}).collect();
+
+
 
 
 	// And then write into output files
 	let mut cur_size = 0;
 	let mut cur_contents: Vec<u8> = Vec::new();
-	for content in sorted_contents {
+	value_bytes.into_iter().for_each(|(_k, content)| {
 		cur_size += content.len();		
 		cur_contents.extend(content);
 		if cur_size >= config.max_file_size {
@@ -223,10 +202,8 @@ fn sort_group(group: Vec<PathBuf>, sorted_dir: &PathBuf, config: &GroupsortConfi
 			cur_size = 0;
 			cur_contents.clear();
 		}
-	}
-	if cur_contents.len() > 0 {
-		write_output_contents(&cur_contents, sorted_dir, shard_id).unwrap();
-	}
+	});
+
 
 	Ok(())
 }
