@@ -16,7 +16,7 @@ use std::{
 };
 use serde_json;
 use rayon::prelude::*;
-use crate::utils::json_get;
+use crate::utils::{json_get, json_set};
 use mj_io::{expand_dirs, read_pathbuf_to_mem, build_pbar, write_mem_to_pathbuf, get_output_filename};
 use zstd::stream::Encoder;
 use serde::{Deserialize, Serialize};
@@ -42,7 +42,8 @@ struct GroupsortConfig {
 	num_buckets: usize,
 	#[serde(default="default_max_file_size")]
 	max_file_size: usize,
-	keep_idx: i32 // 0 means keep first, -1 means keep last
+	keep_idx: i32, // 0 means keep first, -1 means keep last
+	size_key: Option<String> // if present, add the size of this chunk to the doc we keep in the filter step 
 }
 
 
@@ -317,54 +318,43 @@ fn groupsort_filter_path(input_path: &PathBuf, output_path: &PathBuf, config: &G
 	let mut docs_kept = 0;
 
 	let contents = read_pathbuf_to_mem(input_path).unwrap();
-	let mut output_bytes : Vec<u8> = Vec::new();
-	let mut cur_group: Option<usize> = None;
-	let mut prev_line: Option<String> = None;
+	let mut groups : HashMap<usize, Vec<Value>> = HashMap::new();
+	let mut survivors : Vec<Value> = Vec::new();
+	
 	for line in contents.lines() {
 		docs_seen += 1;
 		let line = line.unwrap();
-		let line_value: Value = serde_json::from_str(&line).unwrap();
+		let mut line_value: Value = serde_json::from_str(&line).unwrap();
 		let group_hash = get_group_hash(&line_value, &config.group_keys).unwrap();
-
-
 		if let Some(group_hash_full) = group_hash {
-			// Logic: if new group hash is different from old group hash
-			//        if keep_idx == 0, add this doc
-			//        if keep_idx == -1, add previous doc
-			if Some(group_hash_full) != cur_group {
-				if config.keep_idx == 0 {
-					docs_kept += 1;
-					output_bytes.extend(line.as_bytes());
-					output_bytes.push(b'\n');				
-				} else if config.keep_idx == -1 && prev_line.is_some() {
-					docs_kept += 1;
-					output_bytes.extend(prev_line.unwrap().as_bytes());
-					output_bytes.push(b'\n');
-				}				
-			} 
+			groups.entry(group_hash_full).or_default().push(line_value);
 		} else {
-			// Logic: if group_hash is None :
-			// - we always add this particular doc
-			// - and if keep_idx == -1, and cur_group is not None, we add that doc too
-			if config.keep_idx == -1 && cur_group != None {
-				if let Some(ref prev) = prev_line {
-					docs_kept += 1;
-					output_bytes.extend(prev.as_bytes());
-					output_bytes.push(b'\n');
-				}
+			if let Some(size_key) = &config.size_key {
+				json_set(&mut line_value, &size_key, Value::from(1)).unwrap();
 			}
-			docs_kept += 1;
-			output_bytes.extend(line.as_bytes());
-			output_bytes.push(b'\n');			
+			survivors.push(line_value);
 		}
-		cur_group = group_hash;
-		prev_line = Some(line);
+
 	}
-	if config.keep_idx == -1 && cur_group != None {
-		docs_kept += 1;
-		output_bytes.extend(prev_line.unwrap().as_bytes());
-		output_bytes.push(b'\n');			
+	docs_kept += survivors.len() + groups.len();
+	let mut output_bytes: Vec<u8> = Vec::new();
+	for survivor in survivors {
+		output_bytes.extend(serde_json::to_vec(&survivor).unwrap());
+		output_bytes.push(b'\n');
 	}
+	groups.into_iter().for_each(|(_k, mut v)| {
+		let mut survivor = if config.keep_idx == 0 {
+			v.remove(0)
+		} else {
+			v.pop().unwrap()
+		};
+		if let Some(size_key) = &config.size_key {
+			json_set(&mut survivor, &size_key, Value::from(v.len())).unwrap();
+		}
+		output_bytes.extend(serde_json::to_vec(&survivor).unwrap());
+		output_bytes.push(b'\n')
+
+	});
 
 	write_mem_to_pathbuf(&output_bytes, output_path).unwrap();
 
