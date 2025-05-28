@@ -36,7 +36,7 @@ rm -rf "/mnt/raid0/output"
 echo "Copying data from S3 to local storage..."
 cd ~/datamap-rs
 git checkout sort_v2; git pull
-python examples/all_dressed/v3_exact_dedup/sort_download_builder.py $X
+python3 examples/all_dressed/v3_exact_dedup/sort_download_builder.py $X
 s5cmd run "/mnt/raid0/downloader_${X}.txt"
 
 
