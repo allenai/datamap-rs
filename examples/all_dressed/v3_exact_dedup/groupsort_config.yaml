@@ -3,3 +3,4 @@ group_keys: [metadata.text_hash]
 sort_keys: [[WARC-Date, warc_date]]
 num_buckets: 64000
 keep_idx: -1
+size_key: metadata.exact_duplicates
