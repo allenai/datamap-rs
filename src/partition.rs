@@ -1,6 +1,6 @@
 use std::sync::atomic::Ordering;
 use std::sync::atomic::AtomicUsize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use anyhow::{Error, Result};
 use dashmap::DashMap;
 use std::{
@@ -86,7 +86,7 @@ fn partition_single_path(path: &PathBuf, config: &PartitionConfig, writer: &GenW
 		let line = line.unwrap();
 		let json_value = serde_json::from_str(&line).unwrap();
 		let partition_value = json_get(&json_value, &config.partition_key).unwrap().as_str().unwrap().to_string();
-		let key: &Option<String> = if writer.writer.contains_key(&Some(partition_value.clone())) {
+		let key: &Option<String> = if writer.full_choices.contains(&Some(partition_value.clone())) {
 			&Some(partition_value)
 		} else {
 			&None
@@ -114,6 +114,7 @@ pub struct GenWriter<'a> {
 	pub writer: DashMap<Option<String>, Arc<Mutex<WriterInfo<'a>>>>,
 	#[allow(dead_code)]
 	storage_loc: PathBuf,	
+	full_choices: HashSet<Option<String>>,
 	max_len: usize
 }
 
@@ -128,9 +129,11 @@ impl<'a> GenWriter<'a> {
 	pub fn new(storage_loc: &PathBuf, choices: &Vec<String>, max_len: usize) -> Self {
 		let writer : DashMap<Option<String>, Arc<Mutex<WriterInfo<'a>>>> = DashMap::new();
 		// Create writers
-		let mut full_choices: Vec<Option<String>> = choices.iter().map(|c| Some(c.clone())).collect::<Vec<Option<String>>>();
-		full_choices.push(None);
+		let mut full_choices: HashSet<Option<String>> = choices.iter().map(|c| Some(c.clone())).collect::<HashSet<Option<String>>>();
+		full_choices.insert(None);
 		println!("Opening {:?} writer files", full_choices.len());
+
+		/*
 
 		for choice in full_choices {
 			let filename = GenWriter::get_filename(storage_loc, &choice, 0);
@@ -153,8 +156,8 @@ impl<'a> GenWriter<'a> {
             };
 			writer.insert(choice, Arc::new(Mutex::new(writer_info)));
 		}
-
-		GenWriter { writer, storage_loc: storage_loc.clone(), max_len}
+		*/
+		GenWriter { writer, storage_loc: storage_loc.clone(), full_choices, max_len}
 	}
 
 
@@ -193,12 +196,34 @@ impl<'a> GenWriter<'a> {
     }	
 
 
-	pub fn write_contents(&self, key: &Option<String>, contents: Vec<u8>) -> Result<(), Error> {
-		// hash the key and take mod num_chunks to get location
 
-		let binding = self.writer.get(&key).unwrap();
-		let mut writer_info = binding.lock().unwrap();
-		writer_info.bytes_written += contents.len();		
+    pub fn write_contents(&self, key: &Option<String>, contents: Vec<u8>) -> Result<(), Error> {
+        // Get or create the writer for this key
+        let writer_arc = self.writer.entry(key.clone()).or_insert_with(|| {
+
+            let filename = GenWriter::get_filename(&self.storage_loc, key, 0);
+            if let Some(parent_dir) = filename.parent() {
+                if !parent_dir.exists() {
+                    create_dir_all(parent_dir).unwrap()
+                }
+            }
+            let writer_info = WriterInfo {
+                encoder: Some(self.create_new_encoder(key, 0)),
+                bytes_written: 0,
+                file_idx: 0,
+            };
+            Arc::new(Mutex::new(writer_info))
+        });
+
+        let mut writer_info = writer_arc.lock().unwrap();
+        writer_info.bytes_written += contents.len();
+
+        if writer_info.encoder.is_none() {
+        	writer_info.encoder = Some(self.create_new_encoder(key, writer_info.file_idx));
+        }
+
+
+
 		if let Some(encoder) = &mut writer_info.encoder {
 			encoder.write_all(&contents).unwrap();
 			if writer_info.bytes_written >= self.max_len {
@@ -206,16 +231,14 @@ impl<'a> GenWriter<'a> {
 				old_encoder.flush().unwrap();
 				old_encoder.finish().unwrap();
 				writer_info.file_idx += 1;
-				let new_encoder = self.create_new_encoder(key, writer_info.file_idx);
-				writer_info.encoder = Some(new_encoder);
+				writer_info.encoder = None;
 				writer_info.bytes_written = 0;
 			}
 		}
 		
 		Ok(())
+    }
 
-
-	}
 
 	pub fn finish(self) -> Result<(), Error> {
 		// Flushes all the open writers
