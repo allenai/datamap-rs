@@ -1862,14 +1862,41 @@ fn render_markdown_tables(text: &str) -> String {
 
             // Only process through markdown if we have at least 2 lines
             if table_lines.len() >= 2 {
+                // Check if the first line is a separator row (contains only |, -, and spaces)
+                let first_line_trimmed = table_lines[0].trim();
+                let is_separator_row = first_line_trimmed.chars().all(|c| c == '|' || c == '-' || c.is_whitespace());
+                
+                let table_markdown = if is_separator_row {
+                    // Count the number of columns by splitting on pipes and counting non-empty segments
+                    let segments: Vec<&str> = first_line_trimmed.split('|').collect();
+                    let column_count = segments.len().saturating_sub(2); // Subtract 2 for leading and trailing empty segments
+                    if column_count > 0 {
+                        // Create a header row with empty cells
+                        let header_row = "|".to_string() + &" |".repeat(column_count);
+                        // Combine header row with existing table lines
+                        let mut all_lines = vec![header_row];
+                        all_lines.extend(table_lines.iter().map(|s| s.to_string()));
+                        all_lines.join("\n")
+                    } else {
+                        table_lines.join("\n")
+                    }
+                } else {
+                    table_lines.join("\n")
+                };
+                
                 // Process this group through the markdown generator
-                let table_markdown = table_lines.join("\n");
                 let options = Options::gfm();
 
                 match to_html_with_options(&table_markdown, &options) {
                     Ok(html) => {
                         let table_html = html.trim();
-                        result.push(table_html.to_string());
+                        // Only use the HTML if it contains a table tag, otherwise keep original
+                        if table_html.contains("<table>") {
+                            result.push(table_html.to_string());
+                        } else {
+                            // If no table tag found, keep the original lines
+                            result.extend(table_lines.into_iter().map(|s| s.to_string()));
+                        }
                     }
                     Err(_) => {
                         // If markdown parsing fails, keep the original lines

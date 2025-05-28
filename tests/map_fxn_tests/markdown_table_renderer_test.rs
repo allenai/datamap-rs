@@ -147,6 +147,47 @@ fn test_markdown_table_renderer_minimum_two_lines() {
 
 
 #[test]
+fn test_markdown_table_renderer_mismatched_table_syntax() {
+    let config = json!({
+        "text_field": "text"
+    });
+
+    let processor = MarkdownTableRenderer::new(&config).unwrap();
+
+    // Test tables that don't have a header row, it should still work
+    let incomplete_pipes_data = json!({
+        "text": "|---------------------------|-------|----------|\n| Registration              | ✓     | ✓ (all)  |\n| Exam-Test Integrity       | ✓     | ✓ (all)  |\n| Exam-Test Markedness      | ✓     | ✓ (all)  |\n| Marking Correctness       | ✓ (EA)| ✓ (all)  |\n| Mark Integrity            | ✓     | ✓ (all)  |"
+    });
+
+    let result = processor.process(incomplete_pipes_data).unwrap().unwrap();
+    let processed_text = result["text"].as_str().unwrap();
+
+    assert!(processed_text.contains("<table>"));
+}
+
+#[test]
+fn test_dont_render_invalid_tables() {
+    let config = json!({
+        "text_field": "text"
+    });
+
+    let processor = MarkdownTableRenderer::new(&config).unwrap();
+
+    // Invalid markdown things should not pass through the markdown renderer
+    let incomplete_pipes_data = json!({
+        "text": "Some text\n| Header 1 | Header 2 |\n| Cell 1   | Cell 2   |\nMore text"
+    });
+
+    let result = processor.process(incomplete_pipes_data).unwrap().unwrap();
+    let processed_text = result["text"].as_str().unwrap();
+
+    print!("{}", processed_text);
+
+    assert!(!processed_text.contains("<p>"));
+}
+
+
+#[test]
 fn test_markdown_table_renderer_requires_start_and_end_pipes() {
     let config = json!({
         "text_field": "text"
