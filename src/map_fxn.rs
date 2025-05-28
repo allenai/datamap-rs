@@ -485,28 +485,38 @@ impl UrlSubstringFilter {
 
 #[derive(Serialize, Debug)]
 pub struct NewlineRemovalModifier {
-	// Modifies the doc by controlling for maximum number of consecutive newlines
-	pub text_field: String,
-	pub max_consecutive: usize
+    // Modifies the doc by controlling for maximum number of consecutive newlines
+    pub text_field: String,
+    pub max_consecutive: usize,
 }
 impl DataProcessor for NewlineRemovalModifier {
-	fn new(config: &Value) -> Result<Self, Error> {
-		let text_field = get_default(config, "text_field", String::from("text"));
-		let max_consecutive = get_default(config, "max_consecutive", 2);
-		Ok(Self {text_field, max_consecutive})
-	}
+    fn new(config: &Value) -> Result<Self, Error> {
+        let text_field = get_default(config, "text_field", String::from("text"));
+        let max_consecutive = get_default(config, "max_consecutive", 2);
+        Ok(Self {
+            text_field,
+            max_consecutive,
+        })
+    }
 
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+        let text = json_get(&data, &self.text_field)
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+        let pattern = Regex::new(&format!(r"\n{{{},}}", self.max_consecutive + 1)).unwrap();
+        let replacement = "\n".repeat(self.max_consecutive);
+        let new_text = pattern.replace_all(&text, replacement.as_str()).to_string();
+        json_set(
+            &mut data,
+            &self.text_field,
+            serde_json::Value::String(new_text),
+        )
+        .unwrap();
 
-	fn process(&self, mut data: Value) -> Result<Option<Value> ,Error> {
-
-		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
-	    let pattern = Regex::new(&format!(r"\n{{{},}}", self.max_consecutive + 1)).unwrap();
-	    let replacement = "\n".repeat(self.max_consecutive);
-	    let new_text = pattern.replace_all(&text, replacement.as_str()).to_string();
-	    json_set(&mut data, &self.text_field, serde_json::Value::String(new_text)).unwrap();
-
-		Ok(Some(data))
-	}
+        Ok(Some(data))
+    }
 }
 
 
