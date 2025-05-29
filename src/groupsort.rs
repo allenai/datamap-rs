@@ -244,7 +244,9 @@ fn sort_group(group: Vec<PathBuf>, sorted_dir: &PathBuf, config: &GroupsortConfi
 			cur_contents.clear();
 		}
 	});
-
+	if cur_size > 0 {
+		write_output_contents(&cur_contents, sorted_dir, shard_id).unwrap();
+	}
 
 	Ok(())
 }
