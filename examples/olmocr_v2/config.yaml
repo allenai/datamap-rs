@@ -3,7 +3,7 @@ text_field: text
 pipeline:
   - name: fasttext_line_filter
     kwargs:
-      fast_text_file: /home/ubuntu/datamap-rs-models/test_pdfs_references_fasttext_model_v2_pretok_wn3_ws10_lr05_e20_short.bin
+      fast_text_file: /mnt/raid0/models/test_pdfs_references_fasttext_model_v2_pretok_wn3_ws10_lr05_e20_short.bin
       output_field: metadata.no_references
       threshold: 0.9
       negative_label: "__label__reference"

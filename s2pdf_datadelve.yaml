@@ -1,0 +1,7 @@
+name: dd_check
+pipeline:
+  - name: dd_max_getter
+    kwargs:
+      main_attribute: attributes
+      prefix: WebOrganizer_TopicClassifier_NoURL_
+      output_attribute: WebOrganizer_Topic
