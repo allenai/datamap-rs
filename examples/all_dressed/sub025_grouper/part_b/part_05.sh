@@ -4,7 +4,7 @@
 
 # Store the input argument
 X="05"
-Y="a"
+Y="b"
 
 echo "Processing directory: $X"
 

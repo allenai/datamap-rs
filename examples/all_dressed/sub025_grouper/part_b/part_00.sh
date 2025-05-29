@@ -3,8 +3,8 @@
 
 
 # Store the input argument
-X="05"
-Y="a"
+X="00"
+Y="b"
 
 echo "Processing directory: $X"
 
