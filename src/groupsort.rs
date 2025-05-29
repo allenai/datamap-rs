@@ -197,34 +197,36 @@ fn sort_group(group: Vec<PathBuf>, sorted_dir: &PathBuf, config: &GroupsortConfi
 
 	let value_bytes: DashMap<usize, Vec<u8>> = value_group.into_par_iter().map(|(k, mut v)| {
 		let mut result: Vec<u8> = Vec::new();
+		if k < usize::MAX {
 			v.sort_by(|a, b| {
-			for kgroup in &config.sort_keys {
+				for kgroup in &config.sort_keys {
+					let a_val = get_backup_sortval(&a, kgroup);
+					let b_val = get_backup_sortval(&b, kgroup);
 
-				let a_val = get_backup_sortval(&a, kgroup);
-				let b_val = get_backup_sortval(&b, kgroup);
-
-				match (a_val, b_val) {
-					(Some(a_v), Some(b_v)) => {
-						let cmp = compare_json_values(a_v, b_v);
-						if cmp != Ordering::Equal {
-							return cmp;
+					match (a_val, b_val) {
+						(Some(a_v), Some(b_v)) => {
+							let cmp = compare_json_values(a_v, b_v);
+							if cmp != Ordering::Equal {
+								return cmp;
+							}
 						}
+						(Some(_), None) => return Ordering::Less,
+						(None, Some(_)) => return Ordering::Greater,
+						(None, None) => {}
 					}
-					(Some(_), None) => return Ordering::Less,
-					(None, Some(_)) => return Ordering::Greater,
-					(None, None) => {}
 				}
-			}
-			return Ordering::Equal
-		});
-		
+				return Ordering::Equal
+			});
+		}
+				
 
 		for value in v {
 			let line = serde_json::to_vec(&value).unwrap(); // serialize to Vec<u8>
         	result.extend_from_slice(&line);
         	result.push(b'\n'); // add newline
-		}
+		}	
 		(k, result)
+
 	}).collect();
 
 
