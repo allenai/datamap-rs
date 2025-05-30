@@ -1,0 +1,6 @@
+name: dclm
+text_field: text
+pipeline:
+  - name: line_len_modifier
+    kwargs:
+      lower_bound: 2

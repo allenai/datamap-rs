@@ -8,7 +8,7 @@ X=09
 echo "Processing directory: $X"
 
 # Step -1:
-TARGET_DIR="s3://ai2-llm/pretraining-data/sources/cc_all_dressed/all_dressed_v3/exact_dedup/$X/"
+TARGET_DIR="s3://ai2-llm/pretraining-data/sources/cc_all_dressed/all_dressed_v3/exact_dedup_v2/$X/"
 FILE_COUNT=$(aws s3 ls "$TARGET_DIR" | wc -l)
 
 if [ "$FILE_COUNT" -gt 0 ]; then
@@ -50,8 +50,8 @@ cargo run --release -- group-sort-filter --input-dir /mnt/raid0/sorted --output-
 
 
 echo "Copying results back to S3..."
-s5cmd cp -sp /mnt/raid0/sorted/ "s3://ai2-llm/pretraining-data/sources/cc_all_dressed/all_dressed_v3/ed_sorted/${X}/"
-s5cmd cp -sp /mnt/raid0/output/ "s3://ai2-llm/pretraining-data/sources/cc_all_dressed/all_dressed_v3/exact_dedup/${X}/"
+s5cmd cp -sp /mnt/raid0/sorted/ "s3://ai2-llm/pretraining-data/sources/cc_all_dressed/all_dressed_v3/ed_sorted_v2/${X}/"
+s5cmd cp -sp /mnt/raid0/output/ "s3://ai2-llm/pretraining-data/sources/cc_all_dressed/all_dressed_v3/exact_dedup_v2/${X}/"
 s5cmd cp -sp "/mnt/raid0/*.log" s3://ai2-llm/pretraining-data/sources/cc_all_dressed/all_dressed_v3/logs/
 
 echo "Processing complete for $X"
