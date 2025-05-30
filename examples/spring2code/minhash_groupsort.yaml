@@ -1,0 +1,6 @@
+name: text_hash_groupsort
+group_keys: [metadata.minhash.cc_id]
+sort_keys: [[gha_event_created_at]]
+num_buckets: 32768
+keep_idx: -1
+size_key: metadata.fuzzy_duplicates
