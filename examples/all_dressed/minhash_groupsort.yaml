@@ -1,6 +1,6 @@
 name: text_hash_groupsort
 group_keys: [metadata.minhash.cc_id]
 sort_keys: [[WARC-Date, warc_date]]
-num_buckets: 32768
+num_buckets: 16384
 keep_idx: -1
 size_key: metadata.fuzzy_duplicates
