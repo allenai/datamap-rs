@@ -1,6 +1,7 @@
 // External crates
 
 
+use std::fs;
 use std::os::unix::fs::OpenOptionsExt;
 use std::fs::{File, create_dir_all, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter, Write};
@@ -402,11 +403,18 @@ fn reshard_chunk(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUsi
     };
     let mut rng = rand::rng();
     let mut writer = get_new_writer(out_num).unwrap();
-
+    let mut chunk = chunk.clone();
     let mut cur_lines = 0;
     let mut cur_size = 0;
+
+    if full_cat {
+        chunk.sort_by_key(|p| {
+            fs::metadata(p).map(|m| m.len()).unwrap_or(0)
+        });
+    }
+
     for path in chunk {
-        let data = read_pathbuf_to_mem(path).unwrap();
+        let data = read_pathbuf_to_mem(&path).unwrap();
         for line in data.lines() {
             if subsample == 0.0 || (subsample > 0.0 &&  rng.random::<f32>() < subsample) {
                 let line = line.unwrap();

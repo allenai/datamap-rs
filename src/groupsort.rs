@@ -1,3 +1,4 @@
+use rand::prelude::SliceRandom;
 use rand::rng;
 use rayon::ThreadPoolBuilder;
 use std::sync::atomic;
@@ -444,6 +445,7 @@ fn dupaware_subsample_path(input_path: PathBuf, output_path: PathBuf, dupkey: &S
 		if rng().random::<f32>() < subsample {
 			ccs_kept_path += 1;
 			docs_kept_path += v.len();
+			v.shuffle(&mut rng());
 			v.truncate(max_cc_size);
 			for val in v {
 				output.extend(serde_json::to_vec(&val).unwrap());
