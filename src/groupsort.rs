@@ -1,3 +1,4 @@
+use rand::rng;
 use rayon::ThreadPoolBuilder;
 use std::sync::atomic;
 use serde_json::Value;
@@ -389,6 +390,74 @@ fn groupsort_filter_path(input_path: &PathBuf, output_path: &PathBuf, config: &G
 
 
 
+pub fn sorted_dupaware(input_dir: &PathBuf, output_dir: &PathBuf, dupkey: &String, subsample: f32) -> Result<(), Error> {
+	let start_main = Instant::now();
+	println!("Starting main dupaware subsample operation");
+	let input_paths = expand_dirs(vec![input_dir.clone()], None).unwrap();	
+	let pbar = build_pbar(input_paths.len(), "Paths");
+	let docs_seen: AtomicUsize = AtomicUsize::new(0);
+	let docs_kept: AtomicUsize = AtomicUsize::new(0);
+	let ccs_seen: AtomicUsize = AtomicUsize::new(0);
+	let ccs_kept: AtomicUsize = AtomicUsize::new(0);
+	input_paths.into_par_iter().for_each(|p| {
+		// keep track of total docs seen/kept, total ccs seen/kept
+
+		let output_path = get_output_filename(&p, input_dir, output_dir).unwrap();
+		dupaware_subsample_path(p, output_path, dupkey, subsample, &docs_seen, &docs_kept, &ccs_seen, &ccs_kept).unwrap();
+		pbar.inc(1);
+	});
+
+	println!("Finished dupaware sort in {:?} secs", start_main.elapsed().as_secs());
+	println!("Saw {:?} docs | Kept {:?} docs", docs_seen.into_inner(), docs_kept.into_inner());
+	println!("Saw {:?} ccs | Kept {:?} ccs", ccs_seen.into_inner(), ccs_kept.into_inner());
+	Ok(())
+}
+
+fn dupaware_subsample_path(input_path: PathBuf, output_path: PathBuf, dupkey: &String, subsample: f32,
+						   docs_seen: &AtomicUsize, docs_kept: &AtomicUsize, ccs_seen: &AtomicUsize, ccs_kept: &AtomicUsize) -> Result<(), Error> {
+	let contents = read_pathbuf_to_mem(&input_path).unwrap();
+	let mut groups: HashMap<Value, Vec<Value>> = HashMap::new();
+	let mut output: Vec<u8> = Vec::new();
+	let mut docs_seen_path = 0;
+	let mut docs_kept_path = 0;
+	let mut ccs_seen_path = 0;
+	let mut ccs_kept_path = 0;
+	for line in contents.lines() {
+		docs_seen_path += 1;
+		let line = line.unwrap();
+		let json_line : Value = serde_json::from_str(&line).unwrap();
+		let dupval = json_get(&json_line, dupkey);
+		if let Some(val) = dupval {
+			groups.entry(val.clone()).or_default().push(json_line);
+		} else {
+			ccs_seen_path += 1;
+			if rng().random::<f32>() < subsample {
+				docs_kept_path += 1;
+				ccs_kept_path += 1;
+				output.extend(line.as_bytes());
+				output.push(b'\n');
+			}
+		}
+	}
+	ccs_seen_path += groups.len();
+	groups.into_iter().for_each(|(_k, v)| {
+		if rng().random::<f32>() < subsample {
+			ccs_kept_path += 1;
+			docs_kept_path += v.len();
+			for val in v {
+				output.extend(serde_json::to_vec(&val).unwrap());
+				output.push(b'\n');
+			}
+		}
+	});
+
+	write_mem_to_pathbuf(&output, &output_path).unwrap();
+	docs_seen.fetch_add(docs_seen_path, atomic::Ordering::SeqCst);
+	docs_kept.fetch_add(docs_kept_path, atomic::Ordering::SeqCst);
+	ccs_seen.fetch_add(ccs_seen_path, atomic::Ordering::SeqCst);
+	ccs_kept.fetch_add(ccs_kept_path, atomic::Ordering::SeqCst);
+	Ok(())
+}
 
 
 /*==========================================================

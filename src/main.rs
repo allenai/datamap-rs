@@ -30,7 +30,7 @@ pub mod sort;
 pub mod utils;
 use datamap_rs::map_fxn::{PipelineProcessor};
 use datamap_rs::sort::single_node_sort;
-use datamap_rs::groupsort::{distributed_group, distributed_sort, groupsort_filter};
+use datamap_rs::groupsort::{distributed_group, distributed_sort, groupsort_filter, sorted_dupaware};
 pub use map_fxn::DataProcessor;
 /*
 Map Config layout:
@@ -148,7 +148,23 @@ enum Commands {
 
         #[arg(required=true, long)]
         config: PathBuf,
-    }    
+    } ,
+
+    SortedDupaware {
+        #[arg(required=true, long)]
+        input_dir: PathBuf,
+
+        #[arg(required=true, long)]
+        output_dir: PathBuf,
+
+        #[arg(required=true, long)]
+        dupkey: String,
+
+        #[arg(required=true, long)]
+        subsample: f32
+    }
+
+
 
 }
 
@@ -477,6 +493,10 @@ fn main() {
 
         Commands::GroupSortFilter{input_dir, output_dir, config} => {
             groupsort_filter(input_dir, output_dir, config)
+        },
+
+        Commands::SortedDupaware{input_dir, output_dir, dupkey, subsample} => {
+            sorted_dupaware(input_dir, output_dir, dupkey, *subsample)
         }
 
         _ => {Ok(())}
