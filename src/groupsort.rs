@@ -390,7 +390,7 @@ fn groupsort_filter_path(input_path: &PathBuf, output_path: &PathBuf, config: &G
 
 
 
-pub fn sorted_dupaware(input_dir: &PathBuf, output_dir: &PathBuf, dupkey: &String, subsample: f32) -> Result<(), Error> {
+pub fn sorted_dupaware(input_dir: &PathBuf, output_dir: &PathBuf, dupkey: &String, subsample: f32, max_cc_size: usize) -> Result<(), Error> {
 	let start_main = Instant::now();
 	println!("Starting main dupaware subsample operation");
 	let input_paths = expand_dirs(vec![input_dir.clone()], None).unwrap();	
@@ -403,7 +403,7 @@ pub fn sorted_dupaware(input_dir: &PathBuf, output_dir: &PathBuf, dupkey: &Strin
 		// keep track of total docs seen/kept, total ccs seen/kept
 
 		let output_path = get_output_filename(&p, input_dir, output_dir).unwrap();
-		dupaware_subsample_path(p, output_path, dupkey, subsample, &docs_seen, &docs_kept, &ccs_seen, &ccs_kept).unwrap();
+		dupaware_subsample_path(p, output_path, dupkey, subsample, max_cc_size, &docs_seen, &docs_kept, &ccs_seen, &ccs_kept).unwrap();
 		pbar.inc(1);
 	});
 
@@ -413,7 +413,7 @@ pub fn sorted_dupaware(input_dir: &PathBuf, output_dir: &PathBuf, dupkey: &Strin
 	Ok(())
 }
 
-fn dupaware_subsample_path(input_path: PathBuf, output_path: PathBuf, dupkey: &String, subsample: f32,
+fn dupaware_subsample_path(input_path: PathBuf, output_path: PathBuf, dupkey: &String, subsample: f32, max_cc_size: usize,
 						   docs_seen: &AtomicUsize, docs_kept: &AtomicUsize, ccs_seen: &AtomicUsize, ccs_kept: &AtomicUsize) -> Result<(), Error> {
 	let contents = read_pathbuf_to_mem(&input_path).unwrap();
 	let mut groups: HashMap<Value, Vec<Value>> = HashMap::new();
@@ -440,10 +440,11 @@ fn dupaware_subsample_path(input_path: PathBuf, output_path: PathBuf, dupkey: &S
 		}
 	}
 	ccs_seen_path += groups.len();
-	groups.into_iter().for_each(|(_k, v)| {
+	groups.into_iter().for_each(|(_k, mut v)| {
 		if rng().random::<f32>() < subsample {
 			ccs_kept_path += 1;
 			docs_kept_path += v.len();
+			v.truncate(max_cc_size);
 			for val in v {
 				output.extend(serde_json::to_vec(&val).unwrap());
 				output.push(b'\n');

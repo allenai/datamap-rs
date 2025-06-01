@@ -91,6 +91,9 @@ enum Commands {
 
         #[arg(long, default_value_t=0.0)]
         subsample: f32,
+
+        #[arg(long, default_value_t=false)]
+        full_cat: bool // if true, just concatenate files until they get too big (i.e., never break up files by lines)
     },
 
 
@@ -161,7 +164,10 @@ enum Commands {
         dupkey: String,
 
         #[arg(required=true, long)]
-        subsample: f32
+        subsample: f32,
+
+        #[arg(long, default_value_t=usize::MAX)]
+        max_cc_size: usize
     }
 
 
@@ -356,7 +362,7 @@ fn gen_map_single(input_file: &PathBuf, input_dir: &PathBuf, output_dir: &PathBu
 =                            RESHARD                         =
 ============================================================*/
 
-fn reshard(input_dir: &PathBuf, output_dir: &PathBuf, max_lines: usize, max_size: usize, subsample: f32) -> Result<(), Error> {
+fn reshard(input_dir: &PathBuf, output_dir: &PathBuf, max_lines: usize, max_size: usize, subsample: f32, full_cat: bool) -> Result<(), Error> {
     let start_main = Instant::now();
 
     ensure!(max(max_lines, max_size) > 0, "Either max_lines or max_size must be provided!");
@@ -378,7 +384,7 @@ fn reshard(input_dir: &PathBuf, output_dir: &PathBuf, max_lines: usize, max_size
     let chunks: Vec<Vec<PathBuf>> = all_files.chunks(chunk_size).map(|c| c.to_vec()).collect();
     let out_num = AtomicUsize::new(0);
     chunks.par_iter().for_each(|chunk| {
-        reshard_chunk(chunk, output_dir, &out_num, max_lines, max_size, &pbar, subsample).unwrap();
+        reshard_chunk(chunk, output_dir, &out_num, max_lines, max_size, &pbar, subsample, full_cat).unwrap();
     });
 
     println!("Finished reshard in {:?} seconds | Wrote {:?} new shards", start_main.elapsed().as_secs(), out_num.fetch_add(0, Ordering::SeqCst));
@@ -386,7 +392,7 @@ fn reshard(input_dir: &PathBuf, output_dir: &PathBuf, max_lines: usize, max_size
 }
 
 
-fn reshard_chunk(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUsize, max_lines: usize, max_size: usize, pbar: &ProgressBar, subsample: f32) -> Result<(), Error> {
+fn reshard_chunk(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUsize, max_lines: usize, max_size: usize, pbar: &ProgressBar, subsample: f32, full_cat: bool) -> Result<(), Error> {
     // faster strat: keep an open writer and append until full
     let get_new_writer = |out_num: &AtomicUsize| -> Result<Encoder<BufWriter<File>>, Error> {
         let shard_id = out_num.fetch_add(1, Ordering::SeqCst);
@@ -409,7 +415,7 @@ fn reshard_chunk(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUsi
                 cur_size += line.len();
                 writer.write_all(&line).unwrap();
                 writer.write(vec![b'\n'].as_slice()).unwrap();
-                if cur_lines >= max_lines || cur_size >= max_size {
+                if !full_cat && (cur_lines >= max_lines || cur_size >= max_size) {
                     writer.flush().unwrap();
                     writer.do_finish().unwrap();
                     writer = get_new_writer(out_num).unwrap();
@@ -418,6 +424,14 @@ fn reshard_chunk(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUsi
                 }
             }
         }
+        if full_cat && (cur_lines >= max_lines || cur_size >= max_size) {
+            writer.flush().unwrap();
+            writer.do_finish().unwrap();
+            writer = get_new_writer(out_num).unwrap();
+            cur_lines = 0; 
+            cur_size = 0;
+        }
+
         pbar.inc(1);
     }
 
@@ -475,8 +489,8 @@ fn main() {
         Commands::Map{input_dir, output_dir, config, err_dir} => {
             gen_map(input_dir, output_dir, config, err_dir.clone())
         },
-        Commands::Reshard{input_dir, output_dir, max_lines, max_size, subsample} => {
-            reshard(input_dir, output_dir, *max_lines, *max_size, *subsample)
+        Commands::Reshard{input_dir, output_dir, max_lines, max_size, subsample, full_cat} => {
+            reshard(input_dir, output_dir, *max_lines, *max_size, *subsample, *full_cat)
         },
 
         Commands::Sort{input_dir, working_dir, output_dir, sort_key, max_size} => {
@@ -495,8 +509,8 @@ fn main() {
             groupsort_filter(input_dir, output_dir, config)
         },
 
-        Commands::SortedDupaware{input_dir, output_dir, dupkey, subsample} => {
-            sorted_dupaware(input_dir, output_dir, dupkey, *subsample)
+        Commands::SortedDupaware{input_dir, output_dir, dupkey, subsample, max_cc_size} => {
+            sorted_dupaware(input_dir, output_dir, dupkey, *subsample, *max_cc_size)
         }
 
         _ => {Ok(())}
