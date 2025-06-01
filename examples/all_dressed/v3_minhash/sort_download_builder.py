@@ -1,6 +1,6 @@
 import sys
 
-INCREMENT = 1024
+INCREMENT = 512
 PRES = ["%02d" % i for i in range(32)]
 
 
