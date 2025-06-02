@@ -405,6 +405,57 @@ fn groupsort_filter_path(input_path: &PathBuf, output_path: &PathBuf, config: &G
 }
 
 
+fn groupsort_filter_path2(input_path: &PathBuf, output_path: &PathBuf, config: &GroupsortConfig) -> Result<(usize, usize), Error> {
+	let mut docs_seen = 0;
+	let mut docs_kept = 0;
+	let contents = read_pathbuf_to_mem(input_path).unwrap();
+	let keep_idx = config.keep_idx;
+	let mut prev_hash : Option<usize> = None;
+	let mut prev_line : Option<String> = None;
+	
+	let mut output_bytes: Vec<u8> = Vec::new();
+	for line in contents.lines() {
+		docs_seen += 1;
+		let line = line.unwrap();
+		let line_value: Value = serde_json::from_str(&line).unwrap();
+		let group_hash = get_group_hash(&line_value, &config.group_keys).unwrap();
+
+		// always keep the things without groups
+		if group_hash.is_none() {
+			output_bytes.extend(line.as_bytes());
+			output_bytes.push(b'\n');
+			docs_kept += 1;
+			prev_hash = group_hash;
+			prev_line = Some(line);
+			continue
+		}
+
+		if group_hash != prev_hash {
+			if keep_idx == 0 {
+				output_bytes.extend(line.as_bytes());
+			} else {
+				if prev_line.is_some() {
+					output_bytes.extend(prev_line.unwrap().as_bytes());
+				}
+			}
+			output_bytes.push(b'\n');
+			docs_kept += 1;
+			prev_hash = group_hash;
+			prev_line = Some(line);
+		}
+	}
+
+	if keep_idx == -1 && prev_hash.is_some() {		
+		output_bytes.extend(prev_line.unwrap().as_bytes());
+		output_bytes.push(b'\n');
+	}	
+
+	write_mem_to_pathbuf(&output_bytes, output_path).unwrap();
+	Ok((docs_seen, docs_kept))
+
+}
+
+
 
 pub fn sorted_dupaware(input_dir: &PathBuf, output_dir: &PathBuf, dupkey: &String, subsample: f32, max_cc_size: usize) -> Result<(), Error> {
 	let start_main = Instant::now();
