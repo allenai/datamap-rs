@@ -343,7 +343,7 @@ pub fn groupsort_filter(input_dir: &PathBuf, output_dir: &PathBuf, config_path: 
 
 	input_paths.into_par_iter().for_each(|p| {
 		let output_path = get_output_filename(&p, input_dir, output_dir).unwrap();	
-		let (path_seen, path_kept) = groupsort_filter_path(&p, &output_path, &config).unwrap();
+		let (path_seen, path_kept) = groupsort_filter_path2(&p, &output_path, &config).unwrap();
 		docs_seen.fetch_add(path_seen, atomic::Ordering::SeqCst);
 		docs_kept.fetch_add(path_kept, atomic::Ordering::SeqCst);
 		pbar.inc(1);
@@ -446,7 +446,10 @@ fn groupsort_filter_path2(input_path: &PathBuf, output_path: &PathBuf, config: &
 	}
 
 	if keep_idx == -1 && prev_hash.is_some() {		
-		output_bytes.extend(prev_line.unwrap().as_bytes());
+		docs_kept += 1;
+		if prev_line.is_some() {
+			output_bytes.extend(prev_line.unwrap().as_bytes());
+		}
 		output_bytes.push(b'\n');
 	}	
 
