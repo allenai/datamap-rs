@@ -181,7 +181,7 @@ fn sort_group(group: Vec<PathBuf>, sorted_dir: &PathBuf, config: &GroupsortConfi
 	//let mut null_group: Vec<Value> = Vec::new();
 	// First load all elements in the group into values
 	// 
-
+	let survivors: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
 	group.par_iter().for_each(|path| {
 		let path = path.clone();
 		let contents = read_pathbuf_to_mem(&path).unwrap();
@@ -191,7 +191,9 @@ fn sort_group(group: Vec<PathBuf>, sorted_dir: &PathBuf, config: &GroupsortConfi
 			if let Some(group_hash) = get_group_hash(&line_value, &config.group_keys).unwrap() {
 				value_group.entry(group_hash).or_default().push(line_value);
 			} else {
-				value_group.entry(usize::MAX).or_default().push(line_value); // hope this never hashes to usize::MAX
+				let mut survivors_list = survivors.lock().unwrap();
+				survivors_list.push(line_value);
+				//value_group.entry(usize::MAX).or_default().push(line_value); // hope this never hashes to usize::MAX
 			}
 		}		
 	});
@@ -246,6 +248,19 @@ fn sort_group(group: Vec<PathBuf>, sorted_dir: &PathBuf, config: &GroupsortConfi
 			cur_contents.clear();
 		}
 	});
+
+	for survivor in survivors.lock().unwrap().iter() {
+		let survivor_bytes = serde_json::to_vec(&survivor).unwrap();
+		cur_size += survivor_bytes.len();
+		cur_contents.extend(survivor_bytes);
+		cur_contents.push(b'\n');
+		if cur_size >= config.max_file_size {
+			write_output_contents(&cur_contents, sorted_dir, shard_id).unwrap();
+			cur_size = 0;
+			cur_contents.clear();
+		}		
+	}
+
 	if cur_size > 0 {
 		write_output_contents(&cur_contents, sorted_dir, shard_id).unwrap();
 	}
