@@ -433,13 +433,15 @@ fn groupsort_filter_path2(input_path: &PathBuf, output_path: &PathBuf, config: &
 		if group_hash != prev_hash {
 			if keep_idx == 0 {
 				output_bytes.extend(line.as_bytes());
+				output_bytes.push(b'\n');
+				docs_kept += 1;
 			} else {
-				if prev_line.is_some() {
+				if !prev_line.is_none() {
 					output_bytes.extend(prev_line.unwrap().as_bytes());
+					output_bytes.push(b'\n');
+					docs_kept += 1;
 				}
-			}
-			output_bytes.push(b'\n');
-			docs_kept += 1;
+			}		
 			prev_hash = group_hash;
 			prev_line = Some(line);
 		}
