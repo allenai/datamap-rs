@@ -3,16 +3,12 @@ text_field: text
 pipeline:
   - name: fasttext_annotator
     kwargs:
-      fast_text_file: ~/may31_lr05_ng3_n3M6_ova_combined-v3.bin
+      fast_text_file: /mnt/raid/models/may31_lr05_ng3_n3M6_ova_combined-v3.bin
       output_field: metadata.weborganizer
   - name: fasttext_annotator
     kwargs:
-      fast_text_file: ~/.bin
-      output_field: metadata.UPDATE
-  - name: fasttext_annotator
-    kwargs:
-      fast_text_file: ~/.bin
-      output_field: metadata.UPDATE
+      fast_text_file: /mnt/raid/models/oh_uc_wc_eli5_fasttext_model_bigram_200k.bin
+      output_field: metadata.dclm_plus2
   - name: dd_max_getter
     kwargs:
       main_attribute: metadata.weborganizer
