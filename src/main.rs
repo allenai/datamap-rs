@@ -24,10 +24,11 @@ use mj_io::{
     build_pbar, expand_dirs, get_output_filename, read_pathbuf_to_mem, write_mem_to_pathbuf,
 };
 use zstd::Encoder;
-use zstd::stream::write::AutoFinishEncoder;
 pub mod map_fxn;
+pub mod partition;
 pub mod utils;
 use datamap_rs::map_fxn::PipelineProcessor;
+use datamap_rs::partition::partition;
 pub use map_fxn::DataProcessor;
 /*
 Map Config layout:
@@ -88,6 +89,17 @@ enum Commands {
         #[arg(long)]
         keep_dirs: bool,
     },
+
+    Partition {
+        #[arg(required = true, long)]
+        input_dir: PathBuf,
+
+        #[arg(required = true, long)]
+        output_dir: PathBuf,
+
+        #[arg(required = true, long)]
+        config: PathBuf,
+    }
 }
 
 /*============================================================
@@ -512,7 +524,11 @@ fn main() {
         } => reshard(
             input_dir, output_dir, *max_lines, *max_size, *subsample, *keep_dirs,
         ),
-
+        Commands::Partition {
+            input_dir,
+            output_dir, 
+            config
+        } => partition(input_dir, output_dir, config),
         _ => Ok(()),
     };
     result.unwrap();
