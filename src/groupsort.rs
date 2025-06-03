@@ -1,3 +1,7 @@
+use rand::SeedableRng;
+use xxhash_rust::xxh3::Xxh3;
+use std::collections::VecDeque;
+use std::collections::HashSet;
 use rand::prelude::SliceRandom;
 use rand::rng;
 use rayon::ThreadPoolBuilder;
@@ -25,7 +29,16 @@ use serde::{Deserialize, Serialize};
 use regex::Regex;
 use std::cmp::Ordering;
 use rand::Rng;
+use ndarray::Array1;
+use tiktoken_rs::{CoreBPE, p50k_base};
+use disjoint_sets::UnionFind;
+use ahash::RandomState;
+use rand_chacha::ChaCha20Rng;
 
+
+
+const BIG_PRIME: u64 = 18446744073709551557;
+const MAX_HASH: u64 = BIG_PRIME;
 
 /*
 Multinode grouping and sorting
@@ -531,6 +544,303 @@ fn dupaware_subsample_path(input_path: PathBuf, output_path: PathBuf, dupkey: &S
 	ccs_seen.fetch_add(ccs_seen_path, atomic::Ordering::SeqCst);
 	ccs_kept.fetch_add(ccs_kept_path, atomic::Ordering::SeqCst);
 	Ok(())
+}
+
+
+/*===========================================================
+=                         JACCARD SIMILARITY                =
+===========================================================*/
+// Breaks things into connected components and then keeps the most/least recent amongst each component.
+// Uses the group key to set up initial groups and then jaccards from there.
+
+pub fn jaccard_filter(input_dir: &PathBuf, output_dir: &PathBuf, config_path: &PathBuf, jaccard: f32) -> Result<(), Error> {
+	let start_main = Instant::now();
+	let config_contents = read_pathbuf_to_mem(config_path).unwrap();
+	let config: GroupsortConfig = serde_yaml::from_reader(config_contents).unwrap();	
+
+	let input_paths = expand_dirs(vec![input_dir.clone()], None).unwrap();	
+	let pbar = build_pbar(input_paths.len(), "Paths");
+	let docs_seen: AtomicUsize = AtomicUsize::new(0);
+	let docs_kept: AtomicUsize = AtomicUsize::new(0);
+	let groups_seen: AtomicUsize = AtomicUsize::new(0);
+	let singletons: AtomicUsize = AtomicUsize::new(0);
+	let true_groups: AtomicUsize = AtomicUsize::new(0);
+
+
+	input_paths.into_par_iter().for_each(|p| {
+		let output_file = get_output_filename(&p, input_dir, output_dir).unwrap();
+		let (docs_seen_path, docs_kept_path, singletons_path, groups_seen_path, true_groups_path) = jaccard_filter_path(&p, &output_file, &config, jaccard).unwrap();
+		docs_seen.fetch_add(docs_seen_path, atomic::Ordering::Relaxed);
+		docs_kept.fetch_add(docs_kept_path, atomic::Ordering::Relaxed);
+		groups_seen.fetch_add(groups_seen_path, atomic::Ordering::Relaxed);
+		singletons.fetch_add(singletons_path, atomic::Ordering::Relaxed);
+		true_groups.fetch_add(true_groups_path, atomic::Ordering::Relaxed);
+		pbar.inc(1);
+	});
+
+
+	println!("Finished jaccard filtering of data in {:?} secs", start_main.elapsed().as_secs());
+	println!("Saw {:?} docs | kept {:?} docs", docs_seen.into_inner(), docs_kept.into_inner());
+	println!("Saw {:?} singletons | Saw {:?} groups | saw {:?} true groups", singletons.into_inner(), groups_seen.into_inner(), true_groups.into_inner());
+	Ok(())
+}
+
+
+
+fn jaccard_filter_path(input_path: &PathBuf, output_path: &PathBuf, config: &GroupsortConfig, jaccard: f32) -> Result<(usize, usize, usize, usize, usize), Error> {
+	let contents = read_pathbuf_to_mem(input_path).unwrap();
+	let mut output_bytes: Vec<u8> = Vec::new();
+	let tokenizer = p50k_base().unwrap();
+	let mut groups: HashMap<usize, Vec<Value>> = HashMap::new();
+	let mut docs_seen = 0;
+	let mut docs_kept = 0;
+	let mut groups_seen = 0;
+	let mut true_groups = 0;
+	let mut singletons = 0;
+
+	for line in contents.lines() {
+		let line = line.unwrap();
+		docs_seen += 1;
+		let line_value: Value = serde_json::from_str(&line).unwrap();
+		let group_hash = get_group_hash(&line_value, &config.group_keys).unwrap();
+		if let Some(h) = group_hash {
+			groups.entry(h).or_default().push(line_value);
+		} else {
+			singletons += 1;
+			docs_kept += 1;
+			output_bytes.extend(line.as_bytes());
+			output_bytes.push(b'\n')
+		}	
+	}
+	groups_seen += groups.len();
+	let group_pbar = build_pbar(groups.len(), "Groups");
+	groups.values().into_iter().for_each(|v| {
+		let ccs = if v.len() > 500 {
+			minhash(v, &tokenizer).unwrap()
+		} else {
+			get_jaccard_survivors(v, jaccard, &tokenizer).unwrap()
+		};
+
+		let mut jaccard_indices: Vec<usize> = Vec::new();
+		for cc in ccs {
+			if cc.len() == 0 {
+				continue
+			};
+			if config.keep_idx == 0 {
+				jaccard_indices.push(*cc.first().unwrap());
+			} else {
+				jaccard_indices.push(*cc.last().unwrap());
+			}
+		}
+
+		docs_kept += jaccard_indices.len();
+		true_groups += jaccard_indices.len();
+
+		for i in jaccard_indices {
+			output_bytes.extend(serde_json::to_vec(&v[i]).unwrap());
+			output_bytes.push(b'\n');
+		}
+		group_pbar.inc(1);
+	});
+
+
+	write_mem_to_pathbuf(&output_bytes, output_path).unwrap();
+	Ok((docs_seen, docs_kept, singletons, groups_seen, true_groups))
+}
+
+fn get_jaccard_survivors(values: &Vec<Value>, jaccard: f32, tokenizer: &CoreBPE) -> Result<Vec<Vec<usize>>, Error> {
+	// outputs just the indices that we should keep
+	let hash_sets: Vec<HashSet<u64>> = values.iter().map(|v| {
+		let text = json_get(v, "text").unwrap().as_str().unwrap().to_string();
+		get_jacc_hashset(text, tokenizer)
+	}).collect();
+
+	let mut edges: Vec<(usize, usize)> = Vec::new();
+	for i in 0..hash_sets.len() {
+		for j in i+1..hash_sets.len() {
+			let int_size = hash_sets[i].intersection(&hash_sets[j]).count() as f32;
+			let un_size = hash_sets[i].union(&hash_sets[j]).count() as f32;
+			if un_size > 0.0 && int_size / un_size > jaccard {
+				edges.push((i,j));
+			}
+		}
+	}
+
+	let mut uf = UnionFind::new(hash_sets.len());
+	for (i, j) in edges {
+	    uf.union(i, j);
+	}
+
+    let mut components: HashMap<usize, Vec<usize>> = HashMap::new();
+    for node in 0..hash_sets.len() {
+        let root = uf.find(node);
+        components.entry(root).or_default().push(node);
+    }
+    
+
+    // Convert to vector of components
+    Ok(components.into_values().collect())
+}
+
+
+fn get_jacc_hashset(text: String, tokenizer: &CoreBPE) -> HashSet<u64> {
+	let mut output_set : HashSet<u64> = HashSet::new();
+	let mut ngram: VecDeque<usize> = VecDeque::with_capacity(5);
+	let mut ngram_count = 0;
+	let tokens = preprocess_text(&text, tokenizer);
+    for token in tokens {
+        ngram.push_back(token);
+        if ngram.len() >= 5 {
+            ngram_count += 1;
+            output_set.insert(hash_vecdeque(&ngram));
+            ngram.pop_front();
+        }
+    }
+    if ngram_count == 0 {
+        output_set.insert(hash_vecdeque(&ngram));
+    }
+
+	output_set
+}
+
+fn hash_vecdeque(deque: &VecDeque<usize>) -> u64 {
+    let mut hasher = Xxh3::new();
+    deque.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn preprocess_text(text: &str, tokenizer: &CoreBPE) -> Vec<usize> 
+{
+    let text = clean_text(text);
+    tokenizer.encode_with_special_tokens(&text)
+}
+
+
+fn clean_text(text: &str) -> String {
+    // SlimPajama text cleaning process
+
+    // Convert the document to lowercase
+    let mut text = text.to_lowercase();
+
+    // Remove punctuation
+    let punctuation: &[_] = &['!', '"', '#', '$', '%', '&', '\'', '(', ')', '*', '+', ',', '-', '.', '/', ':', ';', '<', '=', '>', '?', '@', '[', '\\', ']', '^', '_', '`', '{', '|', '}', '~'];
+    text.retain(|c| !punctuation.contains(&c));
+
+    // Replace multiple whitespace characters with a single space
+    let re = Regex::new(r"\s+").unwrap();
+    text = re.replace_all(&text, " ").to_string();
+
+    // Trim leading and trailing whitespace
+    text.trim().to_string()
+}
+
+
+fn minhash(values: &Vec<Value>, tokenizer: &CoreBPE) -> Result<Vec<Vec<usize>>, Error> {
+	// do some hacky minhash stuff
+	// Try 31, 200 here
+	let BAND_SIZE = 31;
+	let NUM_BANDS = 200;
+	let NGRAM_SIZE = 5;
+
+	let perm_seeds = (0..BAND_SIZE * NUM_BANDS).map(|i| i).collect::<Vec<u64>>();
+
+	let mut band_data: Vec<HashMap<u64, Vec<usize>>> = (0..NUM_BANDS).into_iter()
+		.map(|_i| HashMap::new())
+		.collect::<Vec<HashMap<u64, Vec<usize>>>>();
+
+
+	// Get all hashes for all values
+	values.iter().enumerate().for_each(|(i, v)| {
+		let tokens = preprocess_text(v.get("text").unwrap().as_str().unwrap(), tokenizer);
+		let full_hash = get_hash_vals_from_tokens(tokens, &perm_seeds, NGRAM_SIZE);
+		let bands = full_hash.to_shape((NUM_BANDS as usize, BAND_SIZE as usize)).unwrap();
+		for (row_num, row) in bands.rows().into_iter().enumerate() {
+			let mut hasher = Xxh3::new();
+		    row.as_slice().unwrap().hash(&mut hasher);
+		    let row_hash = hasher.finish();
+			band_data[row_num].entry(row_hash).or_default().push(i);
+		}
+	});
+
+
+	// And then gather edges
+	let mut uf = UnionFind::new(values.len());
+	band_data.into_iter().for_each(|band_datum| {
+		band_datum.into_iter().for_each(|(_k, v)| {
+			for i in 0..(v.len() -1) {
+				uf.union(v[i], v[i+1]);
+			}
+		})
+	});
+
+    let mut components: HashMap<usize, Vec<usize>> = HashMap::new();
+    for node in 0..values.len() {
+        let root = uf.find(node);
+        components.entry(root).or_default().push(node);
+    }
+    
+
+
+
+    // Convert to vector of components
+    Ok(components.into_values().collect())
+}	
+
+
+
+
+fn get_hash_vals_from_tokens(tokens: Vec<usize>, perm_seeds: &Vec<u64>, ngram_size: usize) -> Array1<u64> {
+    let a = _init_permutations(perm_seeds);
+    let n = perm_seeds.len();
+
+    let mut hash_vals = Array1::ones(n) * MAX_HASH;
+    let mut ngram: VecDeque<usize> = VecDeque::with_capacity(ngram_size);
+    let mut ngram_count = 0; 
+    for token in tokens {
+        ngram.push_back(token);
+        if ngram.len() >= ngram_size {
+            ngram_count += 1;
+            hash_vals = _update_hash_vals(hash_vals, &a, &ngram);
+            ngram.pop_front();
+        }
+    }
+    hash_vals = if ngram_count == 0 {
+        _update_hash_vals(hash_vals, &a, &ngram) // short document, still wanna hash it
+    } else {
+        hash_vals
+    };
+
+    hash_vals
+}
+
+
+fn _init_permutations(seeds: &Vec<u64>) -> Array1<u128> {
+    // Initialize the permutations needed for each minhash
+    let n = seeds.len();
+    let mut a = Array1::zeros(n);
+    for (i, &seed) in seeds.iter().enumerate() {
+        let mut rng = ChaCha20Rng::seed_from_u64(seed);
+        a[i] = rng.gen::<u128>() as u128;
+    }
+    a
+}
+
+
+fn _update_hash_vals(mut hash_vals: Array1<u64>, a: &Array1<u128>, ngram: &VecDeque<usize>) -> Array1<u64> {
+
+    // hash the vecdeque as a u128 
+    let hash_a = RandomState::with_seed(123);
+    let hash_b = RandomState::with_seed(456);
+    let hash_val_a = hash_a.hash_one(ngram);
+    let hash_val_b = hash_b.hash_one(ngram);
+    let cur_hash = ((hash_val_a as u128) << 64) | (hash_val_b as u128);
+
+    // then multiply by a (mod 2^128) and take top 64 most significant bits
+    let phv: Array1<u64> = a.mapv(|x| (x.wrapping_mul(cur_hash) >> 64) as u64);
+    hash_vals.zip_mut_with(&phv, |x, y| *x = std::cmp::min(*x, *y));
+
+    hash_vals
+
 }
 
 

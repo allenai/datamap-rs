@@ -31,7 +31,7 @@ pub mod sort;
 pub mod utils;
 use datamap_rs::map_fxn::{PipelineProcessor};
 use datamap_rs::sort::single_node_sort;
-use datamap_rs::groupsort::{distributed_group, distributed_sort, groupsort_filter, sorted_dupaware};
+use datamap_rs::groupsort::{distributed_group, distributed_sort, groupsort_filter, sorted_dupaware, jaccard_filter};
 pub use map_fxn::DataProcessor;
 /*
 Map Config layout:
@@ -169,8 +169,20 @@ enum Commands {
 
         #[arg(long, default_value_t=usize::MAX)]
         max_cc_size: usize
-    }
+    },
 
+    JaccardFilter {
+        #[arg(required=true, long)]
+        input_dir: PathBuf,
+
+        #[arg(required=true, long)]
+        output_dir: PathBuf,
+
+
+        #[arg(required=true, long)]
+        config: PathBuf,
+
+    }
 
 
 }
@@ -519,6 +531,9 @@ fn main() {
 
         Commands::SortedDupaware{input_dir, output_dir, dupkey, subsample, max_cc_size} => {
             sorted_dupaware(input_dir, output_dir, dupkey, *subsample, *max_cc_size)
+        },
+        Commands::JaccardFilter{input_dir, output_dir, config} => {
+            jaccard_filter(input_dir, output_dir, config, 0.80)
         }
 
         _ => {Ok(())}
