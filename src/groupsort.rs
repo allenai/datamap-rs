@@ -613,7 +613,6 @@ fn jaccard_filter_path(input_path: &PathBuf, output_path: &PathBuf, config: &Gro
 		}	
 	}
 	groups_seen += groups.len();
-	let group_pbar = build_pbar(groups.len(), "Groups");
 	groups.values().into_iter().for_each(|v| {
 		let ccs = if v.len() > 500 {
 			minhash(v, &tokenizer).unwrap()
@@ -640,7 +639,6 @@ fn jaccard_filter_path(input_path: &PathBuf, output_path: &PathBuf, config: &Gro
 			output_bytes.extend(serde_json::to_vec(&v[i]).unwrap());
 			output_bytes.push(b'\n');
 		}
-		group_pbar.inc(1);
 	});
 
 
