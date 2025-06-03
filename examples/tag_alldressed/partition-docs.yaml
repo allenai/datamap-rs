@@ -1,0 +1,28 @@
+name: partition
+partition_key: metadata.weborganizer_max
+choices:
+  - __label__adult_content
+  - __label__art_and_design
+  - __label__crime_and_law
+  - __label__education_and_jobs
+  - __label__electronics_and_hardare
+  - __label__entertainment
+  - __label__fashion_and_beauty
+  - __label__finance_and_business
+  - __label__food_and_dining
+  - __label__games
+  - __label__health
+  - __label__history_and_geography
+  - __label__home_and_hobbies
+  - __label__industrial
+  - __label__literature
+  - __label__politics
+  - __label__religion
+  - __label__science_math_and_technology
+  - __label__social_life
+  - __label__software
+  - __label__software_development
+  - __label__sports_and_fitness
+  - __label__transportation
+  - __label__travel_and_tourism
+max_size: 100000000
