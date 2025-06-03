@@ -683,12 +683,13 @@ fn get_jaccard_survivors(values: &Vec<Value>, jaccard: f32, tokenizer: &CoreBPE)
 
 fn get_jacc_hashset(text: String, tokenizer: &CoreBPE) -> HashSet<u64> {
 	let mut output_set : HashSet<u64> = HashSet::new();
-	let mut ngram: VecDeque<usize> = VecDeque::with_capacity(5);
+	let NGRAM_SIZE = 3;
+	let mut ngram: VecDeque<usize> = VecDeque::with_capacity(NGRAM_SIZE);
 	let mut ngram_count = 0;
 	let tokens = preprocess_text(&text, tokenizer);
     for token in tokens {
         ngram.push_back(token);
-        if ngram.len() >= 5 {
+        if ngram.len() >= NGRAM_SIZE {
             ngram_count += 1;
             output_set.insert(hash_vecdeque(&ngram));
             ngram.pop_front();
@@ -738,7 +739,7 @@ fn minhash(values: &Vec<Value>, tokenizer: &CoreBPE) -> Result<Vec<Vec<usize>>, 
 	// Try 31, 200 here
 	let BAND_SIZE = 31;
 	let NUM_BANDS = 200;
-	let NGRAM_SIZE = 5;
+	let NGRAM_SIZE = 3; // NGRAM OF THREE -- MIDWAY HERE 
 
 	let perm_seeds = (0..BAND_SIZE * NUM_BANDS).map(|i| i).collect::<Vec<u64>>();
 
