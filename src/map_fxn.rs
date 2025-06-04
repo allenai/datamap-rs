@@ -77,6 +77,8 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
     register_processor!(m, "olmocr_rules_adder", OlmocrRulesAdder);
 	register_processor!(m, "line_minhash_filter", LineMinhashFilter);
     register_processor!(m, "markdown_table_renderer", MarkdownTableRenderer);
+    register_processor!(m, "allow_list_filter", AllowListFilter);
+    register_processor!(m, "deny_list_filter", DenyListFilter);
     // Add more processor types as needed
 
     m
@@ -1925,4 +1927,128 @@ fn render_markdown_tables(text: &str) -> String {
     }
 
     result.join("\n")
+}
+
+#[derive(Derivative)]
+#[derivative(Debug)]
+#[derive(Serialize)]
+pub struct AllowListFilter {
+    // Only keeps docs where the specified attribute appears in the allow list
+    pub attribute_field: String,
+    pub allow_list_file: String,
+    #[serde(skip)]
+    #[derivative(Debug="ignore")]
+    pub allow_list: HashSet<String>,
+}
+
+impl DataProcessor for AllowListFilter {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let attribute_field = config.get("attribute_field")
+            .ok_or_else(|| anyhow!("attribute_field is required"))?
+            .as_str()
+            .ok_or_else(|| anyhow!("attribute_field must be a string"))?
+            .to_string();
+        
+        let allow_list_file = config.get("allow_list_file")
+            .ok_or_else(|| anyhow!("allow_list_file is required"))?
+            .as_str()
+            .ok_or_else(|| anyhow!("allow_list_file must be a string"))?
+            .to_string();
+        
+        let list_file = PathBuf::from(&allow_list_file);
+        let list_data = read_pathbuf_to_mem(&list_file)?;
+        let allow_list: HashSet<String> = list_data.lines()
+            .map(|line| line.unwrap().trim().to_string())
+            .filter(|line| !line.is_empty())
+            .collect();
+        
+        Ok(Self {
+            attribute_field,
+            allow_list_file,
+            allow_list,
+        })
+    }
+    
+    fn process(&self, data: Value) -> Result<Option<Value>, Error> {
+        // Get the attribute value from the JSON
+        let attr_value = json_get(&data, &self.attribute_field)
+            .ok_or_else(|| anyhow!("Attribute {} not found in document", self.attribute_field))?;
+        
+        // Convert to string for comparison
+        let attr_str = match attr_value {
+            Value::String(s) => s.to_string(),
+            Value::Number(n) => n.to_string(),
+            Value::Bool(b) => b.to_string(),
+            _ => return Err(anyhow!("Attribute {} is not a string, number, or boolean", self.attribute_field)),
+        };
+        
+        // Check if the attribute is in the allow list
+        if self.allow_list.contains(&attr_str) {
+            Ok(Some(data))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Debug)]
+#[derive(Serialize)]
+pub struct DenyListFilter {
+    // Filters out docs where the specified attribute appears in the deny list
+    pub attribute_field: String,
+    pub deny_list_file: String,
+    #[serde(skip)]
+    #[derivative(Debug="ignore")]
+    pub deny_list: HashSet<String>,
+}
+
+impl DataProcessor for DenyListFilter {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let attribute_field = config.get("attribute_field")
+            .ok_or_else(|| anyhow!("attribute_field is required"))?
+            .as_str()
+            .ok_or_else(|| anyhow!("attribute_field must be a string"))?
+            .to_string();
+        
+        let deny_list_file = config.get("deny_list_file")
+            .ok_or_else(|| anyhow!("deny_list_file is required"))?
+            .as_str()
+            .ok_or_else(|| anyhow!("deny_list_file must be a string"))?
+            .to_string();
+        
+        let list_file = PathBuf::from(&deny_list_file);
+        let list_data = read_pathbuf_to_mem(&list_file)?;
+        let deny_list: HashSet<String> = list_data.lines()
+            .map(|line| line.unwrap().trim().to_string())
+            .filter(|line| !line.is_empty())
+            .collect();
+        
+        Ok(Self {
+            attribute_field,
+            deny_list_file,
+            deny_list,
+        })
+    }
+    
+    fn process(&self, data: Value) -> Result<Option<Value>, Error> {
+        // Get the attribute value from the JSON
+        let attr_value = json_get(&data, &self.attribute_field)
+            .ok_or_else(|| anyhow!("Attribute {} not found in document", self.attribute_field))?;
+        
+        // Convert to string for comparison
+        let attr_str = match attr_value {
+            Value::String(s) => s.to_string(),
+            Value::Number(n) => n.to_string(),
+            Value::Bool(b) => b.to_string(),
+            _ => return Err(anyhow!("Attribute {} is not a string, number, or boolean", self.attribute_field)),
+        };
+        
+        // Check if the attribute is in the deny list
+        if self.deny_list.contains(&attr_str) {
+            Ok(None) // Filter out
+        } else {
+            Ok(Some(data)) // Keep
+        }
+    }
 }
