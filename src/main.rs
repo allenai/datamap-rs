@@ -99,6 +99,11 @@ enum Commands {
 
         #[arg(required = true, long)]
         config: PathBuf,
+    },
+
+    CountDocs {
+        #[arg(required=true, long)]
+        input_dir: PathBuf
     }
 }
 
@@ -496,6 +501,27 @@ fn make_shard_writer(shard_name: PathBuf) -> Result<Encoder<'static, BufWriter<F
     Ok(writer)
 }
 
+fn count_docs(input_dir: &PathBuf) -> Result<(), Error> {
+    let start_main = Instant::now();
+    let total = AtomicUsize::new(0);
+
+    let input_paths = expand_dirs(vec![input_dir.clone()], None).unwrap();
+    let pbar = build_pbar(input_paths.len(), "Paths");
+    input_paths.into_par_iter().for_each(|p| {
+        let contents = read_pathbuf_to_mem(&p).unwrap();
+        let mut path_count = 0;
+        for _line in contents.lines() {            
+            path_count += 1;
+        }
+        total.fetch_add(path_count, Ordering::Relaxed);
+        pbar.inc(1);
+    });
+
+    println!("Counted docs in {:?} secs | Saw {:?} docs", start_main.elapsed().as_secs(), total.into_inner());
+    Ok(())
+}
+
+
 /*============================================================
 =                            MAIN                            =
 ============================================================*/
@@ -529,6 +555,9 @@ fn main() {
             output_dir, 
             config
         } => partition(input_dir, output_dir, config),
+        Commands::CountDocs {
+            input_dir
+        } => count_docs(input_dir),
         _ => Ok(()),
     };
     result.unwrap();
