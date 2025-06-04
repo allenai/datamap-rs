@@ -101,10 +101,14 @@ enum Commands {
         config: PathBuf,
     },
 
-    CountDocs {
+    Count {
         #[arg(required=true, long)]
-        input_dir: PathBuf
-    }
+        input_dir: PathBuf,
+
+        #[arg(required=true, long, default_value_t=String::from("docs"))]
+        property: String
+    },
+
 }
 
 /*============================================================
@@ -501,23 +505,31 @@ fn make_shard_writer(shard_name: PathBuf) -> Result<Encoder<'static, BufWriter<F
     Ok(writer)
 }
 
-fn count_docs(input_dir: &PathBuf) -> Result<(), Error> {
+fn count(input_dir: &PathBuf, property: &str) -> Result<(), Error> {
     let start_main = Instant::now();
-    let total = AtomicUsize::new(0);
-
+    let total_doc = AtomicUsize::new(0);
+    let total_text = AtomicUsize::new(0);
+    assert!(property == "docs" || property == "text");
     let input_paths = expand_dirs(vec![input_dir.clone()], None).unwrap();
     let pbar = build_pbar(input_paths.len(), "Paths");
     input_paths.into_par_iter().for_each(|p| {
         let contents = read_pathbuf_to_mem(&p).unwrap();
-        let mut path_count = 0;
-        for _line in contents.lines() {            
-            path_count += 1;
+        let mut path_docs = 0;
+        let mut path_text = 0;
+        for line in contents.lines() {            
+            path_docs += 1;
+            if property == "text" {
+                let serde_val: Value = serde_json::from_str(&line.unwrap()).unwrap();            
+                let textlen = serde_val.get("text").unwrap().as_str().unwrap().len();
+                path_text += textlen;
+            }
         }
-        total.fetch_add(path_count, Ordering::Relaxed);
+        total_doc.fetch_add(path_docs, Ordering::Relaxed);        
+        total_text.fetch_add(path_text, Ordering::Relaxed);
         pbar.inc(1);
     });
 
-    println!("Counted docs in {:?} secs | Saw {:?} docs", start_main.elapsed().as_secs(), total.into_inner());
+    println!("Counted docs in {:?} secs | Counted {:?} docs | Counted {:?} bytes of text", start_main.elapsed().as_secs(), total_doc.into_inner(), total_text.into_inner());
     Ok(())
 }
 
@@ -555,9 +567,10 @@ fn main() {
             output_dir, 
             config
         } => partition(input_dir, output_dir, config),
-        Commands::CountDocs {
-            input_dir
-        } => count_docs(input_dir),
+        Commands::Count {
+            input_dir,
+            property
+        } => count(input_dir, property),
         _ => Ok(()),
     };
     result.unwrap();
