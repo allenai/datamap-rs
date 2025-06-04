@@ -1,5 +1,6 @@
 // External crates
 
+use rand::prelude::SliceRandom;
 use crate::serde_json::Value;
 use dashmap::DashMap;
 use rand::Rng;
@@ -106,7 +107,10 @@ enum Commands {
         input_dir: PathBuf,
 
         #[arg(long, default_value_t=String::from("docs"))]
-        property: String
+        property: String,
+
+        #[arg(long, default_value_t=1.0)]
+        subsample: f32
     },
 
 }
@@ -505,12 +509,20 @@ fn make_shard_writer(shard_name: PathBuf) -> Result<Encoder<'static, BufWriter<F
     Ok(writer)
 }
 
-fn count(input_dir: &PathBuf, property: &str) -> Result<(), Error> {
+fn count(input_dir: &PathBuf, property: &str, subsample: f32) -> Result<(), Error> {
     let start_main = Instant::now();
     let total_doc = AtomicUsize::new(0);
     let total_text = AtomicUsize::new(0);
     assert!(property == "docs" || property == "text");
-    let input_paths = expand_dirs(vec![input_dir.clone()], None).unwrap();
+    let mut input_paths = expand_dirs(vec![input_dir.clone()], None).unwrap();
+    let og_count = input_paths.len();
+    let mut size_ratio = 1.0;
+    if subsample < 1.0 {
+        input_paths.shuffle(&mut rand::rng());
+        let target = (subsample * input_paths.len() as f32) as usize;
+        input_paths.truncate(target);
+        size_ratio = og_count as f32 / target as f32;
+    }
     let pbar = build_pbar(input_paths.len(), "Paths");
     input_paths.into_par_iter().for_each(|p| {
         let contents = read_pathbuf_to_mem(&p).unwrap();
@@ -528,8 +540,19 @@ fn count(input_dir: &PathBuf, property: &str) -> Result<(), Error> {
         total_text.fetch_add(path_text, Ordering::Relaxed);
         pbar.inc(1);
     });
+    let total_doc = total_doc.into_inner();
+    let total_text = total_text.into_inner();
 
-    println!("Counted docs in {:?} secs | Counted {:?} docs | Counted {:?} bytes of text", start_main.elapsed().as_secs(), total_doc.into_inner(), total_text.into_inner());
+
+
+    println!("Counted in {:?} secs", start_main.elapsed().as_secs());
+    println!("Saw {:?} docs | Saw {:?} bytes of text", total_doc, total_text);
+    if subsample < 1.0 {
+        println!("Extrapolating ...");
+        println!("Total should have {:?} docs | {:?} bytes of text", 
+                 total_doc as f32 * size_ratio,
+                 total_text as f32 * size_ratio);
+    }
     Ok(())
 }
 
@@ -569,8 +592,9 @@ fn main() {
         } => partition(input_dir, output_dir, config),
         Commands::Count {
             input_dir,
-            property
-        } => count(input_dir, property),
+            property,
+            subsample
+        } => count(input_dir, property, *subsample),
         _ => Ok(()),
     };
     result.unwrap();
