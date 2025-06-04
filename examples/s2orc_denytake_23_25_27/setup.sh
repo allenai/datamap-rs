@@ -31,6 +31,6 @@ for CATEGORY in "${CATEGORIES[@]}"; do
   cargo run --release -- map \
     --input-dir "/mnt/raid0/s2pdf_dedupe_minhash_v1_with_no_pii_basic_quality_datadelve_norefs_mdtables_v2/${CATEGORY}/step_final" \
     --output-dir "/mnt/raid0/s2pdf_dedupe_minhash_v1_with_no_pii_basic_quality_datadelve_norefs_mdtables_v2_denylisted/${CATEGORY}/" \
-    --config ./examples/olmocr_intake9_10_11/config.yaml
+    --config ./examples/s2orc_denytake_23_25_27/config.yaml
 done
 
