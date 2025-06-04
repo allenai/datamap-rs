@@ -1,3 +1,4 @@
+use dashmap::DashSet;
 use rand::SeedableRng;
 use xxhash_rust::xxh3::Xxh3;
 use std::collections::VecDeque;
@@ -567,7 +568,7 @@ pub fn jaccard_filter(input_dir: &PathBuf, output_dir: &PathBuf, config_path: &P
 	let true_groups: AtomicUsize = AtomicUsize::new(0);
 
 
-	input_paths.into_par_iter().for_each(|p| {
+	input_paths.into_iter().for_each(|p| {
 		let output_file = get_output_filename(&p, input_dir, output_dir).unwrap();
 		let (docs_seen_path, docs_kept_path, singletons_path, groups_seen_path, true_groups_path) = jaccard_filter_path(&p, &output_file, &config, jaccard).unwrap();
 		docs_seen.fetch_add(docs_seen_path, atomic::Ordering::Relaxed);
@@ -648,21 +649,22 @@ fn jaccard_filter_path(input_path: &PathBuf, output_path: &PathBuf, config: &Gro
 
 fn get_jaccard_survivors(values: &Vec<Value>, jaccard: f32, tokenizer: &CoreBPE) -> Result<Vec<Vec<usize>>, Error> {
 	// outputs just the indices that we should keep
-	let hash_sets: Vec<HashSet<u64>> = values.iter().map(|v| {
+	let hash_sets: Vec<HashSet<u64>> = values.par_iter().map(|v| {
 		let text = json_get(v, "text").unwrap().as_str().unwrap().to_string();
 		get_jacc_hashset(text, tokenizer)
 	}).collect();
 
-	let mut edges: Vec<(usize, usize)> = Vec::new();
-	for i in 0..hash_sets.len() {
+	//let mut edges: Vec<(usize, usize)> = Vec::new();
+	let edges : DashSet<(usize, usize)> = DashSet::new();
+	(0..hash_sets.len()).into_par_iter().for_each(|i| {
 		for j in i+1..hash_sets.len() {
 			let int_size = hash_sets[i].intersection(&hash_sets[j]).count() as f32;
 			let un_size = hash_sets[i].union(&hash_sets[j]).count() as f32;
 			if un_size > 0.0 && int_size / un_size > jaccard {
-				edges.push((i,j));
+				edges.insert((i,j));
 			}
 		}
-	}
+	});
 
 	let mut uf = UnionFind::new(hash_sets.len());
 	for (i, j) in edges {
@@ -743,13 +745,16 @@ fn minhash(values: &Vec<Value>, tokenizer: &CoreBPE) -> Result<Vec<Vec<usize>>, 
 
 	let perm_seeds = (0..BAND_SIZE * NUM_BANDS).map(|i| i).collect::<Vec<u64>>();
 
+	/*
 	let mut band_data: Vec<HashMap<u64, Vec<usize>>> = (0..NUM_BANDS).into_iter()
 		.map(|_i| HashMap::new())
 		.collect::<Vec<HashMap<u64, Vec<usize>>>>();
+	*/
+	let band_data: DashMap<usize, DashMap<u64, Vec<usize>>> = DashMap::new();
 
 
 	// Get all hashes for all values
-	values.iter().enumerate().for_each(|(i, v)| {
+	values.par_iter().enumerate().for_each(|(i, v)| {
 		let tokens = preprocess_text(v.get("text").unwrap().as_str().unwrap(), tokenizer);
 		let full_hash = get_hash_vals_from_tokens(tokens, &perm_seeds, NGRAM_SIZE);
 		let bands = full_hash.to_shape((NUM_BANDS as usize, BAND_SIZE as usize)).unwrap();
@@ -757,14 +762,14 @@ fn minhash(values: &Vec<Value>, tokenizer: &CoreBPE) -> Result<Vec<Vec<usize>>, 
 			let mut hasher = Xxh3::new();
 		    row.as_slice().unwrap().hash(&mut hasher);
 		    let row_hash = hasher.finish();
-			band_data[row_num].entry(row_hash).or_default().push(i);
+			band_data.entry(row_num).or_default().entry(row_hash).or_default().push(i);
 		}
 	});
 
 
 	// And then gather edges
 	let mut uf = UnionFind::new(values.len());
-	band_data.into_iter().for_each(|band_datum| {
+	band_data.into_iter().for_each(|(_k, band_datum)| {
 		band_datum.into_iter().for_each(|(_k, v)| {
 			for i in 0..(v.len() -1) {
 				uf.union(v[i], v[i+1]);
