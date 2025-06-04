@@ -31,6 +31,7 @@ pub mod utils;
 use datamap_rs::map_fxn::PipelineProcessor;
 use datamap_rs::partition::partition;
 pub use map_fxn::DataProcessor;
+use tiktoken_rs::{CoreBPE, p50k_base, cl100k_base};
 /*
 Map Config layout:
 
@@ -110,7 +111,7 @@ enum Commands {
         property: String,
 
         #[arg(long, default_value_t=1.0)]
-        subsample: f32
+        subsample: f64
     },
 
 }
@@ -509,49 +510,55 @@ fn make_shard_writer(shard_name: PathBuf) -> Result<Encoder<'static, BufWriter<F
     Ok(writer)
 }
 
-fn count(input_dir: &PathBuf, property: &str, subsample: f32) -> Result<(), Error> {
+fn count(input_dir: &PathBuf, property: &str, subsample: f64) -> Result<(), Error> {
     let start_main = Instant::now();
     let total_doc = AtomicUsize::new(0);
     let total_text = AtomicUsize::new(0);
+    let total_tokens = AtomicUsize::new(0);
+    let tokenizer = cl100k_base().unwrap();
     assert!(property == "docs" || property == "text");
     let mut input_paths = expand_dirs(vec![input_dir.clone()], None).unwrap();
     let og_count = input_paths.len();
     let mut size_ratio = 1.0;
     if subsample < 1.0 {
         input_paths.shuffle(&mut rand::rng());
-        let target = (subsample * input_paths.len() as f32) as usize;
+        let target = (subsample * input_paths.len() as f64) as usize;
         input_paths.truncate(target);
-        size_ratio = og_count as f32 / target as f32;
+        size_ratio = og_count as f64 / target as f64;
     }
     let pbar = build_pbar(input_paths.len(), "Paths");
     input_paths.into_par_iter().for_each(|p| {
         let contents = read_pathbuf_to_mem(&p).unwrap();
         let mut path_docs = 0;
         let mut path_text = 0;
+        let mut path_tokens = 0;
         for line in contents.lines() {            
             path_docs += 1;
             if property == "text" {
                 let serde_val: Value = serde_json::from_str(&line.unwrap()).unwrap();            
-                let textlen = serde_val.get("text").unwrap().as_str().unwrap().len();
-                path_text += textlen;
+                let text = serde_val.get("text").unwrap().as_str().unwrap();
+                path_text += text.len();
+                path_tokens += tokenizer.encode_with_special_tokens(text).len();
             }
         }
         total_doc.fetch_add(path_docs, Ordering::Relaxed);        
         total_text.fetch_add(path_text, Ordering::Relaxed);
+        total_tokens.fetch_add(path_tokens, Ordering::Relaxed);
         pbar.inc(1);
     });
     let total_doc = total_doc.into_inner();
     let total_text = total_text.into_inner();
-
+    let total_tokens = total_tokens.into_inner();
 
 
     println!("Counted in {:?} secs", start_main.elapsed().as_secs());
-    println!("Saw {:?} docs | Saw {:?} bytes of text", total_doc, total_text);
+    println!("Saw {:?} docs | Saw {:?} bytes of text | {:?} tokens ", total_doc, total_text, total_tokens);
     if subsample < 1.0 {
         println!("Extrapolating ...");
-        println!("Total should have {:?} docs | {:?} bytes of text", 
-                 total_doc as f32 * size_ratio,
-                 total_text as f32 * size_ratio);
+        println!("Total should have {:?} docs | {:?} bytes of text | {:?} tokens", 
+                 total_doc as f64 * size_ratio,
+                 total_text as f64 * size_ratio,
+                 total_tokens as f64 * size_ratio);
     }
     Ok(())
 }
