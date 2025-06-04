@@ -1,7 +1,7 @@
 name: filter_out_bad_paths
 text_field: text
 pipeline: 
-  - name: allow_list_filter
+  - name: deny_list_filter
     kwargs:
       attribute_field: metadata.Source-File
-      deny_list_file: "/mnt/raid0/all_take9_take10_take11_paths.txt"
+      deny_list_file: "/mnt/raid0/all_take23_take25_take27_paths.txt"
