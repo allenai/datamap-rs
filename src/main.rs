@@ -105,7 +105,7 @@ enum Commands {
         #[arg(required=true, long)]
         input_dir: PathBuf,
 
-        #[arg(required=true, long, default_value_t=String::from("docs"))]
+        #[arg(long, default_value_t=String::from("docs"))]
         property: String
     },
 
