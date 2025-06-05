@@ -15,7 +15,7 @@ languages=(
     "TypeScript"
 )
 
-DRIVE='${DRIVE:-/mnt/raid0}'
+DRIVE="${DRIVE:-/mnt/raid0}"
 
 remote_dir="s3://ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2"
 remote_dest_dir="s3://ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated"
