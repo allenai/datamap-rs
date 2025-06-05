@@ -598,9 +598,10 @@ fn jaccard_filter_path(input_path: &PathBuf, output_path: &PathBuf, config: &Gro
 	let mut groups_seen = 0;
 	let mut true_groups = 0;
 	let mut singletons = 0;
+	let all_lines : Vec<String> = contents.lines().map(|el| el.unwrap()).collect();
 
-	for line in contents.lines() {
-		let line = line.unwrap();
+
+	for line in all_lines {
 		docs_seen += 1;
 		let line_value: Value = serde_json::from_str(&line).unwrap();
 		let group_hash = get_group_hash(&line_value, &config.group_keys).unwrap();
