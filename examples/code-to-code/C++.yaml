@@ -1,0 +1,7 @@
+name: ft_annotator
+text_field: text
+pipeline:
+  - name: fasttext_annotator
+    kwargs:
+      fast_text_file: /home/ec2-user/fasttext_resources/code-vs-code/model/whitespace-Cpp_lr05_ng3_n3M6
+      output_field: metadata.code_vs_code
