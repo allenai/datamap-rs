@@ -1,5 +1,6 @@
 // External crates
 
+use std::fs;
 use crate::serde_json::Value;
 use dashmap::DashMap;
 use rand::Rng;
@@ -88,6 +89,10 @@ enum Commands {
 
         #[arg(long)]
         keep_dirs: bool,
+
+        #[arg(long)]
+        delete_after_read: bool,
+
     },
 
     Partition {
@@ -331,6 +336,7 @@ fn reshard(
     max_size: usize,
     subsample: f32,
     keep_dirs: bool,
+    delete_after_read: bool,
 ) -> Result<(), Error> {
     let start_main = Instant::now();
 
@@ -384,7 +390,7 @@ fn reshard(
 
         reshard_chunk(
             chunk, input_dir, output_dir, &out_num, max_lines, max_size, &pbar, subsample,
-            keep_dirs,
+            keep_dirs, delete_after_read
         )
         .unwrap();
     });
@@ -407,6 +413,7 @@ fn reshard_chunk(
     pbar: &ProgressBar,
     subsample: f32,
     keep_dirs: bool,
+    delete_after_read: bool
 ) -> Result<(), Error> {
 
     // Quick assert: if keep dirs, all parents should be the same, and then we modify the output dir to be the "parent dir"
@@ -461,6 +468,7 @@ fn reshard_chunk(
             cur_size = 0;            
         }
         pbar.inc(1);
+        fs::remove_file(path).unwrap();
     }
 
     writer.flush().unwrap();
@@ -521,8 +529,9 @@ fn main() {
             max_size,
             subsample,
             keep_dirs,
+            delete_after_read,
         } => reshard(
-            input_dir, output_dir, *max_lines, *max_size, *subsample, *keep_dirs,
+            input_dir, output_dir, *max_lines, *max_size, *subsample, *keep_dirs, *delete_after_read,
         ),
         Commands::Partition {
             input_dir,
