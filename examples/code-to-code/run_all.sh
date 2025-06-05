@@ -15,14 +15,16 @@ languages=(
     "TypeScript"
 )
 
+DRIVE='/mnt/raid0'
+
 remote_dir="s3://ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2"
 remote_dest_dir="s3://ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated"
 fasttext_remote_dir="s3://ai2-llm/fasttext_models/code-vs-code"
 
-source_dir="${HOME}/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2/data"
-output_dir="${HOME}/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated/data"
-error_dir="${HOME}/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated/error"
-fasttext_dir="${HOME}/ai2-llm/fasttext_resources/code-vs-code/model"
+source_dir="${DRIVE}/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2/data"
+output_dir="${DRIVE}/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated/data"
+error_dir="${DRIVE}/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated/error"
+fasttext_dir="${DRIVE}/ai2-llm/fasttext_resources/code-vs-code/model"
 
 get_instance_rank () {
     instance_id=$(ec2-metadata --instance-id | cut -d ' ' -f 2)
@@ -43,7 +45,6 @@ get_world_size () {
 
 mkdir -p $fasttext_dir
 
-
 # Get instance rank and world size
 instance_rank=$(get_instance_rank)
 world_size=$(get_world_size)
@@ -53,7 +54,7 @@ echo "Instance rank: $instance_rank, World size: $world_size"
 # Process languages based on rank
 for i in "${!languages[@]}"; do
     # Check if this language index should be processed by this instance
-    if [ $((i % world_size)) -eq $instance_rank ]; then
+    if [ "$((i % world_size))" -eq "$instance_rank" ]; then
         language="${languages[$i]}"
 
         if [ "$language" == "C++" ]; then
@@ -64,11 +65,19 @@ for i in "${!languages[@]}"; do
             model_name="whitespace-${language}_lr05_ng3_n3M6.bin"
         fi
 
+
         fasttext_local_path="${fasttext_dir}/${model_name}"
-        s5cmd cp -sp "${fasttext_remote_dir}/${model_name}" "${fasttext_local_path}"
 
-        cat examples/code-to-code/base.yaml | sed "s/FASTTEXT_FILE/${fasttext_local_path}/g" > examples/code-to-code/${language}.yaml
+        if [ ! -f "${fasttext_local_path}" ]; then
+            echo "Downloading fasttext model ${model_name}"
+            s5cmd cp -sp "${fasttext_remote_dir}/${model_name}" "${fasttext_local_path}"
+        else
+            echo "Fasttext model ${model_name} already exists"
+        fi
 
+        cat examples/code-to-code/base.yaml | sed "s|FASTTEXT_FILE|${fasttext_local_path}|g" > examples/code-to-code/${language}.yaml
+
+        echo "Downloading source data for ${language}"
         s5cmd cp -sp "${remote_dir}/${language}/*" "${source_dir}/${language}/"
 
         echo "Running $language (index $i)"

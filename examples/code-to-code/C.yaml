@@ -3,5 +3,5 @@ text_field: text
 pipeline:
   - name: fasttext_annotator
     kwargs:
-      fast_text_file: /home/ec2-user/fasttext_resources/code-vs-code/model/whitespace-C_lr05_ng3_n3M6.bin
+      fast_text_file: /home/ec2-user/ai2-llm/fasttext_resources/code-vs-code/model/whitespace-C_lr05_ng3_n3M6.bin
       output_field: metadata.code_vs_code
