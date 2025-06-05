@@ -29,7 +29,7 @@ fasttext_dir="${DRIVE}/ai2-llm/fasttext_resources/code-vs-code/model"
 get_instance_rank () {
     instance_id=$(ec2-metadata --instance-id | cut -d ' ' -f 2)
     instance_name=$(aws ec2 describe-instances --instance-ids $instance_id --query 'Reservations[0].Instances[0].Tags[?Key==`Name`].Value' --output text)
-    instance_rank=$(echo $instance_name | cut -d '-' -f 3)
+    instance_rank=$(echo $instance_name | rev | cut -d '-' -f 1 | rev)
     echo $instance_rank
 }
 
