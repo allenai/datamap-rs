@@ -1,3 +1,7 @@
+#!/bin/bash
+
+set -ex
+
 languages=(
     "C"
     "C++"
