@@ -15,7 +15,7 @@ src=/mnt/raid0/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minh
 uv run huggingface-cli download allenai/dolma2-tokenizer --local-dir /mnt/raid0/tokenizer
 
 # get the only directory in the src directory
-dir=$(ls -d $src/*)
+src=$(ls -d $src/*)
 
 # the destination replace "/pretraining-data/sources" with "preprocessed"
 dst=$(echo $dir | sed 's|/pretraining-data/sources/|/preprocessed/|' | sed 's|/data|/allenai/dolma2-tokenizer|')
@@ -36,8 +36,8 @@ for y in $(ls -d $src/*); do
 
     # Run command in background
     uv run dolma tokens \
-    --documents $y \
-    --destination $dst/$name \
+    --documents "${y}/*.zst" \
+    --destination "${dst}/${name}" \
     --tokenizer.name_or_path /mnt/raid0/tokenizer/tokenizer.json \
     --tokenizer.eos_token_id 100257 \
     --tokenizer.pad_token_id 100277 \
