@@ -12,8 +12,7 @@ uv pip install dolma huggingface-hub
 
 src=/mnt/raid0/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated_partitioned/data
 
-
-huggingface-cli download allenai/dolma2-tokenizer --local-dir /mnt/raid0/tokenizer
+uv run huggingface-cli download allenai/dolma2-tokenizer --local-dir /mnt/raid0/tokenizer
 
 # get the only directory in the src directory
 dir=$(ls -d $src/*)
