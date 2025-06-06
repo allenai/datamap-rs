@@ -2,7 +2,7 @@
 
 set -ex
 
-sudo dnf install python3 python3-pip
+sudo dnf install -y python3 python3-pip
 
 pip3 install uv
 
