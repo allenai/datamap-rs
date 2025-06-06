@@ -1,6 +1,5 @@
 #!/bin/bash
 
-set -ex
 
 languages=(
     "C"
@@ -71,37 +70,23 @@ for i in "${!languages[@]}"; do
             s5cmd cp -sp "${remote_src_dir}/${language}/*" "${local_src_dir}/${language}/"
         fi
 
-        # run it so that we run in parallel K = max_cores // max_cores_each
-        M=32
-        N=$(nproc)
-        K=$((N / M))
-
-
         for partition in $(ls --color=never ${local_src_dir}/${language}); do
-            # Wait if we've reached max concurrent jobs
-            while (( $(jobs -r | wc -l) >= K )); do
-                sleep 60
-            done
-
             # Run command in background
             uv run dolma tokens \
-            --documents "${local_src_dir}/${language}/${partition}/*.jsonl.zst" \
-            --destination "${local_dst_dir}/${language}/${partition}" \
-            --tokenizer.name_or_path ${local_tokenizer_dir}/tokenizer.json \
-            --tokenizer.eos_token_id 100257 \
-            --tokenizer.pad_token_id 100277 \
-            --no-tokenizer.segment_before_tokenization \
-            --tokenizer.encode_special_tokens \
-            --ring_size $M \
-            --processes $M \
-            --fields.id_field_name "" \
-            --max_size 4_000_000_000 \
-            --sample_ring_prop \
-            --dtype 'uint32' &
+                --documents "${local_src_dir}/${language}/${partition}/*.jsonl.zst" \
+                --destination "${local_dst_dir}/${language}/${partition}" \
+                --tokenizer.name_or_path ${local_tokenizer_dir}/tokenizer.json \
+                --tokenizer.eos_token_id 100257 \
+                --tokenizer.pad_token_id 100277 \
+                --no-tokenizer.segment_before_tokenization \
+                --tokenizer.encode_special_tokens \
+                --ring_size 32 \
+                --processes $(nproc) \
+                --fields.id_field_name "" \
+                --max_size 4_000_000_000 \
+                --sample_ring_prop \
+                --dtype 'uint32'
         done
-
-        # Wait for all jobs to finish
-        wait
 
         s5cmd cp -sp "${local_dst_dir}/${language}/*" "${remote_dst_dir}/${language}/"
 
