@@ -21,14 +21,11 @@ languages=(
 
 DRIVE="${DRIVE:-/mnt/raid0}"
 
-remote_dir="s3://ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2/data"
-remote_dest_dir="s3://ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated"
-fasttext_remote_dir="s3://ai2-llm/fasttext_models/code-vs-code"
+remote_dest_dir="s3://ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated_partitioned"
 
-source_dir="${DRIVE}/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2/data"
-output_dir="${DRIVE}/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated/data"
-error_dir="${DRIVE}/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated/error"
-fasttext_dir="${DRIVE}/ai2-llm/fasttext_resources/code-vs-code/model"
+source_dir="${DRIVE}/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated/data"
+output_dir="${DRIVE}/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated_partitioned/data"
+error_dir="${DRIVE}/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated_partitioned/error"
 
 get_instance_rank () {
     instance_id=$(ec2-metadata --instance-id | cut -d ' ' -f 2)
@@ -61,35 +58,12 @@ for i in "${!languages[@]}"; do
     if [ "$((i % world_size))" -eq "$instance_rank" ]; then
         language="${languages[$i]}"
 
-        if [ "$language" == "C++" ]; then
-            model_name="whitespace-Cpp_lr05_ng3_n3M6.bin"
-        elif [ "$language" == "C-Sharp" ]; then
-            model_name="whitespace-CSharp_lr05_ng3_n3M6.bin"
-        else
-            model_name="whitespace-${language}_lr05_ng3_n3M6.bin"
-        fi
-
-
-        fasttext_local_path="${fasttext_dir}/${model_name}"
-
-        if [ ! -f "${fasttext_local_path}" ]; then
-            echo "Downloading fasttext model ${model_name}"
-            s5cmd cp -sp "${fasttext_remote_dir}/${model_name}" "${fasttext_local_path}"
-        else
-            echo "Fasttext model ${model_name} already exists"
-        fi
-
-        cat examples/code-to-code/base.yaml | sed "s|FASTTEXT_FILE|${fasttext_local_path}|g" > examples/code-to-code/${language}.yaml
-
-        echo "Downloading source data for ${language}"
-        s5cmd cp -sp "${remote_dir}/${language}/*" "${source_dir}/${language}/"
-
         echo "Running $language (index $i)"
         mkdir -p $output_dir/$language
         mkdir -p $error_dir/$language
         cargo run --release -- map \
-            --config examples/code-to-code/$language.yaml \
-            --input-dir $source_dir/$language \
+            --config examples/code-to-code/partition/$language.yaml \
+            --input-dir $source_dir/$language/step_final \
             --output-dir $output_dir/$language \
             --err-dir $error_dir/$language
 
