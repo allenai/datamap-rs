@@ -6,6 +6,8 @@ sudo dnf install python3 python3-pip
 
 pip3 install uv
 
+uv venv
+
 uv pip install dolma huggingface-hub
 
 src=/mnt/raid0/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated_partitioned/data
