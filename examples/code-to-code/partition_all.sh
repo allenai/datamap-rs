@@ -12,6 +12,7 @@ languages=(
     "Markdown"
     "PHP"
     "Python"
+    "Ruby"
     "Rust"
     "SQL"
     "Shell"
