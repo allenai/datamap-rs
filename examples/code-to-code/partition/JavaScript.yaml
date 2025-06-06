@@ -3,31 +3,31 @@ pipeline:
 - kwargs:
     default: 0.0
     float_field: metadata.code_vs_code._%%_label_%%_stack_edu
-    lower_bound: 0.0134
+    lower_bound: 0.00383
   name: float_filter
 - kwargs:
     default: 0.0
     float_field: metadata.code_vs_code._%%_label_%%_stack_edu
-    lower_bound: 0.03609
+    lower_bound: 0.03099
   name: float_filter
 - kwargs:
     default: 0.0
     float_field: metadata.code_vs_code._%%_label_%%_stack_edu
-    lower_bound: 0.1073
+    lower_bound: 0.13394
   name: float_filter
 - kwargs:
     default: 0.0
     float_field: metadata.code_vs_code._%%_label_%%_stack_edu
-    lower_bound: 0.22826
+    lower_bound: 0.41078
   name: float_filter
 - kwargs:
     default: 0.0
     float_field: metadata.code_vs_code._%%_label_%%_stack_edu
-    lower_bound: 0.40311
+    lower_bound: 0.62657
   name: float_filter
 - kwargs:
     default: 0.0
     float_field: metadata.code_vs_code._%%_label_%%_stack_edu
-    lower_bound: 0.63134
+    lower_bound: 0.80005
   name: float_filter
 text_field: text

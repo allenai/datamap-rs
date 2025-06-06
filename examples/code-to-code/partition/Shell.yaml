@@ -3,11 +3,11 @@ pipeline:
 - kwargs:
     default: 0.0
     float_field: metadata.code_vs_code._%%_label_%%_stack_edu
-    lower_bound: 0.05964
+    lower_bound: 0.09845
   name: float_filter
 - kwargs:
     default: 0.0
     float_field: metadata.code_vs_code._%%_label_%%_stack_edu
-    lower_bound: 0.3723
+    lower_bound: 0.60685
   name: float_filter
 text_field: text
