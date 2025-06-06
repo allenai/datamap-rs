@@ -3,94 +3,46 @@ pipeline:
 - kwargs:
     default: 0.0
     float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: !!python/object/apply:numpy.core.multiarray.scalar
-    - &id001 !!python/object/apply:numpy.dtype
-      args:
-      - f8
-      - false
-      - true
-      state: !!python/tuple
-      - 3
-      - <
-      - null
-      - null
-      - null
-      - -1
-      - -1
-      - 0
-    - !!binary |
-      AAAAALb45D4=
+    lower_bound: 0.05302
   name: float_filter
 - kwargs:
     default: 0.0
     float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: !!python/object/apply:numpy.core.multiarray.scalar
-    - *id001
-    - !!binary |
-      AAAAALb45D4=
+    lower_bound: 0.10194
   name: float_filter
 - kwargs:
     default: 0.0
     float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: !!python/object/apply:numpy.core.multiarray.scalar
-    - *id001
-    - !!binary |
-      AAAAALb45D4=
+    lower_bound: 0.22426
   name: float_filter
 - kwargs:
     default: 0.0
     float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: !!python/object/apply:numpy.core.multiarray.scalar
-    - *id001
-    - !!binary |
-      AAAAALb45D4=
+    lower_bound: 0.45487
   name: float_filter
 - kwargs:
     default: 0.0
     float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: !!python/object/apply:numpy.core.multiarray.scalar
-    - *id001
-    - !!binary |
-      AAAAALb45D4=
+    lower_bound: 0.6919
   name: float_filter
 - kwargs:
     default: 0.0
     float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: !!python/object/apply:numpy.core.multiarray.scalar
-    - *id001
-    - !!binary |
-      AAAAALb45D4=
+    lower_bound: 0.85508
   name: float_filter
 - kwargs:
     default: 0.0
     float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: !!python/object/apply:numpy.core.multiarray.scalar
-    - *id001
-    - !!binary |
-      AAAAALb45D4=
+    lower_bound: 0.94558
   name: float_filter
 - kwargs:
     default: 0.0
     float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: !!python/object/apply:numpy.core.multiarray.scalar
-    - *id001
-    - !!binary |
-      AAAAALb45D4=
+    lower_bound: 0.98614
   name: float_filter
 - kwargs:
     default: 0.0
     float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: !!python/object/apply:numpy.core.multiarray.scalar
-    - *id001
-    - !!binary |
-      AAAAALb45D4=
-  name: float_filter
-- kwargs:
-    default: 0.0
-    float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: !!python/object/apply:numpy.core.multiarray.scalar
-    - *id001
-    - !!binary |
-      AAAAALb45D4=
+    lower_bound: 0.99847
   name: float_filter
 text_field: text

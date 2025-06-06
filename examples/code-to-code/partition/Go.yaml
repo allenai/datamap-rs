@@ -3,70 +3,31 @@ pipeline:
 - kwargs:
     default: 0.0
     float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: !!python/object/apply:numpy.core.multiarray.scalar
-    - &id001 !!python/object/apply:numpy.dtype
-      args:
-      - f8
-      - false
-      - true
-      state: !!python/tuple
-      - 3
-      - <
-      - null
-      - null
-      - null
-      - -1
-      - -1
-      - 0
-    - !!binary |
-      AAAAALb45D4=
+    lower_bound: 0.15925
   name: float_filter
 - kwargs:
     default: 0.0
     float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: !!python/object/apply:numpy.core.multiarray.scalar
-    - *id001
-    - !!binary |
-      AAAAALb45D4=
+    lower_bound: 0.38781
   name: float_filter
 - kwargs:
     default: 0.0
     float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: !!python/object/apply:numpy.core.multiarray.scalar
-    - *id001
-    - !!binary |
-      AAAAALb45D4=
+    lower_bound: 0.65069
   name: float_filter
 - kwargs:
     default: 0.0
     float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: !!python/object/apply:numpy.core.multiarray.scalar
-    - *id001
-    - !!binary |
-      AAAAALb45D4=
+    lower_bound: 0.85556
   name: float_filter
 - kwargs:
     default: 0.0
     float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: !!python/object/apply:numpy.core.multiarray.scalar
-    - *id001
-    - !!binary |
-      AAAAALb45D4=
+    lower_bound: 0.96275
   name: float_filter
 - kwargs:
     default: 0.0
     float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: !!python/object/apply:numpy.core.multiarray.scalar
-    - *id001
-    - !!binary |
-      AAAAALb45D4=
-  name: float_filter
-- kwargs:
-    default: 0.0
-    float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: !!python/object/apply:numpy.core.multiarray.scalar
-    - *id001
-    - !!binary |
-      AAAAALb45D4=
+    lower_bound: 0.9966
   name: float_filter
 text_field: text
