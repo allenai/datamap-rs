@@ -50,7 +50,7 @@ for y in $(ls -d $src/*); do
     --fields.id_field_name "" \
     --max_size 4_000_000_000 \
     --sample_ring_prop \
-    --dtype 'uint32'
+    --dtype 'uint32' &
 done
 
 
