@@ -18,7 +18,7 @@ uv run huggingface-cli download allenai/dolma2-tokenizer --local-dir /mnt/raid0/
 src=$(ls -d $src/*)
 
 # the destination replace "/pretraining-data/sources" with "preprocessed"
-dst=$(echo $dir | sed 's|/pretraining-data/sources/|/preprocessed/|' | sed 's|/data|/allenai/dolma2-tokenizer|')
+dst=$(echo $src | sed 's|/pretraining-data/sources/|/preprocessed/|' | sed 's|/data|/allenai/dolma2-tokenizer|')
 
 # run it so that we run in parallel K = max_cores // max_cores_each
 M=32
@@ -36,7 +36,7 @@ for y in $(ls -d $src/*); do
 
     # Run command in background
     uv run dolma tokens \
-    --documents "${y}/*.zst" \
+    --documents "${y}/*.zstd" \
     --destination "${dst}/${name}" \
     --tokenizer.name_or_path /mnt/raid0/tokenizer/tokenizer.json \
     --tokenizer.eos_token_id 100257 \
@@ -49,6 +49,8 @@ for y in $(ls -d $src/*); do
     --sample_ring_prop \
     --dtype 'uint32'
 done
+
+# uv run dolma tokens --documents '/mnt/raid0/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated_partitioned/data/TypeScript/step_00/*.zstd' --destination /step_00 --tokenizer.name_or_path /mnt/raid0/tokenizer/tokenizer.json --tokenizer.eos_token_id 100257 --tokenizer.pad_token_id 100277 --no-tokenizer.segment_before_tokenization --tokenizer.encode_special_tokens --ring_size 32 --processes 32 --max_size 4_000_000_000 --sample_ring_prop --dtype uint32
 
 # Wait for all jobs to finish
 wait
