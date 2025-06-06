@@ -21,12 +21,12 @@ languages=(
 
 DRIVE="${DRIVE:-/mnt/raid0}"
 
-remote_dir="s3://ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2/data"
+remote_dir="s3://ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2/pruned"
 remote_dest_dir="s3://ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated"
 fasttext_remote_dir="s3://ai2-llm/fasttext_models/code-vs-code"
 
-source_dir="${DRIVE}/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2/data"
-output_dir="${DRIVE}/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated/data"
+source_dir="${DRIVE}/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2/pruned"
+output_dir="${DRIVE}/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated/pruned"
 error_dir="${DRIVE}/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated/error"
 fasttext_dir="${DRIVE}/ai2-llm/fasttext_resources/code-vs-code/model"
 
@@ -93,7 +93,7 @@ for i in "${!languages[@]}"; do
             --output-dir $output_dir/$language \
             --err-dir $error_dir/$language
 
-        s5cmd cp -sp "${output_dir}/${language}/*" "${remote_dest_dir}/data/${language}/"
+        s5cmd cp -sp "${output_dir}/${language}/*" "${remote_dest_dir}/pruned/${language}/"
         s5cmd cp -sp "${error_dir}/${language}/*" "${remote_dest_dir}/error/${language}/"
     else
         echo "Skipping ${languages[$i]} (index $i) - assigned to rank $((i % world_size))"
