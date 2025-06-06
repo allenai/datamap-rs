@@ -31,7 +31,7 @@ K=$((N / M))
 for y in $(ls -d $src/*); do
     # Wait if we've reached max concurrent jobs
     while (( $(jobs -r | wc -l) >= K )); do
-        sleep 1.0
+        sleep 60
     done
 
     name=$(basename $y)
