@@ -2,12 +2,12 @@ name: code_vs_code_Shell
 pipeline:
 - kwargs:
     default: 0.0
-    float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: 0.41682
+    float_field: metadata.code_vs_code._%%_label_%%_stack_edu
+    lower_bound: 0.05964
   name: float_filter
 - kwargs:
     default: 0.0
-    float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: 0.89653
+    float_field: metadata.code_vs_code._%%_label_%%_stack_edu
+    lower_bound: 0.3723
   name: float_filter
 text_field: text

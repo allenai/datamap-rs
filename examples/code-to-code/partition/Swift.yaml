@@ -2,17 +2,17 @@ name: code_vs_code_Swift
 pipeline:
 - kwargs:
     default: 0.0
-    float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: 0.32839
+    float_field: metadata.code_vs_code._%%_label_%%_stack_edu
+    lower_bound: 0.03394
   name: float_filter
 - kwargs:
     default: 0.0
-    float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: 0.63596
+    float_field: metadata.code_vs_code._%%_label_%%_stack_edu
+    lower_bound: 0.25003
   name: float_filter
 - kwargs:
     default: 0.0
-    float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: 0.95536
+    float_field: metadata.code_vs_code._%%_label_%%_stack_edu
+    lower_bound: 0.55322
   name: float_filter
 text_field: text

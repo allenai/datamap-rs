@@ -2,17 +2,17 @@ name: code_vs_code_Python
 pipeline:
 - kwargs:
     default: 0.0
-    float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: 0.3155
+    float_field: metadata.code_vs_code._%%_label_%%_stack_edu
+    lower_bound: 0.02173
   name: float_filter
 - kwargs:
     default: 0.0
-    float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: 0.67375
+    float_field: metadata.code_vs_code._%%_label_%%_stack_edu
+    lower_bound: 0.15568
   name: float_filter
 - kwargs:
     default: 0.0
-    float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: 0.9699
+    float_field: metadata.code_vs_code._%%_label_%%_stack_edu
+    lower_bound: 0.49522
   name: float_filter
 text_field: text

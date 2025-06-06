@@ -2,47 +2,47 @@ name: code_vs_code_C
 pipeline:
 - kwargs:
     default: 0.0
-    float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: 0.05302
+    float_field: metadata.code_vs_code._%%_label_%%_stack_edu
+    lower_bound: 0.00203
   name: float_filter
 - kwargs:
     default: 0.0
-    float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: 0.10194
+    float_field: metadata.code_vs_code._%%_label_%%_stack_edu
+    lower_bound: 0.01435
   name: float_filter
 - kwargs:
     default: 0.0
-    float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: 0.22426
+    float_field: metadata.code_vs_code._%%_label_%%_stack_edu
+    lower_bound: 0.02883
   name: float_filter
 - kwargs:
     default: 0.0
-    float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: 0.45487
+    float_field: metadata.code_vs_code._%%_label_%%_stack_edu
+    lower_bound: 0.05421
   name: float_filter
 - kwargs:
     default: 0.0
-    float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: 0.6919
+    float_field: metadata.code_vs_code._%%_label_%%_stack_edu
+    lower_bound: 0.10699
   name: float_filter
 - kwargs:
     default: 0.0
-    float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: 0.85508
+    float_field: metadata.code_vs_code._%%_label_%%_stack_edu
+    lower_bound: 0.14239
   name: float_filter
 - kwargs:
     default: 0.0
-    float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: 0.94558
+    float_field: metadata.code_vs_code._%%_label_%%_stack_edu
+    lower_bound: 0.2684
   name: float_filter
 - kwargs:
     default: 0.0
-    float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: 0.98614
+    float_field: metadata.code_vs_code._%%_label_%%_stack_edu
+    lower_bound: 0.45329
   name: float_filter
 - kwargs:
     default: 0.0
-    float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: 0.99847
+    float_field: metadata.code_vs_code._%%_label_%%_stack_edu
+    lower_bound: 0.67731
   name: float_filter
 text_field: text

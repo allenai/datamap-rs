@@ -2,32 +2,32 @@ name: code_vs_code_PHP
 pipeline:
 - kwargs:
     default: 0.0
-    float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: 0.19538
+    float_field: metadata.code_vs_code._%%_label_%%_stack_edu
+    lower_bound: 0.00654
   name: float_filter
 - kwargs:
     default: 0.0
-    float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: 0.36762
+    float_field: metadata.code_vs_code._%%_label_%%_stack_edu
+    lower_bound: 0.02883
   name: float_filter
 - kwargs:
     default: 0.0
-    float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: 0.57194
+    float_field: metadata.code_vs_code._%%_label_%%_stack_edu
+    lower_bound: 0.09758
   name: float_filter
 - kwargs:
     default: 0.0
-    float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: 0.80799
+    float_field: metadata.code_vs_code._%%_label_%%_stack_edu
+    lower_bound: 0.22523
   name: float_filter
 - kwargs:
     default: 0.0
-    float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: 0.95401
+    float_field: metadata.code_vs_code._%%_label_%%_stack_edu
+    lower_bound: 0.41646
   name: float_filter
 - kwargs:
     default: 0.0
-    float_field: metadata.code_vs_code._%%_label_%%_spring2code
-    lower_bound: 0.99668
+    float_field: metadata.code_vs_code._%%_label_%%_stack_edu
+    lower_bound: 0.64816
   name: float_filter
 text_field: text
