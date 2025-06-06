@@ -57,4 +57,5 @@ done
 # Wait for all jobs to finish
 wait
 
-s5cmd cp -sp "$dst/*" "$(sed 's|/mnt/raid0/|s3://|g')/"
+remote=$(cat $dst | sed 's|/mnt/raid0/|s3://|g')
+s5cmd cp -sp "$dst/*" "$remote/"
