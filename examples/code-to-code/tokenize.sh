@@ -6,6 +6,8 @@ sudo dnf install python3 python3-pip
 
 pip3 install uv
 
+uv python install 3.12
+
 uv venv
 
 uv pip install dolma huggingface-hub
@@ -45,12 +47,12 @@ for y in $(ls -d $src/*); do
     --tokenizer.encode_special_tokens \
     --ring_size $M \
     --processes $M \
+    --fields.id_field_name "" \
     --max_size 4_000_000_000 \
     --sample_ring_prop \
     --dtype 'uint32'
 done
 
-# uv run dolma tokens --documents '/mnt/raid0/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated_partitioned/data/TypeScript/step_00/*.zstd' --destination /step_00 --tokenizer.name_or_path /mnt/raid0/tokenizer/tokenizer.json --tokenizer.eos_token_id 100257 --tokenizer.pad_token_id 100277 --no-tokenizer.segment_before_tokenization --tokenizer.encode_special_tokens --ring_size 32 --processes 32 --max_size 4_000_000_000 --sample_ring_prop --dtype uint32
 
 # Wait for all jobs to finish
 wait
