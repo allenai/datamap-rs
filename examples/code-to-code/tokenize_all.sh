@@ -77,7 +77,7 @@ for i in "${!languages[@]}"; do
         K=$((N / M))
 
 
-        for partition in $(ls -d $local_src_dir/${language}); do
+        for partition in $(ls --color=never ${local_src_dir}/${language}); do
             # Wait if we've reached max concurrent jobs
             while (( $(jobs -r | wc -l) >= K )); do
                 sleep 60
