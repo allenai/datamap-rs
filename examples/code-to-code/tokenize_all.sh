@@ -85,7 +85,7 @@ for i in "${!languages[@]}"; do
 
             # Run command in background
             uv run dolma tokens \
-            --documents "${local_src_dir}/${language}/${partition}/*.zstd" \
+            --documents "${local_src_dir}/${language}/${partition}/*.jsonl.zst" \
             --destination "${local_dst_dir}/${language}/${partition}" \
             --tokenizer.name_or_path ${local_tokenizer_dir}/tokenizer.json \
             --tokenizer.eos_token_id 100257 \
