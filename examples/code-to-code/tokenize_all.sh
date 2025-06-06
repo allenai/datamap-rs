@@ -67,8 +67,9 @@ for i in "${!languages[@]}"; do
 
         echo "Running $language (index $i)"
 
-        s5cmd cp -sp "${remote_src_dir}/${language}/*" "${local_src_dir}/${language}/"
-
+        if [ ! -d "${local_src_dir}/${language}" ]; then
+            s5cmd cp -sp "${remote_src_dir}/${language}/*" "${local_src_dir}/${language}/"
+        fi
 
         # run it so that we run in parallel K = max_cores // max_cores_each
         M=32
