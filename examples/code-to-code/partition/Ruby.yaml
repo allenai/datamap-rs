@@ -1,0 +1,33 @@
+name: code_vs_code_Ruby
+pipeline:
+- kwargs:
+    default: 0.0
+    float_field: metadata.code_vs_code._%%_label_%%_stack_edu
+    lower_bound: 0.004
+  name: float_filter
+- kwargs:
+    default: 0.0
+    float_field: metadata.code_vs_code._%%_label_%%_stack_edu
+    lower_bound: 0.06754
+  name: float_filter
+- kwargs:
+    default: 0.0
+    float_field: metadata.code_vs_code._%%_label_%%_stack_edu
+    lower_bound: 0.45088
+  name: float_filter
+- kwargs:
+    default: 0.0
+    float_field: metadata.code_vs_code._%%_label_%%_stack_edu
+    lower_bound: 0.79516
+  name: float_filter
+- kwargs:
+    default: 0.0
+    float_field: metadata.code_vs_code._%%_label_%%_stack_edu
+    lower_bound: 0.93106
+  name: float_filter
+- kwargs:
+    default: 0.0
+    float_field: metadata.code_vs_code._%%_label_%%_stack_edu
+    lower_bound: 0.98471
+  name: float_filter
+text_field: text
