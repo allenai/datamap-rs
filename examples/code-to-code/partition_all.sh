@@ -44,8 +44,6 @@ get_world_size () {
     echo $world_size
 }
 
-mkdir -p $fasttext_dir
-
 # Get instance rank and world size
 instance_rank=$(get_instance_rank)
 world_size=$(get_world_size)
