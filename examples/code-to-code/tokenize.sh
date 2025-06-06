@@ -12,7 +12,7 @@ uv venv
 
 uv pip install dolma huggingface-hub
 
-src=/mnt/raid0/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated_partitioned/data
+src=/mnt/raid0/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated_partitioned/pruned
 
 uv run huggingface-cli download allenai/dolma2-tokenizer --local-dir /mnt/raid0/tokenizer
 
@@ -20,7 +20,7 @@ uv run huggingface-cli download allenai/dolma2-tokenizer --local-dir /mnt/raid0/
 src=$(ls -d $src/*)
 
 # the destination replace "/pretraining-data/sources" with "preprocessed"
-dst=$(echo $src | sed 's|/pretraining-data/sources/|/preprocessed/|' | sed 's|/data|/allenai/dolma2-tokenizer|')
+dst=$(echo $src | sed 's|/pretraining-data/sources/|/preprocessed/|' | sed 's|/pruned|/allenai/dolma2-tokenizer|')
 
 # run it so that we run in parallel K = max_cores // max_cores_each
 M=32
