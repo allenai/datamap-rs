@@ -2,21 +2,21 @@
 
 
 languages=(
-    "C"
-    "C++"
-    "C-Sharp"
-    "Go"
-    "Java"
-    "JavaScript"
-    "Markdown"
-    "PHP"
-    "Python"
+    # "C"
+    # "C++"
+    # "C-Sharp"
+    # "Go"
+    # "Java"
+    # "JavaScript"
+    # "Markdown"
+    # "PHP"
+    # "Python"
     # "Ruby"
-    "Rust"
-    "SQL"
-    "Shell"
+    # "Rust"
+    # "SQL"
+    # "Shell"
     "Swift"
-    "TypeScript"
+    # "TypeScript"
 )
 
 
