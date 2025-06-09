@@ -1,0 +1,12 @@
+name: tag-documents
+text_field: text
+pipeline:
+  - name: fasttext_annotator
+    kwargs:
+      fast_text_file: /mnt/raid0/whitespace_lr05_ng3_n3M6_balaced4.bin
+      output_field: metadata.fos
+  - name: dd_max_getter
+    kwargs:
+      main_attribute: metadata.fos
+      output_attribute: metadata.fos_max
+      prefix: __label__
