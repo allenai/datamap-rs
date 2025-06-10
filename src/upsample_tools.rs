@@ -33,8 +33,8 @@ And then have a joint command to do both
 struct UpsampleConfig {
 	name: String,
 	value: String,
-	default_value: Option<f32>, // defaults to 0	
-	percentile_groups: Vec<f32>, // e.g. [0.25, 0.50, 0.75] -> splits into [[0.0, 0.25), [0.25, 0.5), [0.5, 0.75), [0.75, 1]]
+	default_value: Option<f64>, // defaults to 0	
+	percentile_groups: Vec<f64>, // e.g. [0.25, 0.50, 0.75] -> splits into [[0.0, 0.25), [0.25, 0.5), [0.5, 0.75), [0.75, 1]]
 	#[serde(default="default_max_file_size")]
 	max_file_size: usize,
 	#[serde(default="default_reservoir_size")]
@@ -64,12 +64,12 @@ fn default_bucket_name() -> String {
 =                    RESERVOIR SAMPLING                =
 ======================================================*/
 
-pub fn reservoir_sample(input_dir: &PathBuf, output_path: &Option<PathBuf>, config_path: &PathBuf) -> Result<Vec<f32>, Error> {
+pub fn reservoir_sample(input_dir: &PathBuf, output_path: &Option<PathBuf>, config_path: &PathBuf) -> Result<Vec<f64>, Error> {
 	println!("Starting build of reservoir...");
 	let start_time = Instant::now();
 	let config_contents = read_pathbuf_to_mem(config_path).unwrap();
 	let config: UpsampleConfig = serde_yaml::from_reader(config_contents).unwrap();		
-	let default: f32 = if let Some(default) = config.default_value {
+	let default: f64 = if let Some(default) = config.default_value {
 		default
 	} else {
 		0.0
@@ -88,9 +88,9 @@ pub fn reservoir_sample(input_dir: &PathBuf, output_path: &Option<PathBuf>, conf
     	chunk_reservoir_sizes[i] += 1;
     }
 
-    let mut reservoir: Vec<f32> = (0..thread_count).into_par_iter().flat_map(|i| {
+    let mut reservoir: Vec<f64> = (0..thread_count).into_par_iter().flat_map(|i| {
     	reservoir_sample_chunk(&chunks[i], chunk_reservoir_sizes[i], &config.value, &default, &pbar).unwrap()
-    }).collect::<Vec<f32>>();
+    }).collect::<Vec<f64>>();
     reservoir.par_sort_by(|a, b| a.partial_cmp(b).unwrap());
 
     if let Some(output_path) = output_path {
@@ -105,8 +105,8 @@ pub fn reservoir_sample(input_dir: &PathBuf, output_path: &Option<PathBuf>, conf
 }
 
 
-fn reservoir_sample_chunk(input_paths: &Vec<PathBuf>, reservoir_size: usize, reservoir_key: &String, default_val: &f32, pbar: &indicatif::ProgressBar) -> Result<Vec<f32>, Error> {
-	let mut reservoir: Vec<f32> = Vec::new();
+fn reservoir_sample_chunk(input_paths: &Vec<PathBuf>, reservoir_size: usize, reservoir_key: &String, default_val: &f64, pbar: &indicatif::ProgressBar) -> Result<Vec<f64>, Error> {
+	let mut reservoir: Vec<f64> = Vec::new();
 	let mut item_num = 0;
 	let mut rng = rand::rng();
 	input_paths.iter().for_each(|p| {
@@ -125,7 +125,7 @@ fn reservoir_sample_chunk(input_paths: &Vec<PathBuf>, reservoir_size: usize, res
 			let value : serde_json::Value = serde_json::from_str(&line).unwrap();
 			let gathered_value = json_get(&value, reservoir_key);
 			let res_value = if let Some(res_value) = gathered_value {
-				res_value.as_f64().unwrap() as f32
+				res_value.as_f64().unwrap() as f64
 			} else {
 				*default_val
 			};
@@ -149,14 +149,14 @@ fn reservoir_sample_chunk(input_paths: &Vec<PathBuf>, reservoir_size: usize, res
 =======================================================*/
 
 
-pub fn percentile_partition(input_dir: &PathBuf, output_dir: &PathBuf, reservoir_path: &Option<PathBuf>, reservoir: &Option<Vec<f32>>, config_path: &PathBuf) -> Result<(), Error> {
+pub fn percentile_partition(input_dir: &PathBuf, output_dir: &PathBuf, reservoir_path: &Option<PathBuf>, reservoir: &Option<Vec<f64>>, config_path: &PathBuf) -> Result<(), Error> {
 	println!("Starting partition...");
 	let start_time = Instant::now();
 	let config_contents = read_pathbuf_to_mem(config_path).unwrap();
 	let config: UpsampleConfig = serde_yaml::from_reader(config_contents).unwrap();		
 	let input_paths = expand_dirs(vec![input_dir.clone()], None).unwrap();
 
-	let reservoir: Vec<f32> = if reservoir.is_some() {
+	let reservoir: Vec<f64> = if reservoir.is_some() {
 		reservoir.clone().unwrap()
 	} else {
 		let reservoir_path = reservoir_path.clone().unwrap();
@@ -165,8 +165,8 @@ pub fn percentile_partition(input_dir: &PathBuf, output_dir: &PathBuf, reservoir
 		reservoir_json
 	};
 	println!("reservoir_len {:?}", reservoir.len());
-	let percentile_values: Vec<f32> = config.percentile_groups.iter()
-		.map(|p| reservoir[(((reservoir.len() as f32) * p).round() as usize).clamp(0, reservoir.len() - 1)])
+	let percentile_values: Vec<f64> = config.percentile_groups.iter()
+		.map(|p| reservoir[(((reservoir.len() as f64) * p).round() as usize).clamp(0, reservoir.len() - 1)])
 		.collect();
 
 	//println!("PCT VAL {:?}", percentile_values);
@@ -200,7 +200,7 @@ pub fn percentile_partition(input_dir: &PathBuf, output_dir: &PathBuf, reservoir
 	Ok(())
 }
 
-fn percentile_partition_path(input_path: &PathBuf, writer: &GenWriter, percentile_values: &Vec<f32>, config: &UpsampleConfig, counter: &DashMap<usize, usize>) -> Result<(), Error> {
+fn percentile_partition_path(input_path: &PathBuf, writer: &GenWriter, percentile_values: &Vec<f64>, config: &UpsampleConfig, counter: &DashMap<usize, usize>) -> Result<(), Error> {
 	let mut subcounter: HashMap<usize, usize> = HashMap::new();
 	let mut partitioned_contents: HashMap<usize, Vec<u8>> = HashMap::new();
 	let contents = read_pathbuf_to_mem(input_path).unwrap();
@@ -209,11 +209,11 @@ fn percentile_partition_path(input_path: &PathBuf, writer: &GenWriter, percentil
 		let value : serde_json::Value = serde_json::from_str(&line).unwrap();
 		let gathered_value = json_get(&value, &config.value);
 		let res_value = if let Some(res_value) = gathered_value {
-			res_value.as_f64().unwrap() as f32
+			res_value.as_f64().unwrap() as f64
 		} else {
 			config.default_value.unwrap_or(0.0)
 		};
-		let bucket = f32_to_bucket(percentile_values, res_value);
+		let bucket = f64_to_bucket(percentile_values, res_value);
 		*subcounter.entry(bucket).or_insert(0) += 1;	
 		let mut value_bytes = line.as_bytes().to_vec();
 		value_bytes.push(b'\n');
@@ -229,7 +229,7 @@ fn percentile_partition_path(input_path: &PathBuf, writer: &GenWriter, percentil
 	Ok(())
 }
 
-fn f32_to_bucket(bucket_bounds: &Vec<f32>, value: f32) -> usize {
+fn f64_to_bucket(bucket_bounds: &Vec<f64>, value: f64) -> usize {
 	// linear scan of percentile bounds to the right bucket index
 	if value < bucket_bounds[0] {
 		return 0;
