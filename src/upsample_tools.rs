@@ -169,7 +169,7 @@ pub fn percentile_partition(input_dir: &PathBuf, output_dir: &PathBuf, reservoir
 		.map(|p| reservoir[(((reservoir.len() as f32) * p).round() as usize).clamp(0, reservoir.len() - 1)])
 		.collect();
 
-	println!("PCT VAL {:?}", percentile_values);
+	//println!("PCT VAL {:?}", percentile_values);
 	let counter: DashMap<usize, usize> = DashMap::new();
 	let writer = GenWriter::new(output_dir, config.max_file_size, &config.bucket_name);
 	let pbar = build_pbar(input_paths.len(), "Paths");
