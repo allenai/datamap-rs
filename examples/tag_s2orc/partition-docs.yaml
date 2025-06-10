@@ -1,0 +1,27 @@
+name: partition
+partition_key: metadata.fos_max
+choices:
+  - __label__business
+  - __label__computer-science
+  - __label__medicine
+  - __label__geology
+  - __label__agricultural-and-food-sciences
+  - __label__political-science
+  - __label__biology
+  - __label__chemistry
+  - __label__economics
+  - __label__materials-science
+  - __label__engineering
+  - __label__mathematics
+  - __label__education
+  - __label__psychology
+  - __label__environmental-science
+  - __label__physics
+  - __label__sociology
+  - __label__art
+  - __label__linguistics
+  - __label__philosophy
+  - __label__history
+  - __label__law
+  - __label__geography
+max_size: 100000000
