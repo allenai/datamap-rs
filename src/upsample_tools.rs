@@ -70,7 +70,7 @@ pub fn reservoir_sample(input_dir: &PathBuf, output_path: &Option<PathBuf>, conf
 
 	let input_paths = expand_dirs(vec![input_dir.clone()], None).unwrap();
 	let pbar = build_pbar(input_paths.len(), "Paths");
-	let thread_count = rayon::current_num_threads();
+	let thread_count = rayon::current_num_threads().clamp(0, input_paths.len());
     let chunk_size = (input_paths.len() + thread_count - 1) / thread_count; // Ceiling division
     let chunks: Vec<Vec<PathBuf>> = input_paths.chunks(chunk_size)
        .map(|chunk| chunk.to_vec())
@@ -85,7 +85,6 @@ pub fn reservoir_sample(input_dir: &PathBuf, output_path: &Option<PathBuf>, conf
     	reservoir_sample_chunk(&chunks[i], chunk_reservoir_sizes[i], &config.value, &default, &pbar).unwrap()
     }).collect::<Vec<f32>>();
     reservoir.par_sort_by(|a, b| a.partial_cmp(b).unwrap());
-
 
     if let Some(output_path) = output_path {
     	let json_reservoir = serde_json::to_vec(&reservoir).unwrap();
