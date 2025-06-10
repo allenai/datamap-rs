@@ -39,6 +39,8 @@ struct UpsampleConfig {
 	max_file_size: usize,
 	#[serde(default="default_reservoir_size")]
 	reservoir_size: usize,
+	#[serde(default="default_bucket_name")]
+	bucket_name: String
 
 
 }
@@ -52,6 +54,11 @@ fn default_max_file_size() -> usize {
 fn default_reservoir_size() -> usize {
 	1_000_000
 }
+
+fn default_bucket_name() -> String {
+	String::from("bucket")
+}
+
 
 /*======================================================
 =                    RESERVOIR SAMPLING                =
@@ -157,12 +164,14 @@ pub fn percentile_partition(input_dir: &PathBuf, output_dir: &PathBuf, reservoir
 		let reservoir_json = serde_json::from_slice(&res_contents).unwrap();
 		reservoir_json
 	};
-
+	println!("reservoir_len {:?}", reservoir.len());
 	let percentile_values: Vec<f32> = config.percentile_groups.iter()
 		.map(|p| reservoir[(((reservoir.len() as f32) * p).round() as usize).clamp(0, reservoir.len() - 1)])
 		.collect();
+
+	println!("PCT VAL {:?}", percentile_values);
 	let counter: DashMap<usize, usize> = DashMap::new();
-	let writer = GenWriter::new(output_dir, config.max_file_size);
+	let writer = GenWriter::new(output_dir, config.max_file_size, &config.bucket_name);
 	let pbar = build_pbar(input_paths.len(), "Paths");
 
 	input_paths.par_iter().for_each(|p| {
@@ -173,13 +182,17 @@ pub fn percentile_partition(input_dir: &PathBuf, output_dir: &PathBuf, reservoir
 	// 
 	println!("Finished partition in {:?} seconds", start_time.elapsed().as_secs());
 	println!("Put this many docs in each group");
-	counter.into_iter().for_each(|(k, v)| {
+    let mut keys: Vec<usize> = counter.iter().map(|entry| entry.key().clone()).collect();
+    keys.sort();	
+	keys.into_iter().for_each(|k| {
+		let binding = counter.get(&k).unwrap();
+	    let v = binding.value();
 		if k == 0 {
-			println!("[0.0, {:?}) | {:?} docs", config.percentile_groups[0], v);
+			println!("[0.0, {:?}) | {:?} score upper bound |{:?} docs", config.percentile_groups[0], percentile_values[0], v);
 		} else if k == config.percentile_groups.len() + 1 {
-			println!("[{:?}, 1.0] | {:?} docs", config.percentile_groups[config.percentile_groups.len() -1], v);
+			println!("[{:?}, 1.0] | {:?} score upper bound |{:?} docs", config.percentile_groups[config.percentile_groups.len() -1], 1.0, v);
 		} else {
-			println!("[{:?}, {:?}) | {:?} docs", config.percentile_groups[k-1], config.percentile_groups[k], v);
+			println!("[{:?}, {:?}) | {:?} score upper bound |{:?} docs", config.percentile_groups[k-1], config.percentile_groups[k], percentile_values[k], v);
 		}
 	});
 
@@ -251,7 +264,8 @@ pub struct GenWriter<'a> {
 	pub writer: DashMap<usize, Arc<Mutex<WriterInfo<'a>>>>,
 	#[allow(dead_code)]
 	storage_loc: PathBuf,	
-	max_len: usize
+	max_len: usize,
+	bucket_name: String,
 }
 
 pub struct WriterInfo<'a> {
@@ -262,21 +276,21 @@ pub struct WriterInfo<'a> {
 	
 
 impl<'a> GenWriter<'a> {
-	pub fn new(storage_loc: &PathBuf, max_len: usize) -> Self {
+	pub fn new(storage_loc: &PathBuf, max_len: usize, bucket_name: &String) -> Self {
 		let writer : DashMap<usize, Arc<Mutex<WriterInfo<'a>>>> = DashMap::new();
 
-		GenWriter { writer, storage_loc: storage_loc.clone(), max_len}
+		GenWriter { writer, storage_loc: storage_loc.clone(), max_len, bucket_name: bucket_name.to_string()}
 	}
 
 
-	pub fn get_filename(storage_loc: &PathBuf, bucket: &usize, file_idx: usize) -> PathBuf {
+	pub fn get_filename(&self, storage_loc: &PathBuf, bucket_num: &usize, file_idx: usize) -> PathBuf {
 		storage_loc.clone()
-				.join(format!("bucket_{:04}", bucket))
+				.join(format!("{:}_{:04}", self.bucket_name, bucket_num))
 				.join(format!("shard_{:08}.jsonl.zst", file_idx))
 	}
 
     fn create_new_encoder(&self, key: usize, file_idx: usize) -> Encoder<'a, File> {
-		let new_filename = GenWriter::get_filename(&self.storage_loc, &key, file_idx)	;
+		let new_filename = self.get_filename(&self.storage_loc, &key, file_idx)	;
 
         if let Some(parent_dir) = new_filename.parent() {
             if !parent_dir.exists() {
@@ -300,7 +314,7 @@ impl<'a> GenWriter<'a> {
         // Get or create the writer for this key
         let writer_arc = self.writer.entry(key).or_insert_with(|| {
 
-            let filename = GenWriter::get_filename(&self.storage_loc, &key, 0);
+            let filename = self.get_filename(&self.storage_loc, &key, 0);
             if let Some(parent_dir) = filename.parent() {
                 if !parent_dir.exists() {
                     create_dir_all(parent_dir).unwrap()
