@@ -87,7 +87,7 @@ pub fn reservoir_sample(input_dir: &PathBuf, output_path: &Option<PathBuf>, conf
     for i in 0..to_add {
     	chunk_reservoir_sizes[i] += 1;
     }
-
+    println!("THREADS {:?} | CHUNK COUNT {:?} | RES SIZE {:?}", thread_count, chunks.len(), chunk_reservoir_sizes.len());
     let mut reservoir: Vec<f64> = (0..thread_count).into_par_iter().flat_map(|i| {
     	reservoir_sample_chunk(&chunks[i], chunk_reservoir_sizes[i], &config.value, &default, &pbar).unwrap()
     }).collect::<Vec<f64>>();
