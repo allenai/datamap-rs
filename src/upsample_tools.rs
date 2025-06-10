@@ -79,10 +79,10 @@ pub fn reservoir_sample(input_dir: &PathBuf, output_path: &Option<PathBuf>, conf
 
 	let pbar = build_pbar(input_paths.len(), "Paths");
 	let thread_count = rayon::current_num_threads().clamp(0, input_paths.len());
-	let chunk_size = input_paths.len().div_ceil(thread_count).max(1);
-	let chunks: Vec<Vec<PathBuf>> = input_paths.chunks(chunk_size)
-	   .map(|chunk| chunk.to_vec())
-	   .collect();
+	let mut chunks: Vec<Vec<PathBuf>> = (0..thread_count).map(|_v| vec!()).collect();
+	for (i, p) in input_paths.iter().enumerate() {
+		chunks[i % thread_count].push(p.clone());
+	}
     let mut chunk_reservoir_sizes: Vec<usize> = (0..thread_count).map(|_| config.reservoir_size / thread_count).collect();
     let to_add = config.reservoir_size - chunk_reservoir_sizes.iter().sum::<usize>();
     for i in 0..to_add {
