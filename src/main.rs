@@ -31,6 +31,8 @@ pub mod utils;
 use datamap_rs::map_fxn::PipelineProcessor;
 use datamap_rs::partition::partition;
 pub use map_fxn::DataProcessor;
+pub mod upsample_tools;
+use datamap_rs::upsample_tools::{reservoir_sample, percentile_partition, full_percentile_partition};
 /*
 Map Config layout:
 
@@ -104,7 +106,43 @@ enum Commands {
 
         #[arg(required = true, long)]
         config: PathBuf,
-    }
+    },
+
+    ReservoirSample {
+        #[arg(required = true, long)]
+        input_dir: PathBuf,
+
+        #[arg(required = true, long)]
+        output_dir: PathBuf,
+
+        #[arg(required = true, long)]
+        config: PathBuf,        
+    },
+
+    PercentilePartition {
+        #[arg(required = true, long)]
+        input_dir: PathBuf,
+
+        #[arg(required = true, long)]
+        output_dir: PathBuf,
+
+        #[arg(required = true, long)]
+        reservoir_path: PathBuf,
+
+        #[arg(required = true, long)]
+        config: PathBuf,        
+    },
+
+    FullPercentilePartition {
+        #[arg(required = true, long)]
+        input_dir: PathBuf,
+
+        #[arg(required = true, long)]
+        output_dir: PathBuf,
+
+        #[arg(required = true, long)]
+        config: PathBuf,        
+    },        
 }
 
 /*============================================================
@@ -538,6 +576,17 @@ fn main() {
             output_dir, 
             config
         } => partition(input_dir, output_dir, config),
+        Commands::ReservoirSample { input_dir, output_dir, config } =>
+            { reservoir_sample(input_dir, &Some(output_dir.clone()), config).unwrap();
+              Ok(()) 
+            }
+            
+        Commands::PercentilePartition {
+            input_dir, output_dir, reservoir_path, config
+        } => percentile_partition(input_dir, output_dir, &Some(reservoir_path.clone()), &None, config),
+        Commands::FullPercentilePartition {
+            input_dir, output_dir, config
+        } => full_percentile_partition(input_dir, output_dir, config),
         _ => Ok(()),
     };
     result.unwrap();
