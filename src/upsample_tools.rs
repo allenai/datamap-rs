@@ -168,7 +168,7 @@ pub fn percentile_partition(input_dir: &PathBuf, output_dir: &PathBuf, reservoir
 	let percentile_values: Vec<f64> = config.percentile_groups.iter()
 		.map(|p| reservoir[(((reservoir.len() as f64) * p).round() as usize).clamp(0, reservoir.len() - 1)])
 		.collect();
-
+	println!("Percentile values are {:?}", percentile_values);
 	//println!("PCT VAL {:?}", percentile_values);
 	let counter: DashMap<usize, usize> = DashMap::new();
 	let writer = GenWriter::new(output_dir, config.max_file_size, &config.bucket_name);
