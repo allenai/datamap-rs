@@ -179,7 +179,7 @@ pub fn percentile_partition(input_dir: &PathBuf, output_dir: &PathBuf, reservoir
 		percentile_partition_path(p, &writer, &percentile_values, &config, &counter).unwrap();
 		pbar.inc(1);
 	});
-
+	writer.finish().unwrap();
 	// 
 	println!("Finished partition in {:?} seconds", start_time.elapsed().as_secs());
 	println!("Put this many docs in each group");
