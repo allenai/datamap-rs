@@ -28,7 +28,7 @@ pub mod map_fxn;
 pub mod utils;
 use datamap_rs::map_fxn::PipelineProcessor;
 pub use map_fxn::DataProcessor;
-pub use datamap_rs::reservoir::reservoir;
+pub use datamap_rs::reservoir::{reservoir, token_weighted_reservoir};
 
 /*
 Map Config layout:
@@ -102,7 +102,26 @@ enum Commands {
 
         #[arg(required = true, long)]
         output_file: PathBuf,                
+    },
+
+    TokenWeightedReservoir {
+        #[arg(required=true, long)]
+        input_dir: PathBuf,
+
+        #[arg(required = true, long)]
+        score_key: String,
+
+        #[arg(long, default_value_t=String::from("text"))] 
+        text_key: String,
+
+        #[arg(required = true, long)]
+        reservoir_size: usize,             
+
+        #[arg(required=true, long)]
+        output_file: PathBuf
     }
+
+
 }
 
 /*============================================================
@@ -534,6 +553,11 @@ fn main() {
             output_file
         } => reservoir(
             input_dir, key, *reservoir_size, output_file
+            ),
+        Commands::TokenWeightedReservoir {
+            input_dir, score_key, text_key, reservoir_size, output_file
+        } => token_weighted_reservoir(
+            input_dir, score_key, text_key, *reservoir_size, output_file
             ),
         _ => Ok(()),
     };
