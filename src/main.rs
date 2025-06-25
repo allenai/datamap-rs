@@ -131,6 +131,9 @@ enum Commands {
 
         #[arg(required = true, long)]
         config: PathBuf,        
+
+        #[arg(long, default_value_t=false)]
+        weighted_reservoir: bool
     },
 
     FullPercentilePartition {
@@ -582,8 +585,8 @@ fn main() {
             }
             
         Commands::PercentilePartition {
-            input_dir, output_dir, reservoir_path, config
-        } => percentile_partition(input_dir, output_dir, &Some(reservoir_path.clone()), &None, config),
+            input_dir, output_dir, reservoir_path, config, weighted_reservoir
+        } => percentile_partition(input_dir, output_dir, &Some(reservoir_path.clone()), &None, config, weighted_reservoir),
         Commands::FullPercentilePartition {
             input_dir, output_dir, config
         } => full_percentile_partition(input_dir, output_dir, config),

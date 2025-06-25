@@ -150,25 +150,50 @@ fn reservoir_sample_chunk(input_paths: &Vec<PathBuf>, reservoir_size: usize, res
 =======================================================*/
 
 
-pub fn percentile_partition(input_dir: &PathBuf, output_dir: &PathBuf, reservoir_path: &Option<PathBuf>, reservoir: &Option<Vec<f64>>, config_path: &PathBuf) -> Result<(), Error> {
+pub fn percentile_partition(input_dir: &PathBuf, output_dir: &PathBuf, reservoir_path: &Option<PathBuf>, reservoir: &Option<Vec<f64>>, config_path: &PathBuf, weighted_percentiles: &bool) -> Result<(), Error> {
 	println!("Starting partition...");
 	let start_time = Instant::now();
 	let config_contents = read_pathbuf_to_mem(config_path).unwrap();
 	let config: UpsampleConfig = serde_yaml::from_reader(config_contents).unwrap();		
 	let input_paths = expand_dirs(vec![input_dir.clone()], None).unwrap();
 
-	let reservoir: Vec<f64> = if reservoir.is_some() {
-		reservoir.clone().unwrap()
-	} else {
+
+
+
+
+	let percentile_values = if *weighted_percentiles {
+		// reservoir is [{percentile, value: f64}, ...]
 		let reservoir_path = reservoir_path.clone().unwrap();
 		let res_contents = read_pathbuf_to_mem(&reservoir_path).unwrap().into_inner().into_inner();
-		let reservoir_json = serde_json::from_slice(&res_contents).unwrap();
-		reservoir_json
-	};
-	println!("reservoir_len {:?}", reservoir.len());
-	let percentile_values: Vec<f64> = config.percentile_groups.iter()
+		let reservoir_json: Vec<serde_json::Value> = serde_json::from_slice(&res_contents).unwrap();
+		let mut pct_vals : Vec<f64> = Vec::new();
+		let mut pct_idx = 0;
+		for i in 0..(reservoir_json.len() - 1) {
+			let pct_lo = json_get(&reservoir_json[i], "percentile").unwrap().as_f64().unwrap();
+			let pct_hi = json_get(&reservoir_json[i+1], "percentile").unwrap().as_f64().unwrap();
+			if (pct_lo <= config.percentile_groups[pct_idx] * 100.0) && (pct_hi > config.percentile_groups[pct_idx] * 100.0) {
+				pct_vals.push(json_get(&reservoir_json[i], "value").unwrap().as_f64().unwrap());
+				pct_idx += 1;			
+			}
+			if pct_idx >= config.percentile_groups.len() {
+				break;
+			}
+		}
+		pct_vals
+	} else { // reservoir is just a vec<f64>
+		let reservoir: Vec<f64> = if reservoir.is_some() {
+			reservoir.clone().unwrap()
+		} else {
+			let reservoir_path = reservoir_path.clone().unwrap();
+			let res_contents = read_pathbuf_to_mem(&reservoir_path).unwrap().into_inner().into_inner();
+			let reservoir_json = serde_json::from_slice(&res_contents).unwrap();
+			reservoir_json
+		};
+		config.percentile_groups.iter()
 		.map(|p| reservoir[(((reservoir.len() as f64) * p).round() as usize).clamp(0, reservoir.len() - 1)])
-		.collect();
+		.collect()
+	};
+
 	println!("Percentile values are {:?}", percentile_values);
 	//println!("PCT VAL {:?}", percentile_values);
 	let counter: DashMap<usize, usize> = DashMap::new();
@@ -251,7 +276,7 @@ fn f64_to_bucket(bucket_bounds: &Vec<f64>, value: f64) -> usize {
 
 pub fn full_percentile_partition(input_dir: &PathBuf, output_dir: &PathBuf, config_path: &PathBuf) -> Result<(), Error> {
 	let reservoir = reservoir_sample(input_dir, &None, config_path).unwrap();
-	percentile_partition(input_dir, output_dir, &None, &Some(reservoir), config_path).unwrap();
+	percentile_partition(input_dir, output_dir, &None, &Some(reservoir), config_path, &false).unwrap();
 	Ok(())
 }
 
