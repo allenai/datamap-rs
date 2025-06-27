@@ -1,11 +1,11 @@
 // External crates
 
-use std::fs;
 use crate::serde_json::Value;
 use dashmap::DashMap;
 use rand::Rng;
 use std::cmp::max;
 use std::collections::HashMap;
+use std::fs;
 use std::fs::{create_dir_all, File, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::os::unix::fs::OpenOptionsExt;
@@ -92,7 +92,6 @@ enum Commands {
 
         #[arg(long)]
         delete_after_read: bool,
-
     },
 
     Partition {
@@ -104,7 +103,7 @@ enum Commands {
 
         #[arg(required = true, long)]
         config: PathBuf,
-    }
+    },
 }
 
 /*============================================================
@@ -354,12 +353,12 @@ fn reshard(
     let num_threads = current_num_threads();
     let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
     let pbar = build_pbar(all_files.len(), "Files");
-    let chunk_size = (all_files.len() + num_threads - 1) / num_threads;    
+    let chunk_size = (all_files.len() + num_threads - 1) / num_threads;
 
     let chunks: Vec<Vec<PathBuf>> = if keep_dirs {
         // group by dir, and then maybe split up dirs if they're too big (to balance thread load)
         let mut dir_groups: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
-        
+
         // Group files by their parent directory
         for file in all_files {
             if let Some(parent) = file.parent().map(|p| p.to_path_buf()) {
@@ -369,7 +368,7 @@ fn reshard(
                 dir_groups.entry(PathBuf::from(".")).or_default().push(file);
             }
         }
-        
+
         // Convert HashMap to Vec<Vec<PathBuf>> and split large groups
         dir_groups
             .into_values()
@@ -383,14 +382,21 @@ fn reshard(
             })
             .collect()
     } else {
-        all_files.chunks(chunk_size).map(|c| c.to_vec()).collect()        
+        all_files.chunks(chunk_size).map(|c| c.to_vec()).collect()
     };
     let out_num = AtomicUsize::new(0);
     chunks.par_iter().for_each(|chunk| {
-
         reshard_chunk(
-            chunk, input_dir, output_dir, &out_num, max_lines, max_size, &pbar, subsample,
-            keep_dirs, delete_after_read
+            chunk,
+            input_dir,
+            output_dir,
+            &out_num,
+            max_lines,
+            max_size,
+            &pbar,
+            subsample,
+            keep_dirs,
+            delete_after_read,
         )
         .unwrap();
     });
@@ -413,16 +419,17 @@ fn reshard_chunk(
     pbar: &ProgressBar,
     subsample: f32,
     keep_dirs: bool,
-    delete_after_read: bool
+    delete_after_read: bool,
 ) -> Result<(), Error> {
-
     // Quick assert: if keep dirs, all parents should be the same, and then we modify the output dir to be the "parent dir"
     let output_dir: PathBuf = if keep_dirs {
-        let chunk_parents: Vec<Option<PathBuf>> = chunk.iter().map(|file| file.parent().map(|p| p.to_path_buf())).collect();
+        let chunk_parents: Vec<Option<PathBuf>> = chunk
+            .iter()
+            .map(|file| file.parent().map(|p| p.to_path_buf()))
+            .collect();
         let parent_example = &chunk_parents[0];
         assert!(chunk_parents.iter().all(|x| x == parent_example));
         get_output_filename(&parent_example.as_ref().unwrap(), input_dir, output_dir).unwrap()
-        
     } else {
         output_dir.clone()
     };
@@ -431,10 +438,10 @@ fn reshard_chunk(
     let get_new_writer = |out_num: &AtomicUsize| -> Result<Box<dyn std::io::Write>, Error> {
         let shard_id = out_num.fetch_add(1, Ordering::SeqCst);
         let shard = get_reshard_name(&output_dir, shard_id).unwrap();
-        let writer = make_shard_writer(shard).unwrap();       
+        let writer = make_shard_writer(shard).unwrap();
         let auto_finisher = writer.auto_finish();
         Ok(Box::new(auto_finisher))
-    };    
+    };
 
     let mut rng = rand::rng();
     let mut writer = get_new_writer(out_num).unwrap();
@@ -444,7 +451,7 @@ fn reshard_chunk(
     for path in chunk {
         let data = read_pathbuf_to_mem(path).unwrap();
         for line in data.lines() {
-            if subsample == 0.0 || (subsample > 0.0 &&  rng.random::<f32>() < subsample) {
+            if subsample == 0.0 || (subsample > 0.0 && rng.random::<f32>() < subsample) {
                 let line = line.unwrap();
                 let line = line.as_bytes();
                 cur_lines += 1;
@@ -455,7 +462,7 @@ fn reshard_chunk(
                     writer.flush().unwrap();
                     drop(writer);
                     writer = get_new_writer(out_num).unwrap();
-                    cur_lines = 0; 
+                    cur_lines = 0;
                     cur_size = 0;
                 }
             }
@@ -464,11 +471,14 @@ fn reshard_chunk(
             writer.flush().unwrap();
             drop(writer);
             writer = get_new_writer(out_num).unwrap();
-            cur_lines = 0; 
-            cur_size = 0;            
+            cur_lines = 0;
+            cur_size = 0;
         }
         pbar.inc(1);
-        fs::remove_file(path).unwrap();
+
+        if delete_after_read {
+            fs::remove_file(path).unwrap();
+        }
     }
 
     writer.flush().unwrap();
@@ -531,12 +541,18 @@ fn main() {
             keep_dirs,
             delete_after_read,
         } => reshard(
-            input_dir, output_dir, *max_lines, *max_size, *subsample, *keep_dirs, *delete_after_read,
+            input_dir,
+            output_dir,
+            *max_lines,
+            *max_size,
+            *subsample,
+            *keep_dirs,
+            *delete_after_read,
         ),
         Commands::Partition {
             input_dir,
-            output_dir, 
-            config
+            output_dir,
+            config,
         } => partition(input_dir, output_dir, config),
         _ => Ok(()),
     };
