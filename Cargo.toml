@@ -30,6 +30,8 @@ regex = "1.11.1"
 derivative = "2.2.0"
 fxhash = "0.2.1"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
+arrow = "53.3.0"
+parquet = "53.3.0"
 
 [[test]]
 name = "tests"

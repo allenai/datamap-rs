@@ -30,6 +30,7 @@ pub mod partition;
 pub mod utils;
 use datamap_rs::map_fxn::PipelineProcessor;
 use datamap_rs::partition::partition;
+use datamap_rs::merge::merge_parquet_jsonl;
 pub use map_fxn::DataProcessor;
 /*
 Map Config layout:
@@ -104,6 +105,23 @@ enum Commands {
 
         #[arg(required = true, long)]
         config: PathBuf,
+    },
+
+    Merge {
+        #[arg(required = true, long)]
+        parquet_files: Vec<PathBuf>,
+
+        #[arg(required = true, long)]
+        jsonl_dir: PathBuf,
+
+        #[arg(required = true, long)]
+        output_dir: PathBuf,
+
+        #[arg(required = true, long)]
+        id_field: String,
+
+        #[arg(long)]
+        blob_id_field: Option<String>,
     }
 }
 
@@ -538,6 +556,19 @@ fn main() {
             output_dir, 
             config
         } => partition(input_dir, output_dir, config),
+        Commands::Merge {
+            parquet_files,
+            jsonl_dir,
+            output_dir,
+            id_field,
+            blob_id_field,
+        } => merge_parquet_jsonl(
+            parquet_files,
+            jsonl_dir,
+            output_dir,
+            id_field,
+            blob_id_field.as_deref(),
+        ),
         _ => Ok(()),
     };
     result.unwrap();
