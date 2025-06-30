@@ -442,7 +442,12 @@ fn reshard_chunk(
     let mut cur_lines = 0;
     let mut cur_size = 0;
     for path in chunk {
-        let data = read_pathbuf_to_mem(path).unwrap();
+        let data = if let Ok(data) = read_pathbuf_to_mem(path) {
+            data
+        } else {
+            eprintln!("Error reading file {:?}", path);
+            continue;
+        };
         for line in data.lines() {
             if subsample == 0.0 || (subsample > 0.0 &&  rng.random::<f32>() < subsample) {
                 let line = line.unwrap();
