@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
 pub fn merge_parquet_jsonl(
-    parquet_files: &[PathBuf],
+    parquet_dir: &PathBuf,
     jsonl_dir: &PathBuf,
     output_dir: &PathBuf,
     id_field: &str,
@@ -21,12 +21,31 @@ pub fn merge_parquet_jsonl(
 ) -> Result<(), Error> {
     let start_time = Instant::now();
     
-    // Step 1: Build lookup table from parquet files
+    // Step 1: Find all parquet files in directory
+    println!("Scanning parquet directory for .parquet files...");
+    let all_files = expand_dirs(vec![parquet_dir.clone()], None)?;
+    let parquet_files: Vec<PathBuf> = all_files
+        .into_iter()
+        .filter(|path| {
+            path.extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| ext == "parquet")
+                .unwrap_or(false)
+        })
+        .collect();
+    
+    if parquet_files.is_empty() {
+        return Err(anyhow!("No .parquet files found in directory: {}", parquet_dir.display()));
+    }
+    
+    println!("Found {} parquet files", parquet_files.len());
+    
+    // Step 2: Build lookup table from parquet files
     println!("Building lookup table from parquet files...");
-    let lookup_table = build_parquet_lookup(parquet_files, id_field, blob_id_field)?;
+    let lookup_table = build_parquet_lookup(&parquet_files, id_field, blob_id_field)?;
     println!("Built lookup table with {} entries", lookup_table.len());
     
-    // Step 2: Process JSONL files and merge
+    // Step 3: Process JSONL files and merge
     println!("Processing JSONL files...");
     let all_files = expand_dirs(vec![jsonl_dir.clone()], None)?;
     let jsonl_files: Vec<PathBuf> = all_files

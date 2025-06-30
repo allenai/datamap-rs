@@ -109,7 +109,7 @@ enum Commands {
 
     Merge {
         #[arg(required = true, long)]
-        parquet_files: Vec<PathBuf>,
+        parquet_dir: PathBuf,
 
         #[arg(required = true, long)]
         jsonl_dir: PathBuf,
@@ -557,13 +557,13 @@ fn main() {
             config
         } => partition(input_dir, output_dir, config),
         Commands::Merge {
-            parquet_files,
+            parquet_dir,
             jsonl_dir,
             output_dir,
             id_field,
             blob_id_field,
         } => merge_parquet_jsonl(
-            parquet_files,
+            parquet_dir,
             jsonl_dir,
             output_dir,
             id_field,
