@@ -563,6 +563,9 @@ impl DataProcessor for FastTextAnnotator {
 			text = text.split_whitespace().take(self.max_words).collect::<Vec<&str>>().join(" ");
 		}
 
+		// fasttext expects a newline at the end of the text
+        text.push_str("\n");
+
 		let predictions = self.model.predict(&text, self.k, self.threshold).unwrap();
 
 		let mut map: serde_json::Map<String, Value> = serde_json::Map::new();

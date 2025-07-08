@@ -20,8 +20,6 @@ use clap::{Parser, Subcommand};
 use rayon::prelude::*;
 use rayon::current_num_threads;
 
-use zstd::Encoder;
-use mj_io::{expand_dirs, read_pathbuf_to_mem, write_mem_to_pathbuf, build_pbar, get_output_filename};
 use indicatif::ProgressBar;
 
 
@@ -30,11 +28,9 @@ use mj_io::{
     build_pbar, expand_dirs, get_output_filename, read_pathbuf_to_mem, write_mem_to_pathbuf,
 };
 use zstd::Encoder;
-pub mod map_fxn;
-pub mod partition;
+
 pub mod utils;
 use datamap_rs::map_fxn::PipelineProcessor;
-use datamap_rs::partition::partition;
 pub use map_fxn::DataProcessor;
 
 pub mod minhash;
