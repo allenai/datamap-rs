@@ -1625,9 +1625,6 @@ pub struct OlmocrRulesAdder {
 	pub numbers_regex: String,
 
 	#[serde(skip)]
-	compiled_numbers_regex: Regex,
-
-	#[serde(skip)]
 	compiled_whitespace_regex: Regex,
 }
 
@@ -1638,9 +1635,8 @@ impl DataProcessor for OlmocrRulesAdder {
 		// let default_numbers_regex = r"[-+]?(?:\d{1,3}(?:[,. ]\d{3})+|\d+)?(?:[.,]\d+)?(?:[eE][-+]?\d+)?";
 		let default_numbers_regex = r"\d+";
 		let numbers_regex = get_default(config, "numbers_regex", default_numbers_regex.to_string());
-		let compiled_numbers_regex = Regex::new(&numbers_regex).unwrap();
 		let compiled_whitespace_regex = Regex::new(r"\s+").unwrap();
-		Ok(Self {text_field, numbers_regex, compiled_numbers_regex, compiled_whitespace_regex})
+		Ok(Self {text_field, numbers_regex, compiled_whitespace_regex})
 	}
 
 	fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {

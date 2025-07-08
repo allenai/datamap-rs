@@ -11,7 +11,8 @@ use std::path::PathBuf;
 use std::time::Instant;
 use std::cmp::max;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use rand::Rng;
+use rand::prelude::*;
+use rand_chacha::ChaCha8Rng;
 
 use serde_json;
 use serde_yaml;
@@ -123,6 +124,23 @@ enum Commands {
         #[arg(long)]
         manual_extension: Option<String>,
     },
+
+    SampleByPercentage {
+        #[arg(required=true, long)]
+        input_dir: PathBuf,
+
+        #[arg(required=true, long)]
+        output_dir: PathBuf,
+
+        #[arg(required=true, long)]
+        percentage: f32,
+
+        #[arg(long)]
+        manual_extension: Option<String>,
+
+        #[arg(long)]
+        seed: Option<u64>
+    }
 
 }
 
@@ -336,7 +354,7 @@ fn reshard(input_dir: &PathBuf, output_dir: &PathBuf, max_lines: usize, max_size
     let chunks: Vec<Vec<PathBuf>> = all_files.chunks(chunk_size).map(|c| c.to_vec()).collect();
     let out_num = AtomicUsize::new(0);
     chunks.par_iter().for_each(|chunk| {
-        reshard_chunk(chunk, output_dir, &out_num, max_lines, max_size, &pbar, subsample).unwrap();
+        reshard_chunk(chunk, output_dir, &out_num, max_lines, max_size, &pbar, subsample, None).unwrap();
     });
 
     println!("Finished reshard in {:?} seconds | Wrote {:?} new shards", start_main.elapsed().as_secs(), out_num.fetch_add(0, Ordering::SeqCst));
@@ -344,7 +362,16 @@ fn reshard(input_dir: &PathBuf, output_dir: &PathBuf, max_lines: usize, max_size
 }
 
 
-fn reshard_chunk(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUsize, max_lines: usize, max_size: usize, pbar: &ProgressBar, subsample: f32) -> Result<(), Error> {
+fn reshard_chunk(
+    chunk: &Vec<PathBuf>,
+    output_dir: &PathBuf,
+    out_num: &AtomicUsize,
+    max_lines: usize,
+    max_size: usize,
+    pbar: &ProgressBar,
+    subsample: f32,
+    seed: Option<u64>,
+) -> Result<(), Error> {
     // faster strat: keep an open writer and append until full
     let get_new_writer = |out_num: &AtomicUsize| -> Result<Encoder<BufWriter<File>>, Error> {
         let shard_id = out_num.fetch_add(1, Ordering::SeqCst);
@@ -352,7 +379,11 @@ fn reshard_chunk(chunk: &Vec<PathBuf>, output_dir: &PathBuf, out_num: &AtomicUsi
         let writer = make_shard_writer(shard).unwrap();
         Ok(writer)
     };
-    let mut rng = rand::rng();
+    let mut rng = if let Some(s) = seed {
+        ChaCha8Rng::seed_from_u64(s)
+    } else {
+        ChaCha8Rng::from_os_rng()
+    };
     let mut writer = get_new_writer(out_num).unwrap();
 
     let mut cur_lines = 0;
@@ -569,6 +600,91 @@ fn partition_by_length_single(
 }
 
 
+/*============================================================
+=                   SAMPLE BY PERCENTAGE                     =
+============================================================*/
+
+fn sample_by_percentage(
+    input_dir: &PathBuf,
+    output_dir: &PathBuf,
+    percentage: f32,
+    manual_extension: Option<String>,
+    seed: Option<u64>,
+) -> Result<(), Error> {
+
+    // Setup data handlers
+    let start_main = Instant::now();
+
+    let ext_str_vec = manual_extension.as_ref().map(|e| vec![e.as_str()]);
+    let manual_ext = ext_str_vec.as_ref().map(|v| &v[..]);
+
+    let all_files = expand_dirs(
+        vec![input_dir.clone()],
+        manual_ext
+    ).unwrap();
+
+    // Loop over input files
+    let pbar = build_pbar(all_files.len(), "Files");
+
+    all_files.par_iter().for_each(|p| {
+        sample_by_percentage_single(
+            p,
+            input_dir,
+            output_dir,
+            percentage,
+            seed
+        ).unwrap();
+        pbar.inc(1);
+    });
+
+    println!("Finished partition by length in {:?} seconds", start_main.elapsed().as_secs());
+    Ok(())
+}
+
+
+fn sample_by_percentage_single(
+    input_file: &PathBuf,
+    input_dir: &PathBuf,
+    output_dir: &PathBuf,
+    percentage: f32,
+    seed: Option<u64>,
+) -> Result<(), Error> {
+
+    // Verify that the percentage is between 0 and 1
+    ensure!(percentage >= 0.0 && percentage <= 1.0, "Percentage must be between 0 and 1");
+
+    let data = read_pathbuf_to_mem(input_file).unwrap();
+    let mut selected_data = Vec::new();
+
+    let mut rng = if let Some(s) = seed {
+        ChaCha8Rng::seed_from_u64(s)
+    } else {
+        ChaCha8Rng::from_os_rng()
+    };
+
+    for line in data.lines() {
+
+        // skip if line is not selected
+        if rng.random::<f32>() > percentage {
+            continue;
+        }
+
+        // read the line and stage it for writing
+        let line = line.unwrap();
+        let row: serde_json::Value = serde_json::from_str(&line).unwrap();
+        selected_data.push(row);
+    }
+
+    // write the lines to the output files
+    let output_file = get_output_filename(
+        input_file,
+        input_dir,
+        &output_dir
+    ).unwrap();
+    write_output_lines(selected_data, &output_file).unwrap();
+
+    Ok(())
+}
 
 
 /*============================================================
@@ -604,6 +720,21 @@ fn main() {
                 min_length.clone(),
                 max_length.clone(),
                 manual_extension.clone()
+            )
+        },
+        Commands::SampleByPercentage{
+            input_dir,
+            output_dir,
+            percentage,
+            manual_extension,
+            seed
+        } => {
+            sample_by_percentage(
+                input_dir,
+                output_dir,
+                percentage.clone(),
+                manual_extension.clone(),
+                seed.clone()
             )
         },
         _ => {Ok(())}
