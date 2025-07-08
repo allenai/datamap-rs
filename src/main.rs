@@ -20,16 +20,27 @@ use clap::{Parser, Subcommand};
 use rayon::prelude::*;
 use rayon::current_num_threads;
 
-use zstd::{Encoder};
+use zstd::Encoder;
 use mj_io::{expand_dirs, read_pathbuf_to_mem, write_mem_to_pathbuf, build_pbar, get_output_filename};
 use indicatif::ProgressBar;
 
 
 pub mod map_fxn;
+use mj_io::{
+    build_pbar, expand_dirs, get_output_filename, read_pathbuf_to_mem, write_mem_to_pathbuf,
+};
+use zstd::Encoder;
+pub mod map_fxn;
+pub mod partition;
 pub mod utils;
-use datamap_rs::map_fxn::{PipelineProcessor};
+use datamap_rs::map_fxn::PipelineProcessor;
+use datamap_rs::partition::partition;
 pub use map_fxn::DataProcessor;
+
 pub mod minhash;
+use utils::get_tokenizer;
+
+
 /*
 Map Config layout:
 
@@ -89,6 +100,32 @@ enum Commands {
 
         #[arg(long, default_value_t=0.0)]
         subsample: f32,
+    },
+
+    PartitionByLength {
+        #[arg(required=true, long)]
+        input_dir: PathBuf,
+
+        #[arg(required=true, long)]
+        output_dir: PathBuf,
+
+        //supported tokenizers:
+        // - o200k_base: GPT-4o models, o1 models
+        // - cl100k_base: ChatGPT models, text-embedding-ada-002
+        // - p50k_base: Code models, text-davinci-002, text-davinci-003
+        // - p50k_edit: Use for edit models like text-davinci-edit-001, code-davinci-edit-001
+        // - r50k_base/gpt2: GPT-3 models like davinci
+        #[arg(long, default_value_t=String::from("cl100k_base"))]
+        tokenizer_name: String,
+
+        #[arg(long, default_value_t=4096)]
+        min_length: usize,
+
+        #[arg(long, default_value_t=1_048_576)]
+        max_length: usize,
+
+        #[arg(long)]
+        manual_extension: Option<String>,
     },
 
 }
@@ -296,7 +333,7 @@ fn reshard(input_dir: &PathBuf, output_dir: &PathBuf, max_lines: usize, max_size
         max_size
     };
 
-    let num_threads = current_num_threads();
+    let num_threads: usize = current_num_threads();
     let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
     let pbar = build_pbar(all_files.len(), "Files");
     let chunk_size = (all_files.len() + num_threads - 1) / num_threads;
@@ -383,6 +420,159 @@ fn make_shard_writer(shard_name: PathBuf) -> Result<Encoder<'static, BufWriter<F
 }
 
 
+/*============================================================
+=                    PARTITION BY LENGTH                     =
+============================================================*/
+
+fn partition_by_length(
+    input_dir: &PathBuf,
+    output_dir: &PathBuf,
+    tokenizer_name: String,
+    min_length: usize,
+    max_length: usize,
+    manual_extension: Option<String>,
+) -> Result<(), Error> {
+
+    // Setup data handlers
+    let start_main = Instant::now();
+
+    // let mut ext_str_vec = Vec::new();
+    // let manual_ext = match manual_extension {
+    //     Some(e) => {
+    //         // let ext_str = e.as_str();
+    //         // let ext_str_vec = vec![ext_str];
+    //         ext_str_vec.push(e.as_str());
+    //         Some(&ext_str_vec[..])
+    //     }
+    //     None => None,
+    // };
+
+    let ext_str_vec = manual_extension.as_ref().map(|e| vec![e.as_str()]);
+    let manual_ext = ext_str_vec.as_ref().map(|v| &v[..]);
+
+    let all_files = expand_dirs(
+        vec![input_dir.clone()],
+        manual_ext
+    ).unwrap();
+
+    // Loop over input files
+    let pbar = build_pbar(all_files.len(), "Files");
+
+    all_files.par_iter().for_each(|p| {
+        partition_by_length_single(
+            p,
+            input_dir,
+            output_dir,
+            tokenizer_name.clone(),
+            min_length,
+            max_length
+        ).unwrap();
+        pbar.inc(1);
+    });
+
+    println!("Finished partition by length in {:?} seconds", start_main.elapsed().as_secs());
+    Ok(())
+}
+
+
+fn partition_by_length_single(
+    input_file: &PathBuf,
+    input_dir: &PathBuf,
+    output_dir: &PathBuf,
+    tokenizer_name: String,
+    min_length: usize,
+    max_length: usize,
+) -> Result<(), Error> {
+
+
+    let data = read_pathbuf_to_mem(input_file).unwrap();
+    let tokenizer = get_tokenizer(&tokenizer_name).unwrap();
+
+    let log_min_length = (min_length as f32).log2().floor() as usize;
+    let log_max_length = (max_length as f32).log2().ceil() as usize;
+
+    // create a dictionary of vectors of lines, each key is a power of 2 from min_length to max_length
+    let mut lines_by_length = HashMap::new();
+    for i in log_min_length..=log_max_length {
+        lines_by_length.insert(i, Vec::new());
+    }
+
+    for line in data.lines() {
+        // read the line, decode it to json dict
+        let line = line.unwrap();
+        let mut row: serde_json::Value = serde_json::from_str(&line).unwrap();
+
+        let text = row["text"].as_str().unwrap();
+
+        // check if length of the text in characters is at least min_length;
+        // if not, skip this row
+        if text.len() < min_length {
+            continue;
+        }
+
+        // split text on double newlines; we dont want to feed into the tokenizer
+        // sequences that are too long for the model
+        let double_newlines_length = tokenizer.encode_ordinary("\n\n").len();
+        let mut length_in_tokens = 0;
+        let mut paragraph_too_long = false;
+
+        for paragraph in text.split("\n\n") {
+            if paragraph.len() > max_length {
+                paragraph_too_long = true;
+                break;
+            } else {
+                let paragraph_token_length = tokenizer.encode_ordinary(paragraph).len();
+                length_in_tokens += paragraph_token_length + double_newlines_length;
+            }
+        }
+
+        // we subtract the double newlines length from the total length to account for the fact that
+        // the last paragraph will not have a double newline after it
+        length_in_tokens -= double_newlines_length;
+
+        if paragraph_too_long {
+            // this document has a single paragraph that has more characters than the maximum length
+            // of tokens; we skip this document otherwise it will kill the tokenizer
+            continue;
+        }
+
+        let closest_power_of_2 = match (length_in_tokens as f32).log2() {
+             x if x > log_max_length as f32 => log_max_length,  // we cap at max_length
+             x => x.floor() as usize,   // round down to nearest integer
+        };
+
+        if closest_power_of_2 < log_min_length {
+            continue;  // we skip if the length is less than min_length
+        }
+
+        // add the length of the row to metadata
+        // Check if "metadata" exists and is an object, if not create it
+        if !row.get("metadata").map_or(false, |m| m.is_object()) {
+            row["metadata"] = serde_json::json!({});
+        }
+
+        // Add a new key to metadata (for example, "new_key" with value "new_value")
+        row["metadata"][format!("len_{}", tokenizer_name)] = serde_json::json!(length_in_tokens);
+
+        // add to the correct bucket
+        lines_by_length.get_mut(&closest_power_of_2).unwrap().push(row);
+    }
+
+    // write the lines to the output files
+    for (length, rows) in lines_by_length {
+        let suffix = format!("length_2e{:02}", length);
+        let output_file = get_output_filename(
+            input_file,
+            input_dir,
+            &output_dir.join(suffix)
+        ).unwrap();
+        write_output_lines(rows, &output_file).unwrap();
+    }
+
+    Ok(())
+}
+
+
 
 
 /*============================================================
@@ -403,7 +593,23 @@ fn main() {
         Commands::Reshard{input_dir, output_dir, max_lines, max_size, subsample} => {
             reshard(input_dir, output_dir, *max_lines, *max_size, *subsample)
         },
-
+        Commands::PartitionByLength{
+            input_dir,
+            output_dir,
+            tokenizer_name,
+            min_length,
+            max_length,
+            manual_extension
+        } => {
+            partition_by_length(
+                input_dir,
+                output_dir,
+                tokenizer_name.clone(),
+                min_length.clone(),
+                max_length.clone(),
+                manual_extension.clone()
+            )
+        },
         _ => {Ok(())}
     };
     result.unwrap();

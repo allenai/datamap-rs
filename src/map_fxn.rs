@@ -565,11 +565,15 @@ impl DataProcessor for FastTextAnnotator {
 
 		let predictions = self.model.predict(&text, self.k, self.threshold).unwrap();
 
-		let mut map = serde_json::Map::new();
+		let mut map: serde_json::Map<String, Value> = serde_json::Map::new();
 		for pred in predictions {
 			map.insert(pred.label.clone(), json!(pred.prob));
 		}
-		let pred_json = Value::Object(map);
+		// set to null if no predictions
+		let pred_json = match map.len() {
+			0 => json!(null),
+			_ => json!(map)
+		};
 		json_set(&mut data, &self.output_field, pred_json).unwrap();
 		Ok(Some(data))
 	}
@@ -1648,7 +1652,7 @@ impl DataProcessor for OlmocrRulesAdder {
 		// 		6. whether the line is a list item (i.e. line starts with "-")
 		// 		7. whether the line contains inline equations (i.e. even number of "$")
 		// 		8. whether the line contains an equation block (i.e. starts and ends with "$$")
-		// 		9. use a regex to find the proportion of characters that are digits. Digits appear in the form:
+		//		9. get the fraction of characters that are digits
 
 		let mut all_lines_count = 0;
 		let mut table_lines_count = 0;
@@ -1711,10 +1715,9 @@ impl DataProcessor for OlmocrRulesAdder {
 
 			// number of characters that are digits
 			let digits_line_prop = (
-				self.compiled_numbers_regex
-					.find_iter(line)
-					.map(|m| m.len())
-					.sum::<usize>() as f32
+				line.chars()
+					.filter(|c| c.is_digit(10))
+					.count() as f32
 			) / line.len() as f32;
 			all_digits_ratio += digits_line_prop;
 		}
@@ -1875,7 +1878,7 @@ fn render_markdown_tables(text: &str) -> String {
                 // Check if the first line is a separator row (contains only |, -, and spaces)
                 let first_line_trimmed = table_lines[0].trim();
                 let is_separator_row = first_line_trimmed.chars().all(|c| c == '|' || c == '-' || c.is_whitespace());
-                
+
                 let table_markdown = if is_separator_row {
                     // Count the number of columns by splitting on pipes and counting non-empty segments
                     let segments: Vec<&str> = first_line_trimmed.split('|').collect();
@@ -1893,7 +1896,7 @@ fn render_markdown_tables(text: &str) -> String {
                 } else {
                     table_lines.join("\n")
                 };
-                
+
                 // Process this group through the markdown generator
                 let options = Options::gfm();
 

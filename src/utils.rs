@@ -1,7 +1,7 @@
 use serde_json::{Value, json};
 use anyhow::{anyhow, Result, Error};
 use url::Url;
-use tiktoken_rs::{CoreBPE, cl100k_base, o200k_base, p50k_base, p50k_edit, r50k_base};
+use tiktoken_rs::{cl100k_base, o200k_base, p50k_base, p50k_edit, r50k_base, CoreBPE};
 
 /*================================================================================
 =                            JSON GETTER METHODS                                 =
@@ -131,6 +131,7 @@ pub fn extract_subdomain(url_str: &str) -> Result<Option<String>, Error> {
         Ok(None) // No subdomain found
     }
 }
+
 
 
 /*================================================================================
