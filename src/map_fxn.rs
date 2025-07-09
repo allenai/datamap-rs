@@ -2,7 +2,7 @@ use std::time::Instant;
 use std::hash::{Hash, Hasher};
 use std::collections::VecDeque;
 use aho_corasick::AhoCorasick;
-use std::io::BufRead;
+use std::io::{BufRead, Write};
 use std::path::PathBuf;
 use rand::rng;
 use serde_json;
@@ -16,6 +16,7 @@ use once_cell::sync::Lazy;
 use std::collections::{HashMap, HashSet};
 
 use url::Url;
+use zstd::Encoder as ZstdEncoder;
 use mj_io::read_pathbuf_to_mem;
 use markdown::{Options, to_html_with_options};
 use fasttext::{FastText};
@@ -63,6 +64,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
     register_processor!(m, "word_len_filter", WordLenFilter);
     register_processor!(m, "symbol_ratio_filter", SymbolRatioFilter);
     register_processor!(m, "bullet_filter", BulletFilter);
+	register_processor!(m, "compression_annotator", CompressionAnnotator);
     register_processor!(m, "ellipsis_line_ratio_filter", EllipsisLineRatioFilter);
     register_processor!(m, "alphabetic_word_ratio_filter", AlphabeticWordRatioFilter);
     register_processor!(m, "stop_word_filter", StopWordFilter);
@@ -521,6 +523,36 @@ impl DataProcessor for NewlineRemovalModifier {
 }
 
 
+#[derive(Serialize, Debug)]
+pub struct CompressionAnnotator {
+	pub text_field: String,
+	pub output_field: String,
+	pub compression_level: usize
+}
+
+impl DataProcessor for CompressionAnnotator {
+	fn new(config: &Value) -> Result<Self, Error> {
+		let text_field = get_default(config, "text_field", String::from("text"));
+		let output_field = get_default(config, "output_field", String::from("metadata.compression"));
+		let compression_level = get_default(config, "compression_level", 3 as usize);
+		Ok(Self {text_field, output_field, compression_level})
+	}
+
+	fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+		let input_bytes = json_get(&data, &self.text_field).unwrap().as_str().unwrap().as_bytes();
+		let uncompressed_size = input_bytes.len();
+
+		// Compress the bytes using zstd
+		let mut encoder = ZstdEncoder::new(Vec::new(), self.compression_level as i32)?; // compression level 3
+		encoder.write_all(input_bytes)?;
+		let compressed_bytes = encoder.finish()?;
+
+		let compressed_size = compressed_bytes.len();
+
+		json_set(&mut data, &self.output_field, json!(compressed_size as f32 / uncompressed_size as f32)).unwrap();
+		Ok(Some(data))
+	}
+}
 
 
 #[derive(Serialize, Debug)]
@@ -567,7 +599,11 @@ impl DataProcessor for FastTextAnnotator {
 		// fasttext expects a newline at the end of the text
         text.push_str("\n");
 
-		let predictions = self.model.predict(&text, self.k, self.threshold).unwrap();
+		// catch all errors
+		let predictions = match self.model.predict(&text, self.k, self.threshold) {
+				Ok(preds) => preds,
+				Err(_e) => vec![]
+			};
 
 		let mut map: serde_json::Map<String, Value> = serde_json::Map::new();
 		for pred in predictions {
@@ -1193,6 +1229,7 @@ impl DataProcessor for MassiveWebRepetitionAdder {
 			((&pars, 1, false), "pars"),
 			((&lines, 1, true), "lines"),
 			((&pars, 1, true), "pars"),
+			((&words, 1, true), "words"),
 			((&words, 2, true), "words"),
 			((&words, 3, true), "words"),
 			((&words, 4, true), "words"),
@@ -1205,7 +1242,7 @@ impl DataProcessor for MassiveWebRepetitionAdder {
 		];
 		for (arglist, name) in flow_args.into_iter() {
 			let rep_frac = MassiveWebRepetitionAdder::_rep_counter_fraction(arglist.0, arglist.1, arglist.2).unwrap();
-			json_set(&mut data, &format!("{}_{}_{}", self.add_field, name, arglist.1), rep_frac.into()).unwrap();
+			json_set(&mut data, &format!("{}.{}_{}", self.add_field, name, arglist.1), rep_frac.into()).unwrap();
 		}
 
 		Ok(Some(data))
