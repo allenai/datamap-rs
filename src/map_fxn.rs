@@ -67,6 +67,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
     register_processor!(m, "alphabetic_word_ratio_filter", AlphabeticWordRatioFilter);
     register_processor!(m, "stop_word_filter", StopWordFilter);
     register_processor!(m, "massive_web_repetition_filter", MassiveWebRepetitionFilter);
+	register_processor!(m, "massive_web_repetition_adder", MassiveWebRepetitionAdder);
     register_processor!(m, "word_count_adder", WordCountAdder);
     register_processor!(m, "ratio_line_modifier", RatioLineModifier);
     register_processor!(m, "regex_line_modifier", RegexLineModifier);
@@ -1027,53 +1028,8 @@ impl DataProcessor for StopWordFilter {
 }
 
 
-#[derive(Serialize, Debug)]
-pub struct MassiveWebRepetitionFilter {
-	// Fancy repetition thing from Gopher
-	pub text_field: String,
-}
-
-impl DataProcessor for MassiveWebRepetitionFilter {
-	fn new(config: &Value) -> Result<Self, Error> {
-		let text_field = get_default(config, "text_field", String::from("text"));
-		Ok(Self { text_field })
-	}
-	fn process(&self, data: Value) -> Result<Option<Value>, Error> {
-		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
-		let lines: Vec<&str> = text.split('\n').filter(|w| w.len() > 0).collect();
-		let pars: Vec<&str> = text.split("\n\n").filter(|w| w.len() > 0).collect();
-		let words: Vec<&str> = text.unicode_words().collect();
-
-		let flow_args = vec![((&lines, 1, false), 0.3),
-						     ((&pars, 1, false), 0.3),
-						     ((&lines, 1, true), 0.2),
-						     ((&pars, 1, true), 0.2),
-						     ((&words, 2, true), 0.2),
-						     ((&words, 3, true), 0.18),
-						     ((&words, 4, true), 0.16),
-						     ((&words, 5, true), 0.15),
-						     ((&words, 6, true), 0.14),
-						     ((&words, 7, true), 0.13),
-						     ((&words, 8, true), 0.12),
-						     ((&words, 9, true), 0.11),
-						     ((&words, 10, true), 0.10)
-						    ];
-		for (arglist, upper_bound) in flow_args.into_iter() {
-			let rep_frac = MassiveWebRepetitionFilter::_rep_counter_fraction(arglist.0, arglist.1, arglist.2).unwrap();
-			if rep_frac > upper_bound {
-				return Ok(None);
-			}
-		}
-
-		Ok(Some(data))
-	}
-
-
-
-}
-
-impl MassiveWebRepetitionFilter {
-	pub fn _rep_counter_fraction<'a>(elements: &'a Vec<&'a str>, ngram_size: usize, weighted: bool,) -> Result<f32, Error> {
+pub trait RepetitionCounter {
+	fn _rep_counter_fraction<'a>(elements: &'a Vec<&'a str>, ngram_size: usize, weighted: bool,) -> Result<f32, Error> {
 		let mut ngram : VecDeque<&'a str> = VecDeque::with_capacity(ngram_size); // temp to hold current "ngram"
 		let mut ngram_char_len = 0; // temp to current ngram len?
 
@@ -1162,6 +1118,103 @@ impl MassiveWebRepetitionFilter {
 
 	}
 }
+
+
+#[derive(Serialize, Debug)]
+pub struct MassiveWebRepetitionFilter {
+	// Fancy repetition thing from Gopher
+	pub text_field: String,
+}
+
+impl DataProcessor for MassiveWebRepetitionFilter {
+	fn new(config: &Value) -> Result<Self, Error> {
+		let text_field = get_default(config, "text_field", String::from("text"));
+		Ok(Self { text_field })
+	}
+	fn process(&self, data: Value) -> Result<Option<Value>, Error> {
+		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
+		let lines: Vec<&str> = text.split('\n').filter(|w| w.len() > 0).collect();
+		let pars: Vec<&str> = text.split("\n\n").filter(|w| w.len() > 0).collect();
+		let words: Vec<&str> = text.unicode_words().collect();
+
+		let flow_args = vec![((&lines, 1, false), 0.3),
+						     ((&pars, 1, false), 0.3),
+						     ((&lines, 1, true), 0.2),
+						     ((&pars, 1, true), 0.2),
+						     ((&words, 2, true), 0.2),
+						     ((&words, 3, true), 0.18),
+						     ((&words, 4, true), 0.16),
+						     ((&words, 5, true), 0.15),
+						     ((&words, 6, true), 0.14),
+						     ((&words, 7, true), 0.13),
+						     ((&words, 8, true), 0.12),
+						     ((&words, 9, true), 0.11),
+						     ((&words, 10, true), 0.10)
+						    ];
+		for (arglist, upper_bound) in flow_args.into_iter() {
+			let rep_frac = MassiveWebRepetitionFilter::_rep_counter_fraction(arglist.0, arglist.1, arglist.2).unwrap();
+			if rep_frac > upper_bound {
+				return Ok(None);
+			}
+		}
+
+		Ok(Some(data))
+	}
+
+
+
+}
+
+impl RepetitionCounter for MassiveWebRepetitionFilter {}
+
+
+#[derive(Serialize, Debug)]
+pub struct MassiveWebRepetitionAdder {
+	// Fancy repetition thing from Gopher
+	pub text_field: String,
+	pub add_field: String,
+}
+
+
+impl DataProcessor for MassiveWebRepetitionAdder {
+	fn new(config: &Value) -> Result<Self, Error> {
+		let text_field = get_default(config, "text_field", String::from("text"));
+		let add_field = get_default(config, "add_field", String::from("metadata.rep_frac"));
+		Ok(Self { text_field, add_field })
+	}
+	fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+		let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
+		let lines: Vec<&str> = text.split('\n').filter(|w| w.len() > 0).collect();
+		let pars: Vec<&str> = text.split("\n\n").filter(|w| w.len() > 0).collect();
+		let words: Vec<&str> = text.unicode_words().collect();
+
+		let flow_args = vec![
+			((&lines, 1, false), "lines"),
+			((&pars, 1, false), "pars"),
+			((&lines, 1, true), "lines"),
+			((&pars, 1, true), "pars"),
+			((&words, 2, true), "words"),
+			((&words, 3, true), "words"),
+			((&words, 4, true), "words"),
+			((&words, 5, true), "words"),
+			((&words, 6, true), "words"),
+			((&words, 7, true), "words"),
+			((&words, 8, true), "words"),
+			((&words, 9, true), "words"),
+			((&words, 10, true), "words")
+		];
+		for (arglist, name) in flow_args.into_iter() {
+			let rep_frac = MassiveWebRepetitionAdder::_rep_counter_fraction(arglist.0, arglist.1, arglist.2).unwrap();
+			json_set(&mut data, &format!("{}_{}_{}", self.add_field, name, arglist.1), rep_frac.into()).unwrap();
+		}
+
+		Ok(Some(data))
+	}
+
+}
+
+
+impl RepetitionCounter for MassiveWebRepetitionAdder {}
 
 #[derive(Serialize, Debug)]
 pub struct WordCountAdder {

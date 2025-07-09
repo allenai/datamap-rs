@@ -3,13 +3,15 @@ use datamap_rs::map_fxn::{MassiveWebRepetitionFilter};
 
 #[cfg(test)]
 mod tests {
+    use datamap_rs::map_fxn::RepetitionCounter;
+
     use super::*;
     use std::collections::{VecDeque, HashMap};
     use std::hash::{Hash, Hasher};
     use std::collections::hash_map::DefaultHasher;
-    
+
     const EPSILON: f32 = 0.0001; // For floating point comparisons
-    
+
     fn assert_float_eq(a: f32, b: f32) {
         assert!((a - b).abs() < EPSILON, "Expected {}, got {}", b, a);
     }
@@ -22,7 +24,7 @@ mod tests {
         let result = MassiveWebRepetitionFilter::_rep_counter_fraction(&elements, 1, false).unwrap();
         assert_float_eq(result, 1.0);
     }
-    
+
     #[test]
     fn test_single_element_ngram_size_1() {
         // Special case: ngram_size = 1 and total_ngrams = 1
@@ -31,7 +33,7 @@ mod tests {
         let result = MassiveWebRepetitionFilter::_rep_counter_fraction(&elements, 1, false).unwrap();
         assert_float_eq(result, 0.0);
     }
-    
+
     #[test]
     fn test_fewer_elements_than_ngram_size() {
         // Special case: ngram_size > 1 and total_ngrams = 0
@@ -40,7 +42,7 @@ mod tests {
         let result = MassiveWebRepetitionFilter::_rep_counter_fraction(&elements, 2, false).unwrap();
         assert_float_eq(result, 0.0);
     }
-    
+
     #[test]
     fn test_ngram_size_1_unweighted_no_repetitions() {
         // No repetitions
@@ -48,7 +50,7 @@ mod tests {
         let result = MassiveWebRepetitionFilter::_rep_counter_fraction(&elements, 1, false).unwrap();
         assert_float_eq(result, 0.0);
     }
-    
+
     #[test]
     fn test_ngram_size_1_unweighted_some_repetitions() {
         // Some repetitions
@@ -57,7 +59,7 @@ mod tests {
         let result = MassiveWebRepetitionFilter::_rep_counter_fraction(&elements, 1, false).unwrap();
         assert_float_eq(result, 4.0/6.0);
     }
-    
+
     #[test]
     fn test_ngram_size_1_unweighted_all_repetitions() {
         // All repetitions
@@ -65,7 +67,7 @@ mod tests {
         let result = MassiveWebRepetitionFilter::_rep_counter_fraction(&elements, 1, false).unwrap();
         assert_float_eq(result, 1.0);
     }
-    
+
     #[test]
     fn test_ngram_size_1_unweighted_mixed_length_strings() {
         // Mixed length strings
@@ -74,7 +76,7 @@ mod tests {
         let result = MassiveWebRepetitionFilter::_rep_counter_fraction(&elements, 1, false).unwrap();
         assert_float_eq(result, 0.5);
     }
-    
+
     #[test]
     fn test_ngram_size_1_weighted_no_repetitions() {
         // No repetitions
@@ -82,7 +84,7 @@ mod tests {
         let result = MassiveWebRepetitionFilter::_rep_counter_fraction(&elements, 1, true).unwrap();
         assert_float_eq(result, 0.0);
     }
-    
+
     #[test]
     fn test_ngram_size_1_weighted_equal_length_repetitions() {
         // Some repetitions with equal lengths
@@ -92,7 +94,7 @@ mod tests {
         let result = MassiveWebRepetitionFilter::_rep_counter_fraction(&elements, 1, true).unwrap();
         assert_float_eq(result, 8.0/12.0);
     }
-    
+
     #[test]
     fn test_ngram_size_1_weighted_all_repetitions() {
         // All repetitions
@@ -100,7 +102,7 @@ mod tests {
         let result = MassiveWebRepetitionFilter::_rep_counter_fraction(&elements, 1, true).unwrap();
         assert_float_eq(result, 1.0);
     }
-    
+
     #[test]
     fn test_ngram_size_1_weighted_mixed_length_strings() {
         // Mixed length strings
@@ -110,7 +112,7 @@ mod tests {
         let result = MassiveWebRepetitionFilter::_rep_counter_fraction(&elements, 1, true).unwrap();
         assert_float_eq(result, 10.0/24.0);
     }
-    
+
     #[test]
     fn test_ngram_size_2_no_repetitions() {
         // ngram_size = 2, no repetitions
@@ -118,7 +120,7 @@ mod tests {
         let result = MassiveWebRepetitionFilter::_rep_counter_fraction(&elements, 2, false).unwrap();
         assert_float_eq(result, 0.0);
     }
-    
+
     #[test]
     fn test_ngram_size_2_with_repetition() {
         // ngram_size = 2, with repetition
@@ -128,7 +130,7 @@ mod tests {
         let result = MassiveWebRepetitionFilter::_rep_counter_fraction(&elements, 2, false).unwrap();
         assert_float_eq(result, 4.0/6.0);
     }
-    
+
     #[test]
     fn test_ngram_size_3_with_repetition() {
         // ngram_size = 3, with repetition
@@ -138,7 +140,7 @@ mod tests {
         let result = MassiveWebRepetitionFilter::_rep_counter_fraction(&elements, 3, false).unwrap();
         assert_float_eq(result, 6.0/8.0);
     }
-    
+
     #[test]
     fn test_ngram_size_4_with_mixed_length_strings() {
         // ngram_size = 4, with repetition and different length strings
@@ -150,7 +152,7 @@ mod tests {
         let mut ngram: VecDeque<String> = VecDeque::with_capacity(4);
         let mut ngram_counts: HashMap<(u64, usize), Vec<usize>> = HashMap::new();
         let mut ngram_char_len = 0;
-        
+
         for (idx, element) in elements.iter().enumerate() {
             ngram.push_back(element.to_string());
             ngram_char_len += element.len();
@@ -162,19 +164,19 @@ mod tests {
                 ngram_char_len -= ngram.pop_front().unwrap().len();
             }
         }
-        
+
         let expected = 0.0;
         let result = MassiveWebRepetitionFilter::_rep_counter_fraction(&elements, 4, false).unwrap();
         assert_float_eq(result, expected);
     }
-    
+
     #[test]
     fn test_ngram_size_4_with_overlap() {
         let elements: Vec<&str> = vec!["a", "a", "a", "a", "a", "a", "b", "c", "d", "f"];
         let result = MassiveWebRepetitionFilter::_rep_counter_fraction(&elements, 4, false).unwrap();
         assert_float_eq(result, 6.0/10.0);
     }
-    
+
     #[test]
     fn test_ngram_size_6_no_repetition() {
         // ngram_size = 6, with no repetition
@@ -182,7 +184,7 @@ mod tests {
         let result = MassiveWebRepetitionFilter::_rep_counter_fraction(&elements, 6, false).unwrap();
         assert_float_eq(result, 0.0);
     }
-    
+
     #[test]
     fn test_ngram_size_8_with_repetition_and_different_length_strings() {
         // ngram_size = 8, with repetition and different length strings
@@ -198,11 +200,11 @@ mod tests {
         let repeated_len: usize = repeated_idxs.into_iter().map(|v| elements[v].len()).sum::<usize>();
         let total_len: usize = elements.iter().map(|v| v.len()).sum::<usize>();
         let expected = repeated_len as f32 / total_len as f32;
-        
+
         let result = MassiveWebRepetitionFilter::_rep_counter_fraction(&elements, 8, false).unwrap();
         assert_float_eq(result, expected);
     }
-    
+
     #[test]
     fn test_exactly_ngram_size_elements() {
         // Edge case: exactly ngram_size elements
@@ -211,7 +213,7 @@ mod tests {
         println!("RESULT {:?}", result);
         assert_float_eq(result, 0.0);
     }
-    
+
     #[test]
     fn test_just_over_ngram_size_elements_with_repetition() {
         // Edge case: just over ngram_size elements, with repetition
@@ -221,7 +223,7 @@ mod tests {
         // Total char length is 6, repeated is 2*3=6
         assert_float_eq(result, 1.0);
     }
-    
+
     #[test]
     fn test_very_large_strings() {
         // Edge case: very large strings
@@ -231,7 +233,7 @@ mod tests {
         // large_str appears twice, total length is 2*10000+1, repeated is 2*10000
         assert_float_eq(result, 20000.0/20001.0);
     }
-    
+
     #[test]
     fn test_realistic_text_bigram_repetition() {
         // Realistic example with repeated phrases
@@ -248,11 +250,11 @@ mod tests {
         // The bigram "to be" appears twice (5 chars each)
         // The bigram "be ," appears once and "be ," appears once, they don't match
         // The most common is either "or not" or "not to" with 6*2=12 chars
-        
+
         let result = MassiveWebRepetitionFilter::_rep_counter_fraction(&elements, 2, false).unwrap();
         assert_float_eq(result, 16.0/total_len as f32);
         }
-    
+
     #[test]
     fn test_performance_with_large_input() {
         // Create a large input with some repetitions
@@ -260,9 +262,9 @@ mod tests {
         for i in 0..5000 {
             large_input.push(format!("word{}", i % 1000));
         }
-        
+
         let elements: Vec<&str> = large_input.iter().map(|s| s.as_str()).collect();
-        
+
         // This should complete without timing out
         let result = MassiveWebRepetitionFilter::_rep_counter_fraction(&elements, 10, false);
         assert!(result.is_ok());
