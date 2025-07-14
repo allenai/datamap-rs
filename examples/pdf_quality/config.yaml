@@ -1,0 +1,8 @@
+name: pdf_quality
+text_field: text
+pipeline:
+  - name: fasttext_pdf_quality_classifier
+    kwargs:
+      fast_text_file: /mnt/raid0/models/ft_pdf_quality_lr05_wng3_minn3_maxn6.bin
+
+      

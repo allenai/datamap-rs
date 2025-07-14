@@ -58,6 +58,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
     register_processor!(m, "newline_removal_modifier", NewlineRemovalModifier);
     register_processor!(m, "fasttext_annotator", FastTextAnnotator);
     register_processor!(m, "fasttext_line_filter", FastTextLineFilter);
+	register_processor!(m, "fasttext_pdf_quality_classifier", FastTextPDFQualityClassifier);
     register_processor!(m, "float_filter", FloatFilter);
     register_processor!(m, "page_len_filter", PageLenFilter);
     register_processor!(m, "word_len_filter", WordLenFilter);
@@ -697,6 +698,84 @@ impl DataProcessor for FastTextLineFilter {
 
 		Ok(Some(data))
 	}
+}
+
+#[derive(Serialize, Debug)]
+pub struct FastTextPDFQualityClassifier {
+    // Enriches the data with the top k predictions from a fast text classifier
+    pub fast_text_file: String,
+    pub text_field: String,
+    pub output_field: String,
+    pub k: i32,
+    pub threshold: f32,
+    #[serde(skip)]
+    pub model: FastText,
+}
+
+impl DataProcessor for FastTextPDFQualityClassifier {
+	fn new(config: &Value) -> Result<Self, Error> {
+        let fast_text_file = config
+            .get("fast_text_file")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+        let text_field = get_default(config, "text_field", String::from("text"));
+        let output_field = get_default(config, "output_field", String::from("metadata.fasttext"));
+        let k = get_default(config, "k", 10 as usize) as i32;
+        let threshold = get_default(config, "threshold", 0.0) as f32;
+        let mut model = FastText::new();
+        model.load_model(&fast_text_file).unwrap();
+        Ok(Self {
+            fast_text_file,
+            text_field,
+            output_field,
+            k,
+            threshold,
+            model,
+        })
+    }
+
+	fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+		// ---- 1. pull raw text ---------------------------------------------------
+		let raw_text = json_get(&data, &self.text_field)
+			.unwrap()                // adjust to your own error style if needed
+			.as_str()
+			.unwrap();
+
+		// ---- 2. prepare_fasttext_line() in Rust --------------------------------
+		// 2-a. collapse all whitespace (including newlines) to single spaces
+		let mut tokens: Vec<&str> = raw_text.split_whitespace().collect();
+
+		// 2-b. truncate if > 4 000 words
+		const MAX_WORDS: usize = 4_000;
+		if tokens.len() > MAX_WORDS {
+			let words_per_side = MAX_WORDS / 2; // 2 000
+			let mut truncated = Vec::with_capacity(MAX_WORDS + 5);
+
+			truncated.extend_from_slice(&tokens[..words_per_side]);
+			truncated.extend_from_slice(&["...", "[middle", "section", "truncated]", "..."]);
+			truncated.extend_from_slice(&tokens[tokens.len() - words_per_side..]);
+
+			tokens = truncated;
+		}
+
+		// 2-c. re-join into a single line & add the final newline FastText wants
+		let mut text = tokens.join(" ");
+		text.push('\n');
+		// ------------------------------------------------------------------------
+
+		let predictions = self.model.predict(&text, self.k, self.threshold).unwrap();
+
+        let mut map = serde_json::Map::new();
+        for pred in predictions {
+            map.insert(pred.label.clone(), json!(pred.prob));
+        }
+        let pred_json = Value::Object(map);
+        json_set(&mut data, &self.output_field, pred_json).unwrap();
+        Ok(Some(data))
+	}
+
 }
 
 #[derive(Serialize, Debug)]
