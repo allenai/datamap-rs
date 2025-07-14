@@ -4,4 +4,4 @@ pipeline:
   - name: allow_list_filter
     kwargs:
       attribute_field: metadata.Source-File
-      deny_list_file: "/mnt/raid0/all_take34_take36_take37_paths.txt"
+      allow_list_file: "/mnt/raid0/all_take34_take36_take37_paths.txt"

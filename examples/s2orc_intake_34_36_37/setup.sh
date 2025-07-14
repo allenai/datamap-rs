@@ -8,6 +8,7 @@ set -e
 # Grab the list of BLESSED paths that s2orc can have
 aws s3 cp s3://ai2-oe-data/jakep/kylesqMay2025/all_take34_take36_take37_paths.txt /mnt/raid0/all_take34_take36_take37_paths.txt 
 
+mkdir -p /mnt/raid0/s2orc_full_0625_fos_tagged_partitioned_take34_36_37_filtered
 
 CATEGORIES=(
     agricultural-and-food-sciences
@@ -40,7 +41,9 @@ for CATEGORY in "${CATEGORIES[@]}"; do
   
  cargo run --release -- map \
     --input-dir "/mnt/raid0/s2orc_full_0625_fos_tagged_partitioned/${CATEGORY}" \
-    --output-dir "/mnt/raid0/s2orc_full_0625_fos_tagged_partitioned_take34_36_37_filtered/${CATEGORY}/" \
+    --output-dir "/mnt/raid0/s2orc_full_0625_fos_tagged_partitioned_take34_36_37_filtered_in_progress/${CATEGORY}/" \
     --config ./examples/s2orc_intake_34_36_37/config.yaml
+
+  mv /mnt/raid0/s2orc_full_0625_fos_tagged_partitioned_take34_36_37_filtered_in_progress/${CATEGORY}/step_final /mnt/raid0/s2orc_full_0625_fos_tagged_partitioned_take34_36_37_filtered/${CATEGORY}
 done
 
