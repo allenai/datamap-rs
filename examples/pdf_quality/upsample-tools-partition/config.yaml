@@ -1,0 +1,4 @@
+name: pdf_quality_partitioning
+value: metadata.fasttext.__label__high_quality
+default_value: 0.0
+percentile_groups: [0.25, 0.50, 0.75]

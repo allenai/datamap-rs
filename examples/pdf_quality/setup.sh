@@ -51,6 +51,6 @@ for CATEGORY in "${CATEGORIES[@]}"; do
   echo "Processing $CATEGORY..."
   cargo run --release -- map \
     --input-dir "/mnt/raid0/s2pdf_dedupe_minhash_v1_with_no_pii_basic_quality_datadelve_norefs_mdtables_v2_denylisted/${CATEGORY}/step_final/step_final" \
-    --output-dir "/mnt/raid0/s2pdf_dedupe_minhash_v1_with_no_pii_basic_quality_datadelve_norefs_mdtables_v2_denylisted_quality_top10p/${CATEGORY}/" \
+    --output-dir "/mnt/raid0/s2pdf_dedupe_minhash_v1_with_no_pii_basic_quality_datadelve_norefs_mdtables_v2_denylisted_quality_tagged/${CATEGORY}/" \
     --config ./examples/pdf_quality/config.yaml
 done

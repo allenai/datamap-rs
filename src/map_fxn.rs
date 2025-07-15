@@ -739,7 +739,7 @@ impl DataProcessor for FastTextPDFQualityClassifier {
 	fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
 		// ---- 1. pull raw text ---------------------------------------------------
 		let raw_text = json_get(&data, &self.text_field)
-			.unwrap()                // adjust to your own error style if needed
+			.unwrap()                
 			.as_str()
 			.unwrap();
 
@@ -760,12 +760,19 @@ impl DataProcessor for FastTextPDFQualityClassifier {
 			tokens = truncated;
 		}
 
+
 		// 2-c. re-join into a single line & add the final newline FastText wants
 		let mut text = tokens.join(" ");
 		text.push('\n');
 		// ------------------------------------------------------------------------
 
-		let predictions = self.model.predict(&text, self.k, self.threshold).unwrap();
+		let predictions = match self.model.predict(&text, self.k, self.threshold) {
+			Ok(preds) => preds,
+			Err(_e) => {
+				// If prediction fails, drop this document by returning None, this can happen for some bad utf bytes etc that happen very rarely
+				return Ok(None);
+			}
+		};
 
         let mut map = serde_json::Map::new();
         for pred in predictions {
