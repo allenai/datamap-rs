@@ -633,7 +633,14 @@ impl DataProcessor for FastTextAnnotator {
             .to_string()
             .replace("\n", " ");
         text.push_str("\n");
-        let predictions = self.model.predict(&text, self.k, self.threshold).unwrap();
+
+        let predictions = match self.model.predict(&text, self.k, self.threshold) {
+			Ok(preds) => preds,
+			Err(_e) => {
+				// If prediction fails, drop this document by returning None, this can happen for some bad utf bytes etc that happen very rarely
+				return Ok(None);
+			}
+		};
 
         let mut map = serde_json::Map::new();
         for pred in predictions {
@@ -748,7 +755,7 @@ pub struct PageLenFilter {
     pub ignore_punctuation: bool,
 }
 
-#[derive(Serialize, Debug, Clone, Copy)]
+#[derive(Serialize, Debug, Clone, Copy, PartialEq)]
 pub enum LengthType {
     Word,
     Sentence,
