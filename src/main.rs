@@ -1,5 +1,6 @@
 // External crates
 
+use dashmap::DashSet;
 use std::panic;
 use crate::serde_json::Value;
 use dashmap::DashMap;
@@ -31,6 +32,7 @@ pub mod partition;
 pub mod utils;
 use datamap_rs::map_fxn::PipelineProcessor;
 use datamap_rs::partition::partition;
+use datamap_rs::utils::json_get;
 pub use map_fxn::DataProcessor;
 /*
 Map Config layout:
@@ -105,6 +107,18 @@ enum Commands {
         #[arg(required = true, long)]
         config: PathBuf,
     },
+
+    UrlHunt {
+        #[arg(required = true, long)]
+        input_dir: PathBuf,
+
+        #[arg(required = true, long)]
+        output_dir: PathBuf,
+        
+        #[arg(required=true, long)]        
+        url_json: PathBuf,
+
+    }
 }
 
 /*============================================================
@@ -526,6 +540,86 @@ fn make_shard_writer(shard_name: PathBuf) -> Result<Encoder<'static, BufWriter<F
 }
 
 /*============================================================
+=                           URL HUNT                         =
+============================================================*/
+fn url_hunt(input_dir: &PathBuf, output_dir: &PathBuf, url: &PathBuf) -> Result<(), Error> {
+    let start_main = Instant::now();
+    println!("URL hunt for {:?}", input_dir);
+
+    println!("Loading url targets");
+    let urls = read_pathbuf_to_mem(url).unwrap().into_inner().into_inner();
+    let urls: Vec<String> = serde_json::from_value(serde_json::from_str(&String::from_utf8(urls).unwrap()).unwrap()).unwrap();
+    let url_counts : DashMap<String, usize> = urls.into_par_iter().map(|v| (v, 0)).collect();
+    let url_len = url_counts.len();
+
+    let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
+
+    println!("Searching for urls...");
+    let pbar = build_pbar(all_files.len(), "Paths");
+    let found_docs: Vec<Vec<u8>> = all_files.into_par_iter().flat_map(|p| {
+        let output = collect_url_docs(p, &url_counts).unwrap();
+        pbar.inc(1);
+        output
+    }).collect();
+    
+
+    println!("Making outputs...");
+    const OUTPUT_SIZE: usize = 256_000_000;
+    let mut shard_num = 0;
+    let mut cur_vec: Vec<u8> = Vec::new();
+    found_docs.into_iter().for_each(|v| {
+        cur_vec.extend(v);
+        cur_vec.push(b'\n');
+        if cur_vec.len() >= OUTPUT_SIZE {
+            let output_path = output_dir.clone().join(format!("shard_{:08}.jsonl.zst", shard_num));
+            write_mem_to_pathbuf(&cur_vec, &output_path).unwrap();
+            cur_vec.clear();
+            shard_num += 1;
+        }
+    });
+    if cur_vec.len() > 0 {
+        let output_path = output_dir.clone().join(format!("shard_{:08}.jsonl.zst", shard_num));
+        write_mem_to_pathbuf(&cur_vec, &output_path).unwrap();        
+    }
+
+    let frequencies: DashMap<usize, usize> = DashMap::new();
+    url_counts.into_par_iter().for_each(|(_k,v)| {
+        frequencies.entry(v).and_modify(|x| *x += 1).or_insert(1);
+    });
+    
+    println!("Finished url hunt in {:?} secs", start_main.elapsed().as_secs());
+    let zero_freq = frequencies.get(&0).map_or(0 , |v| *v);
+    println!("Searched for {:?} urls | found {:?} of them ", url_len, url_len - zero_freq);
+    println!("Frequencies (url-hit-count, num-times-this-occurred): {:?} frequencies", frequencies);
+    Ok(())
+}
+
+fn collect_url_docs(p: PathBuf, url_counts: &DashMap<String, usize>) -> Result<Vec<Vec<u8>>, Error> {
+    let mut output: Vec<Vec<u8>> = Vec::new();
+
+    let contents = read_pathbuf_to_mem(&p).unwrap();
+    for line in contents.lines() {
+        let line = line.unwrap();
+        let line_json: Value = serde_json::from_str(&line).unwrap();
+        let mut line_url = json_get(&line_json, "metadata.WARC-Target-URI");
+        line_url = if let Some(line_url) = line_url {
+            Some(line_url)
+        } else {
+            json_get(&line_json, "metadata.warc_url")
+        };
+        if line_url.is_none() {
+            continue
+        }
+        let line_url = line_url.unwrap().as_str().unwrap().to_string();
+        if let Some(mut cur_count) = url_counts.get_mut(&line_url) {
+            *cur_count += 1;
+            output.push(serde_json::to_vec(&line_json).unwrap());
+        }        
+    }
+    Ok(output)
+}
+
+/*============================================================
 =                            MAIN                            =
 ============================================================*/
 #[allow(unreachable_patterns)]
@@ -565,6 +659,11 @@ fn main() {
             output_dir,
             config,
         } => partition(input_dir, output_dir, config),
+        Commands::UrlHunt {
+            input_dir,
+            output_dir,
+            url_json
+        } => url_hunt(input_dir, output_dir, url_json),
         _ => Ok(()),
     };
     result.unwrap();
