@@ -806,7 +806,6 @@ Just output the refined text, no other text.
             req_content.push(b'\n');            
         }
         let output_path = create_suffixed_path(base_output_path, chunk_num);
-        println!("Trying output path {:?}", output_path);
         write_mem_to_pathbuf(&req_content, &output_path).unwrap();
         chunk_num += 1;
     }
