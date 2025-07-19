@@ -1,5 +1,6 @@
 // External crates
 
+use serde_json::json;
 use dashmap::DashSet;
 use std::panic;
 use crate::serde_json::Value;
@@ -14,6 +15,8 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
+use tiktoken_rs::get_bpe_from_model;
+
 
 use anyhow::{ensure, Error, Result};
 use clap::{Parser, Subcommand};
@@ -128,6 +131,15 @@ enum Commands {
         #[arg(required=true, long)]        
         output_dir: PathBuf,
     },
+
+
+    FrontierRequest {
+        #[arg(required=true, long)]
+        input_dir: PathBuf,
+
+        #[arg(required=true, long)]
+        output_dir: PathBuf,        
+    }
 }
 
 /*============================================================
@@ -702,6 +714,124 @@ fn get_urlscan_item(doc: &Value) -> Result<(String, String), Error> {
     Ok((cc_path, timestamp))
 }
 
+/*============================================================
+=                          FRONTIER                          =
+============================================================*/
+
+const REWRITE_TEMPLATE: &str = "Task:
+- Carefully analyze the provided text to extract key facts, concrete details, important numbers,
+and core concepts.
+- Remove any irrelevant or noisy information, and reorganize the content into a logically structured,
+information-dense, and concise version that is easy to learn from. Output only the refined text.
+- Strive to maintain the original length as much as possible (avoid excessive shortening).
+- Refine multiple choice questions and answers if any.
+Text:
+{}
+Just output the refined text, no other text.
+";
+
+fn frontier_request(input_dir: &PathBuf, output_dir: &PathBuf) -> Result<(), Error> {
+    let start_main = Instant::now();
+    println!("Making frontier requests...");
+
+    let input_paths = expand_dirs(vec![input_dir.clone()], None).unwrap();
+    let pbar = build_pbar(input_paths.len(), "Paths");
+    let total_reqs = AtomicUsize::new(0);
+    input_paths.par_iter().for_each(|p| {
+        let output_path = get_output_filename(p, input_dir, output_dir).unwrap();
+        let base_output_path = get_base_path(&output_path).unwrap();
+        let path_reqs = make_frontier_req(p, &base_output_path).unwrap();
+        total_reqs.fetch_add(path_reqs, Ordering::SeqCst);
+        pbar.inc(1);
+    });
+
+
+    println!("Made {:?} frontier requests in {:?} secs", total_reqs.into_inner(), start_main.elapsed().as_secs());
+    Ok(())
+}
+
+
+fn make_frontier_req(p: &PathBuf, base_output_path: &PathBuf) -> Result<usize, Error> {
+    let contents = read_pathbuf_to_mem(p).unwrap();
+    let bpe = get_bpe_from_model("gpt-4")?;
+
+    let mut req_count = 0;
+    let mut all_reqs : Vec<Value> = Vec::new();
+
+    for line in contents.lines() {
+        let line = line.unwrap();
+        let line_json: Value = serde_json::from_str(&line).unwrap();
+        let text = line_json.get("text").unwrap().as_str().unwrap().to_string();
+        if bpe.encode_with_special_tokens(&text).len() > 35_000 {
+            continue
+        }
+
+        let request = json!({
+            "custom_id": line_json.get("id").unwrap().as_str().unwrap().to_string(),
+            "method": "POST", 
+            "url": "/v1/chat/completions",
+            "body": {
+                "model": "Qwen/Qwen3-32B",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You are a helpful assistant."
+                    },
+                    {
+                        "role": "user", 
+                        "content": format!("Task:
+- Carefully analyze the provided text to extract key facts, concrete details, important numbers,
+and core concepts.
+- Remove any irrelevant or noisy information, and reorganize the content into a logically structured,
+information-dense, and concise version that is easy to learn from. Output only the refined text.
+- Strive to maintain the original length as much as possible (avoid excessive shortening).
+- Refine multiple choice questions and answers if any.
+Text:
+{}
+Just output the refined text, no other text.
+", text)
+                    }
+                ],
+                "max_tokens": 4096
+            }
+        });
+        all_reqs.push(request);
+        req_count += 1;    
+    }
+    let mut chunk_num = 0;
+    for chunk in all_reqs.chunks(1000) {
+        let mut req_content : Vec<u8> = Vec::new();
+        for el in chunk {
+            req_content.extend(serde_json::to_vec(&el).unwrap());
+            req_content.push(b'\n');            
+        }
+        let output_path = create_suffixed_path(base_output_path, chunk_num);
+        write_mem_to_pathbuf(&req_content, &output_path).unwrap();
+        chunk_num += 1;
+    }
+    Ok(req_count)
+
+}
+
+fn get_base_path(input: &PathBuf) -> Option<PathBuf> {
+    let parent = input.parent()?;
+    let stem = input.file_stem()?.to_str()?;
+    
+    // Remove .jsonl if it's part of the stem
+    let base_name = if let Some(base) = stem.strip_suffix(".jsonl") {
+        base
+    } else {
+        stem
+    };
+    
+    Some(parent.join(base_name))
+}
+
+fn create_suffixed_path(base: &PathBuf, i: i32) -> PathBuf {
+    let suffixed_name = format!("{}_{:04}.jsonl", base.file_name().unwrap().to_str().unwrap(), i);
+    base.parent().unwrap_or(&PathBuf::new()).join(suffixed_name)
+}
+
 
 /*============================================================
 =                            MAIN                            =
@@ -749,9 +879,11 @@ fn main() {
             url_json
         } => url_hunt(input_dir, output_dir, url_json),
         Commands::UrlScan {
-            gold_dir, raw_dir, output_dir
-            
+            gold_dir, raw_dir, output_dir            
         } => url_scan(gold_dir, raw_dir, output_dir),
+        Commands::FrontierRequest {
+            input_dir, output_dir
+        } => frontier_request(input_dir, output_dir),
         _ => Ok(()),
     };
     result.unwrap();
