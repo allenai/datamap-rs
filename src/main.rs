@@ -697,7 +697,7 @@ fn keep_gold_docs(p: &PathBuf, gold_items: &DashSet<(String, String)>, output_pa
 
 
 fn get_urlscan_item(doc: &Value) -> Result<(String, String), Error> {
-    let cc_path = doc.get("cc-path").unwrap().as_str().unwrap().to_string();
+    let cc_path = doc.get("url").unwrap().as_str().unwrap().to_string();
     let timestamp = doc.get("timestamp").unwrap().as_str().unwrap().to_string();    
     Ok((cc_path, timestamp))
 }
