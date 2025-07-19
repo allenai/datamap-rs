@@ -117,8 +117,17 @@ enum Commands {
         
         #[arg(required=true, long)]        
         url_json: PathBuf,
+    },
+    UrlScan {
+        #[arg(required = true, long)]
+        gold_dir: PathBuf,
 
-    }
+        #[arg(required = true, long)]
+        raw_dir: PathBuf,
+        
+        #[arg(required=true, long)]        
+        output_dir: PathBuf,
+    },
 }
 
 /*============================================================
@@ -619,6 +628,81 @@ fn collect_url_docs(p: PathBuf, url_counts: &DashMap<String, usize>) -> Result<V
     Ok(output)
 }
 
+fn url_scan(gold_dir: &PathBuf, raw_dir: &PathBuf, output_dir: &PathBuf) -> Result<(), Error> {
+    let start_main = Instant::now();
+    println!("Starting url scan...");
+
+
+    let gold_paths = expand_dirs(vec![gold_dir.clone()], None).unwrap();
+    let gold_pbar = build_pbar(gold_paths.len(), "Gold paths");
+    let gold_items: DashSet<(String, String)> = DashSet::new();
+    gold_paths.par_iter().for_each(|p| {
+        collect_gold_items(p, &gold_items).unwrap();
+        gold_pbar.inc(1);
+    });
+
+    let raw_paths = expand_dirs(vec![raw_dir.clone()], None).unwrap();
+    let raw_pbar = build_pbar(raw_paths.len(), "Raw paths");
+    let full_kept = AtomicUsize::new(0);
+    raw_paths.par_iter().for_each(|p| {
+        let output_path = get_output_filename(p, raw_dir, output_dir).unwrap();
+        let kept_docs = keep_gold_docs(p, &gold_items, &output_path).unwrap();
+        full_kept.fetch_add(kept_docs, Ordering::SeqCst);
+        raw_pbar.inc(1);
+    });
+
+    let full_kept = full_kept.into_inner();
+
+    println!("Finished url scan in {:?} secs", start_main.elapsed().as_secs());
+    println!("Saw {:?} of the {:?} gold docs | {:.2}", full_kept, gold_items.len(), (100.0 * full_kept as f32 / gold_items.len() as f32));
+
+
+    Ok(())
+}
+
+fn collect_gold_items(p: &PathBuf, gold_items: &DashSet<(String, String)>) -> Result<(), Error> {
+    let contents = read_pathbuf_to_mem(&p).unwrap();
+    for line in contents.lines() {
+        let line = line.unwrap();
+        let line_json: Value = serde_json::from_str(&line).unwrap();
+        let item = get_urlscan_item(&line_json).unwrap();
+        gold_items.insert(item);
+    }
+    Ok(())
+
+}
+
+fn keep_gold_docs(p: &PathBuf, gold_items: &DashSet<(String, String)>, output_path: &PathBuf) -> Result<usize, Error> {
+    let mut kept_docs = 0;
+    let mut output: Vec<u8> = Vec::new();
+    let contents = read_pathbuf_to_mem(&p).unwrap();
+
+    for line in contents.lines() {
+        let line = line.unwrap();
+        let line_json: Value = serde_json::from_str(&line).unwrap();
+        let item = get_urlscan_item(&line_json).unwrap();
+        if gold_items.contains(&item) {
+            kept_docs += 1;
+            output.extend(serde_json::to_vec(&line_json).unwrap());
+            output.push(b'\n');
+        }
+    }
+
+    if kept_docs > 0 {
+        write_mem_to_pathbuf(&output, output_path).unwrap();
+    }
+
+    Ok(kept_docs)
+}
+
+
+fn get_urlscan_item(doc: &Value) -> Result<(String, String), Error> {
+    let cc_path = doc.get("cc-path").unwrap().as_str().unwrap().to_string();
+    let timestamp = doc.get("timestamp").unwrap().as_str().unwrap().to_string();    
+    Ok((cc_path, timestamp))
+}
+
+
 /*============================================================
 =                            MAIN                            =
 ============================================================*/
@@ -664,6 +748,10 @@ fn main() {
             output_dir,
             url_json
         } => url_hunt(input_dir, output_dir, url_json),
+        Commands::UrlScan {
+            gold_dir, raw_dir, output_dir
+            
+        } => url_scan(gold_dir, raw_dir, output_dir),
         _ => Ok(()),
     };
     result.unwrap();
