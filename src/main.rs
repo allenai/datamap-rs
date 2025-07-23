@@ -138,7 +138,10 @@ enum Commands {
         input_dir: PathBuf,
 
         #[arg(required=true, long)]
-        output_dir: PathBuf,        
+        output_dir: PathBuf,  
+
+        #[arg(required=true, long)]
+        flavor: String,          
     }
 }
 
@@ -729,50 +732,7 @@ Text:
 {}
 Just output the refined text, no other text.
 ";
-
-fn frontier_request(input_dir: &PathBuf, output_dir: &PathBuf) -> Result<(), Error> {
-    let start_main = Instant::now();
-    println!("Making frontier requests...");
-
-    let input_paths = expand_dirs(vec![input_dir.clone()], None).unwrap();
-    let pbar = build_pbar(input_paths.len(), "Paths");
-    let total_reqs = AtomicUsize::new(0);
-    input_paths.par_iter().for_each(|p| {
-        let output_path = get_output_filename(p, input_dir, output_dir).unwrap();
-        let base_output_path = get_base_path(&output_path).unwrap();
-        let path_reqs = make_frontier_req(p, &base_output_path).unwrap();
-        total_reqs.fetch_add(path_reqs, Ordering::SeqCst);
-        pbar.inc(1);
-    });
-
-
-    println!("Made {:?} frontier requests in {:?} secs", total_reqs.into_inner(), start_main.elapsed().as_secs());
-    Ok(())
-}
-
-
-fn make_frontier_req(p: &PathBuf, base_output_path: &PathBuf) -> Result<usize, Error> {
-    let contents = read_pathbuf_to_mem(p).unwrap();
-    let bpe = get_bpe_from_model("gpt-4")?;
-
-    let mut req_count = 0;
-    let mut all_reqs : Vec<Value> = Vec::new();
-
-    for line in contents.lines() {
-        let line = line.unwrap();
-        let line_json: Value = serde_json::from_str(&line).unwrap();
-        let text = line_json.get("text").unwrap().as_str().unwrap().to_string();
-        if bpe.encode_with_special_tokens(&text).len() > 35_000 {
-            continue
-        }
-
-        let request = json!({
-            "custom_id": line_json.get("id").unwrap().as_str().unwrap().to_string(),
-            "method": "POST", 
-            "url": "/v1/chat/completions",
-            "body": {
-                "model": "Qwen/Qwen3-32B",
-                "messages": [
+/*
                     {
                         "role": "system",
                         "content": "You are a helpful assistant."
@@ -791,7 +751,112 @@ Text:
 Just output the refined text, no other text.
 ", text)
                     }
-                ],
+*/
+
+
+fn make_message(text: &str, flavor: &str) -> Result<Value, Error> {
+
+    let message = match flavor {
+        "swallowcode_sgcr" => {
+            json!([{"role": "system", "content": "You are a smart software engineer. Please evaluate the following code on a scale of 1 to 10 based on the following criteria:\n
+1. Are variable names descriptive and consistent with naming conventions?
+2. Are comments and doc-strings appropriately written to explain the purpose and functionality of the code?
+3. Are type annotations used effectively where applicable?
+4. Are functions appropriately modularized, with well-defined responsibilities and clear separation of concerns?
+5. Are variables' lifetimes intentionally managed, avoiding frequent reassignment or overly long scopes?
+6. Is error handling implemented appropriately where necessary?
+7. Is the code properly indented and follows standard formatting guidelines?
+8. Do comments provide context and rationale, rather than merely describing what the code does?
+9. Are functions and classes designed with clear, single responsibilities?
+10. Is the code formatted in a way that enhances readability?\n\n
+And provide suggestions for improvement based on the evaluation criteria. You can also provide an improved version of the code like the following style:\n
+### Evaluation: 7\n\n
+### Suggestions:\n
+    Provide specific, actionable suggestions to improve the code based on the evaluation criteria.\n\n
+### Improved Code:\n
+Provide a revised version of the code incorporating the suggested improvements.\n
+```python\n
+def improved_function(arg1: int, arg2: str) -> str:
+    # Your improved code here
+    pass
+```\n\n
+"}, 
+            {"role": "user", "content": text}])
+        },
+    "swallowcode_scor" => {json!([{"role": "system", "content": "You are a smart software engineer. Please change a given code into self-contained and well-structured code following the below best practices and pythonic way.
+1. Use meaningful variable and function names.
+2. Write a clear and concise docstring for the function.
+3. Use type hints for the function signature.
+4. Write a clear and concise comment for the code block.
+5. Ensure the code is self-contained and does not depend on external variables.
+6. Ensure the code is well-structured and easy to read.
+7. Ensure the code is free of errors and runs correctly.
+8. Ensure the code is optimized and does not have redundant operations.
+9. Ensure the algorithm and data structures are efficient and concise.
+
+If given code is not self-contained or too simple, please change it to a more educational and useful code.
+"}, 
+        {"role": "user", "content": text}])
+        },    
+        _ => json!({})
+    };
+
+    Ok(message)
+}
+
+
+
+fn frontier_request(input_dir: &PathBuf, output_dir: &PathBuf, flavor: &str) -> Result<(), Error> {
+    let start_main = Instant::now();
+    println!("Making frontier requests...");
+
+    let input_paths = expand_dirs(vec![input_dir.clone()], None).unwrap();
+    let pbar = build_pbar(input_paths.len(), "Paths");
+    let total_reqs = AtomicUsize::new(0);
+    input_paths.par_iter().for_each(|p| {
+        let output_path = get_output_filename(p, input_dir, output_dir).unwrap();
+        let base_output_path = get_base_path(&output_path).unwrap();
+        let path_reqs = make_frontier_req(p, &base_output_path, flavor).unwrap();
+        total_reqs.fetch_add(path_reqs, Ordering::SeqCst);
+        pbar.inc(1);
+    });
+
+
+    println!("Made {:?} frontier requests in {:?} secs", total_reqs.into_inner(), start_main.elapsed().as_secs());
+    Ok(())
+}
+
+
+fn make_frontier_req(p: &PathBuf, base_output_path: &PathBuf, flavor: &str) -> Result<usize, Error> {
+    let contents = read_pathbuf_to_mem(p).unwrap();
+    let bpe = get_bpe_from_model("gpt-4")?;
+
+    let mut req_count = 0;
+    let mut all_reqs : Vec<Value> = Vec::new();
+
+
+    let model = match flavor {
+        "swallowcode_scor" => "Qwen/Qwen2.5-Coder-32B-Instruct",
+        "swallowcode_sgcr" => "Qwen/Qwen2.5-Coder-32B-Instruct",
+        _ => panic!("{}", format!("Unknown flavor {:?}", flavor))
+    };
+
+
+    for line in contents.lines() {
+        let line = line.unwrap();
+        let line_json: Value = serde_json::from_str(&line).unwrap();
+        let text = line_json.get("text").unwrap().as_str().unwrap().to_string();
+        if bpe.encode_with_special_tokens(&text).len() > 35_000 {
+            continue
+        }
+
+        let request = json!({
+            "custom_id": line_json.get("id").unwrap().as_str().unwrap().to_string(),
+            "method": "POST", 
+            "url": "/v1/chat/completions",
+            "body": {
+                "model": model,
+                "messages": make_message(&text, flavor).unwrap(),
                 "max_tokens": 4096
             }
         });
@@ -882,8 +947,8 @@ fn main() {
             gold_dir, raw_dir, output_dir            
         } => url_scan(gold_dir, raw_dir, output_dir),
         Commands::FrontierRequest {
-            input_dir, output_dir
-        } => frontier_request(input_dir, output_dir),
+            input_dir, output_dir, flavor
+        } => frontier_request(input_dir, output_dir, flavor),
         _ => Ok(()),
     };
     result.unwrap();
