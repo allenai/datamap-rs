@@ -841,6 +841,12 @@ fn make_frontier_req(p: &PathBuf, base_output_path: &PathBuf, flavor: &str) -> R
         _ => panic!("{}", format!("Unknown flavor {:?}", flavor))
     };
 
+    let id_key = match flavor {
+        "swallowcode_scor" => "blob_id",
+        "swallowcode_sgcr" => "blob_id",
+        _ => "id"
+    };
+
 
     for line in contents.lines() {
         let line = line.unwrap();
@@ -851,7 +857,7 @@ fn make_frontier_req(p: &PathBuf, base_output_path: &PathBuf, flavor: &str) -> R
         }
 
         let request = json!({
-            "custom_id": line_json.get("id").unwrap().as_str().unwrap().to_string(),
+            "custom_id": line_json.get(id_key).unwrap().as_str().unwrap().to_string(),
             "method": "POST", 
             "url": "/v1/chat/completions",
             "body": {
