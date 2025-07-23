@@ -1,5 +1,6 @@
 // External crates
 
+use xxhash_rust::xxh3::xxh3_64;
 use serde_json::json;
 use dashmap::DashSet;
 use std::panic;
@@ -798,6 +799,14 @@ If given code is not self-contained or too simple, please change it to a more ed
 "}, 
         {"role": "user", "content": text}])
         },    
+
+        "swallowmath" => {
+            json!([{"role": "system", "content": "You are an intelligent math tutor. You are given the following math problem and answer with some unnecessary parts. Please remove the unneeded parts of the questions. For example, the date of the question submitted, the answer date, the privacy policy, the footer, the header, etc, should be removed. However, please keep the main question and answer.\nIf questions or answers lack some information or are not elaborate, please make them more informative and easy to understand. If needed, please add more detail about the step-by-step calculation process.\n\nHere is the example:"},
+                   {"role": "user", "content": "UBS Interview Question: What is the sum of 1-40?... | Glassdoor\n\n# What is the sum of 1-40?\n\n0\n\n820\n\nInterview Candidate on Feb 11, 2010\n2\n\nWe can have the sum by using the following formula\nN * (N + 1) / 2\n\nSo we have:\n40 * (40 + 1) / 2 = 820\n\nblue on Mar 21, 2010\n0\n\nSince he isn't asking to sum all the numbers from 1 to 40:\n\nsum of 1 and 40 = 41\nOR\nsum of 1 + -40 = -39\n \nEvandro on Dec 30, 2010\n3\n\nAny sum like this is easy. take the lowest and highest... 1 +40 = 41, then the next highest and the next lowest. 2 + 39 = 41. Realize that there are 20 such pairs. 20 * 41 =  820.\nFor the numbers 1 - 100, 1 + 100 = 101, 2 + 99 = 101; there are 50 such pairs, so 50 * 101 = 5050\n\nscienceguy on Jan 11, 2011\n1\n\nhttp://brainteaserbible.com/interview-brainteaser-sum-of-the-num bers-from-1-to-50\n\nan87 on Jun 13, 2011 "},
+                   {"role": "assistant", "content": "What is the sum of 1-40?\n\nWe can have the sum by using the following formula\nN * (N + 1) / 2\n\nSo we have:\n40 * (40 + 1) / 2 = 820\n\n#### 820"},
+                   {"role": "user", "content": text}
+            ])
+        }
         _ => json!({})
     };
 
@@ -838,12 +847,14 @@ fn make_frontier_req(p: &PathBuf, base_output_path: &PathBuf, flavor: &str) -> R
     let model = match flavor {
         "swallowcode_scor" => "Qwen/Qwen2.5-Coder-32B-Instruct",
         "swallowcode_sgcr" => "Qwen/Qwen2.5-Coder-32B-Instruct",
+        "swallowmath" => "Qwen/Qwen3-32B",
         _ => panic!("{}", format!("Unknown flavor {:?}", flavor))
     };
 
     let id_key = match flavor {
         "swallowcode_scor" => "blob_id",
         "swallowcode_sgcr" => "blob_id",
+        "swallowmath" => "<<HASH>>",
         _ => "id"
     };
 
@@ -856,8 +867,14 @@ fn make_frontier_req(p: &PathBuf, base_output_path: &PathBuf, flavor: &str) -> R
             continue
         }
 
+        let custom_id = if id_key == "<<HASH>>" {
+            format!("{}", xxh3_64(text.as_bytes()))
+        } else {
+            line_json.get(id_key).unwrap().as_str().unwrap().to_string()
+        };
+
         let request = json!({
-            "custom_id": line_json.get(id_key).unwrap().as_str().unwrap().to_string(),
+            "custom_id": custom_id,
             "method": "POST", 
             "url": "/v1/chat/completions",
             "body": {
