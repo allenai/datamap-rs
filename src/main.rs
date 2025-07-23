@@ -635,7 +635,7 @@ fn url_scan(gold_dir: &PathBuf, raw_dir: &PathBuf, output_dir: &PathBuf) -> Resu
 
     let gold_paths = expand_dirs(vec![gold_dir.clone()], None).unwrap();
     let gold_pbar = build_pbar(gold_paths.len(), "Gold paths");
-    let gold_items: DashSet<(String, String)> = DashSet::new();
+    let gold_items: DashSet<String> = DashSet::new();
     gold_paths.par_iter().for_each(|p| {
         collect_gold_items(p, &gold_items).unwrap();
         gold_pbar.inc(1);
@@ -660,7 +660,7 @@ fn url_scan(gold_dir: &PathBuf, raw_dir: &PathBuf, output_dir: &PathBuf) -> Resu
     Ok(())
 }
 
-fn collect_gold_items(p: &PathBuf, gold_items: &DashSet<(String, String)>) -> Result<(), Error> {
+fn collect_gold_items(p: &PathBuf, gold_items: &DashSet<String>) -> Result<(), Error> {
     let contents = read_pathbuf_to_mem(&p).unwrap();
     for line in contents.lines() {
         let line = line.unwrap();
@@ -672,7 +672,7 @@ fn collect_gold_items(p: &PathBuf, gold_items: &DashSet<(String, String)>) -> Re
 
 }
 
-fn keep_gold_docs(p: &PathBuf, gold_items: &DashSet<(String, String)>, output_path: &PathBuf) -> Result<usize, Error> {
+fn keep_gold_docs(p: &PathBuf, gold_items: &DashSet<String>, output_path: &PathBuf) -> Result<usize, Error> {
     let mut kept_docs = 0;
     let mut output: Vec<u8> = Vec::new();
     let contents = read_pathbuf_to_mem(&p).unwrap();
@@ -696,10 +696,9 @@ fn keep_gold_docs(p: &PathBuf, gold_items: &DashSet<(String, String)>, output_pa
 }
 
 
-fn get_urlscan_item(doc: &Value) -> Result<(String, String), Error> {
-    let cc_path = doc.get("url").unwrap().as_str().unwrap().to_string();
-    let timestamp = doc.get("timestamp").unwrap().as_str().unwrap().to_string();    
-    Ok((cc_path, timestamp))
+fn get_urlscan_item(doc: &Value) -> Result<String, Error> {
+    let blob_id = doc.get("blob_id").unwrap().as_str().unwrap().to_string();
+    Ok(blob_id)
 }
 
 
