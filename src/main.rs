@@ -989,7 +989,7 @@ fn frontier_req_map(frontier_file: &PathBuf, frontier_map: &DashMap<String, Stri
         let choices = json_get(&line_json, "response.body.choices").unwrap();
         if let Value::Array(array) = choices {
             let first_choice: &Value = array.first().unwrap();
-            let content = json_get(&first_choice, "content").unwrap().as_str().unwrap().to_string();
+            let content = json_get(&first_choice, "message.content").unwrap().as_str().unwrap().to_string();
             frontier_map.insert(custom_id, content.clone());
         }
     }
