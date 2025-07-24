@@ -990,8 +990,10 @@ fn frontier_req_map(frontier_file: &PathBuf, frontier_map: &DashMap<String, Stri
         if let Value::Array(array) = choices {
             let first_choice: &Value = array.first().unwrap();
             if let Some(message_content) = json_get(&first_choice, "message.content") {
-                let content = message_content.as_str().unwrap().to_string();
-                frontier_map.insert(custom_id, content.clone());
+                if let Some(content_str) = message_content.as_str() {
+                    let content = content_str.to_string();
+                    frontier_map.insert(custom_id, content.clone());
+                }
             }
         }
     }
