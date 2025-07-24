@@ -36,7 +36,7 @@ pub mod partition;
 pub mod utils;
 use datamap_rs::map_fxn::PipelineProcessor;
 use datamap_rs::partition::partition;
-use datamap_rs::utils::json_get;
+use datamap_rs::utils::{json_get, json_set};
 pub use map_fxn::DataProcessor;
 /*
 Map Config layout:
@@ -143,6 +143,21 @@ enum Commands {
 
         #[arg(required=true, long)]
         flavor: String,          
+    },
+
+
+    FrontierMerge {
+        #[arg(required=true, long)]
+        og_dir: PathBuf,
+
+        #[arg(required=true, long)]
+        frontier_dir: PathBuf,
+
+        #[arg(required=true, long)]
+        og_id: String,
+
+        #[arg(required=true, long)]
+        output_dir: PathBuf,          
     }
 }
 
@@ -921,6 +936,98 @@ fn create_suffixed_path(base: &PathBuf, i: i32) -> PathBuf {
 }
 
 
+fn frontier_merge(og_dir: &PathBuf, frontier_dir: &PathBuf, og_id: &String, output_dir: &PathBuf) -> Result<(), Error> {
+    /* Looks for original files in 'og_dir' and frontier output files in 'frontier_dir', moves the elements in og_dir.text field -> og_dir.original_text
+       and replaces with the new frontier text
+    */
+    let start_main = Instant::now();
+    println!("Merging frontier requests");
+    let og_files = expand_dirs(vec![og_dir.clone()], None).unwrap();
+    let frontier_files = expand_dirs(vec![frontier_dir.clone()], None).unwrap();
+
+    println!("Making frontier req map");
+    let start_frontier_main = Instant::now();
+    let frontier_map : DashMap<String, String> = DashMap::new();
+    let pbar = build_pbar(frontier_files.len(), "Frontier files");
+    frontier_files.into_par_iter().for_each(|p| {
+        frontier_req_map(&p, &frontier_map).unwrap();
+        pbar.inc(1);
+    });
+    println!("Made frontier map in {:?} secs", start_frontier_main.elapsed().as_secs());
+
+    println!("Making matches...");
+    let pbar = build_pbar(og_files.len(), "Og files");
+    let num_matches = AtomicUsize::new(0);
+    let num_og_docs = AtomicUsize::new(0);
+    og_files.par_iter().for_each(|p| {
+        let output_path = get_output_filename(p, og_dir, output_dir).unwrap();
+        let (num_path_matches, num_path_docs) = merge_frontier_file(p, og_id, &frontier_map, &output_path).unwrap();
+        num_matches.fetch_add(num_path_matches, Ordering::SeqCst);
+        num_og_docs.fetch_add(num_path_docs, Ordering::SeqCst);
+        pbar.inc(1);
+    });  
+    let num_matches = num_matches.into_inner();
+    let num_og_docs = num_og_docs.into_inner();
+
+    println!("Merged frontier files in {:?} secs", start_main.elapsed().as_secs());
+    println!("Saw {:?} original docs | Saw {:?} completed requests | Made {:?} matches", 
+             num_og_docs, frontier_map.len(), num_matches);
+    Ok(())
+}
+
+
+fn frontier_req_map(frontier_file: &PathBuf, frontier_map: &DashMap<String, String>) -> Result<(), Error> {
+    let contents = read_pathbuf_to_mem(frontier_file).unwrap();
+    for line in contents.lines() {
+        let line = line.unwrap();
+        let line_json: Value = serde_json::from_str(&line).unwrap();
+        let status_code = json_get(&line_json, "response.status_code").unwrap().as_u64().unwrap();
+        if status_code != 200 {
+            continue;
+        }
+        let custom_id = json_get(&line_json, "custom_id").unwrap().as_str().unwrap().to_string();
+        let choices = json_get(&line_json, "response.body.choices").unwrap();
+        if let Value::Array(array) = choices {
+            let first_choice: &Value = array.first().unwrap();
+            let content = json_get(&first_choice, "content").unwrap().as_str().unwrap().to_string();
+            frontier_map.insert(custom_id, content.clone());
+        }
+    }
+    Ok(())
+}
+
+fn merge_frontier_file(p: &PathBuf, og_id: &String, frontier_map: &DashMap<String, String>, output_path: &PathBuf) -> Result<(usize, usize), Error> {
+    let mut num_path_matches = 0;
+    let mut num_path_docs = 0;
+    let mut output_contents: Vec<u8> = Vec::new();
+    let contents = read_pathbuf_to_mem(p).unwrap();
+
+    for line in contents.lines() {
+        num_path_docs += 1;
+        let line = line.unwrap();
+        let line_json : Value = serde_json::from_str(&line).unwrap();
+        let line_id = json_get(&line_json, og_id).unwrap().as_str().unwrap().to_string();
+        if !frontier_map.contains_key(&line_id) {
+            continue;
+        }
+        let mut line_json = line_json.clone();
+        let original_text = json_get(&line_json, "text").unwrap().as_str().unwrap().to_string();
+        //json_set(/* &mut serde_json::Value */, /* &std::string::String */, line_json);
+        json_set(&mut line_json, &String::from("original_text"), json!(original_text)).unwrap();
+        json_set(&mut line_json, &String::from("text"), json!(*frontier_map.get(&line_id).unwrap())).unwrap();
+        num_path_matches += 1;
+        output_contents.extend(serde_json::to_vec(&line_json).unwrap());
+        output_contents.push(b'\n');
+    }
+
+    if output_contents.len() > 0 {
+        write_mem_to_pathbuf(&output_contents, output_path).unwrap();
+    }
+
+    Ok((num_path_matches, num_path_docs))
+}
+
+
 /*============================================================
 =                            MAIN                            =
 ============================================================*/
@@ -972,6 +1079,9 @@ fn main() {
         Commands::FrontierRequest {
             input_dir, output_dir, flavor
         } => frontier_request(input_dir, output_dir, flavor),
+        Commands::FrontierMerge {
+            og_dir, frontier_dir, og_id, output_dir
+        } => frontier_merge(og_dir, frontier_dir, og_id, output_dir),    
         _ => Ok(()),
     };
     result.unwrap();
