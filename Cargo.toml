@@ -31,6 +31,33 @@ derivative = "2.2.0"
 fxhash = "0.2.1"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 
+tree-sitter = "0.20"
+syn = "2.0"
+swc_ecma_parser = "0.143"
+swc_common = "0.33"
+
+
+
+# For SQL parsing
+sqlparser = "0.39"
+
+# For markdown
+pulldown-cmark = "0.9"
+# Language-specific tree-sitter crates
+
+tree-sitter-c = "0.24.1"
+tree-sitter-cpp = "0.23.4"
+tree-sitter-python = "0.23.6"
+tree-sitter-go = "0.23.4"
+tree-sitter-java = "0.23.5"
+tree-sitter-javascript = "0.23.1"
+tree-sitter-typescript = "0.23.2"
+tree-sitter-ruby = "0.23.1"
+tree-sitter-php = "0.23.11"
+tree-sitter-bash = "0.25.0"
+tree-sitter-swift = "=0.7.1"
+
+
 [[test]]
 name = "tests"
 path = "tests/main.rs"
