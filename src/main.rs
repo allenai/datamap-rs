@@ -953,7 +953,7 @@ fn frontier_merge(og_dir: &PathBuf, frontier_dir: &PathBuf, og_id: &String, outp
         frontier_req_map(&p, &frontier_map).unwrap();
         pbar.inc(1);
     });
-    println!("Made frontier map in {:?} secs", start_frontier_main.elapsed().as_secs());
+    println!("Made frontier map in {:?} secs| {:?} entries", start_frontier_main.elapsed().as_secs(), frontier_map.len());
 
     println!("Making matches...");
     let pbar = build_pbar(og_files.len(), "Og files");
@@ -989,8 +989,10 @@ fn frontier_req_map(frontier_file: &PathBuf, frontier_map: &DashMap<String, Stri
         let choices = json_get(&line_json, "response.body.choices").unwrap();
         if let Value::Array(array) = choices {
             let first_choice: &Value = array.first().unwrap();
-            let content = json_get(&first_choice, "message.content").unwrap().as_str().unwrap().to_string();
-            frontier_map.insert(custom_id, content.clone());
+            if let Some(message_content) = json_get(&first_choice, "message.content") {
+                let content = message_content.as_str().unwrap().to_string();
+                frontier_map.insert(custom_id, content.clone());
+            }
         }
     }
     Ok(())
