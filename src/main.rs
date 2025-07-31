@@ -1010,12 +1010,17 @@ fn merge_frontier_file(p: &PathBuf, og_id: &String, frontier_map: &DashMap<Strin
         num_path_docs += 1;
         let line = line.unwrap();
         let line_json : Value = serde_json::from_str(&line).unwrap();
-        let line_id = json_get(&line_json, og_id).unwrap().as_str().unwrap().to_string();
+        let original_text = json_get(&line_json, "text").unwrap().as_str().unwrap().to_string();
+
+        let line_id = if og_id == "<<HASH>>" {
+            format!("{}", xxh3_64(original_text.as_bytes()))
+        } else {
+            json_get(&line_json, og_id).unwrap().as_str().unwrap().to_string()
+        };
         if !frontier_map.contains_key(&line_id) {
             continue;
         }
         let mut line_json = line_json.clone();
-        let original_text = json_get(&line_json, "text").unwrap().as_str().unwrap().to_string();
         //json_set(/* &mut serde_json::Value */, /* &std::string::String */, line_json);
         json_set(&mut line_json, &String::from("original_text"), json!(original_text)).unwrap();
         json_set(&mut line_json, &String::from("text"), json!(*frontier_map.get(&line_id).unwrap())).unwrap();
