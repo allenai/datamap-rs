@@ -1,0 +1,8 @@
+name: stack_edu
+text_field: text
+pipeline:
+  - name: string_regex_filter
+    kwargs:
+      str_field: id
+      regex: '^[01234567]'  # first half of id has a hex value
+      keep_matches: true

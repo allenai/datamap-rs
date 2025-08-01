@@ -59,6 +59,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "fasttext_annotator", FastTextAnnotator);
         register_processor!(m, "float_filter", FloatFilter);
         register_processor!(m, "string_eq_filter", StringEqFilter);
+        register_processor!(m, "string_regex_filter", StringRegexFilter);
         register_processor!(m, "page_len_filter", PageLenFilter);
         register_processor!(m, "word_len_filter", WordLenFilter);
         register_processor!(m, "symbol_ratio_filter", SymbolRatioFilter);
@@ -739,6 +740,47 @@ impl DataProcessor for StringEqFilter {
         let val = json_get(&data, &self.str_field).unwrap().as_str().unwrap().to_string();
 
         if (&val == &self.eq) == self.keep_matches {
+            return Ok(Some(data));
+        }
+        Ok(None)
+    }
+}
+
+
+#[derive(Serialize, Debug)]
+pub struct StringRegexFilter {
+    // Filters based on string regex
+    pub str_field: String,
+    pub keep_matches: bool,  // defaults to true, which means we keep docs that have this trait; o/w docs that don't
+    #[serde(skip)]
+    pub regex: Regex,
+}
+
+impl DataProcessor for StringRegexFilter {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let str_field = config
+            .get("str_field")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+        let regex_str = config
+            .get("regex")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let regex = Regex::new(&regex_str).unwrap();
+        let keep_matches = get_default(config, "keep_matches", true);
+
+        Ok(Self {str_field, regex, keep_matches})
+    }
+
+    fn process(&self, data: Value) -> Result<Option<Value>, Error> {
+        let val = json_get(&data, &self.str_field).unwrap().as_str().unwrap().to_string();
+
+        if self.regex.is_match(&val) == self.keep_matches {
             return Ok(Some(data));
         }
         Ok(None)
