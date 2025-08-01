@@ -882,7 +882,7 @@ fn make_frontier_req(p: &PathBuf, base_output_path: &PathBuf, flavor: &str, text
     for line in contents.lines() {
         let line = line.unwrap();
         let line_json: Value = serde_json::from_str(&line).unwrap();
-        let text = line_json.get(text_key).unwrap().as_str().unwrap().to_string();
+        let text = json_get(&line_json, text_key).unwrap().as_str().unwrap().to_string();
         if bpe.encode_with_special_tokens(&text).len() > 35_000 {
             continue
         }
