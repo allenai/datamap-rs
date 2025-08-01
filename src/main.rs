@@ -143,6 +143,9 @@ enum Commands {
 
         #[arg(required=true, long)]
         flavor: String,          
+
+        #[arg(long, default_value_t=String::from("text"))]
+        text_key: String
     },
 
 
@@ -830,7 +833,7 @@ If given code is not self-contained or too simple, please change it to a more ed
 
 
 
-fn frontier_request(input_dir: &PathBuf, output_dir: &PathBuf, flavor: &str) -> Result<(), Error> {
+fn frontier_request(input_dir: &PathBuf, output_dir: &PathBuf, flavor: &str, text_key: &String) -> Result<(), Error> {
     let start_main = Instant::now();
     println!("Making frontier requests...");
 
@@ -840,7 +843,7 @@ fn frontier_request(input_dir: &PathBuf, output_dir: &PathBuf, flavor: &str) -> 
     input_paths.par_iter().for_each(|p| {
         let output_path = get_output_filename(p, input_dir, output_dir).unwrap();
         let base_output_path = get_base_path(&output_path).unwrap();
-        let path_reqs = make_frontier_req(p, &base_output_path, flavor).unwrap();
+        let path_reqs = make_frontier_req(p, &base_output_path, flavor, text_key).unwrap();
         total_reqs.fetch_add(path_reqs, Ordering::SeqCst);
         pbar.inc(1);
     });
@@ -851,7 +854,7 @@ fn frontier_request(input_dir: &PathBuf, output_dir: &PathBuf, flavor: &str) -> 
 }
 
 
-fn make_frontier_req(p: &PathBuf, base_output_path: &PathBuf, flavor: &str) -> Result<usize, Error> {
+fn make_frontier_req(p: &PathBuf, base_output_path: &PathBuf, flavor: &str, text_key: &String) -> Result<usize, Error> {
     let contents = read_pathbuf_to_mem(p).unwrap();
     let bpe = get_bpe_from_model("gpt-4")?;
 
@@ -874,10 +877,12 @@ fn make_frontier_req(p: &PathBuf, base_output_path: &PathBuf, flavor: &str) -> R
     };
 
 
+
+
     for line in contents.lines() {
         let line = line.unwrap();
         let line_json: Value = serde_json::from_str(&line).unwrap();
-        let text = line_json.get("text").unwrap().as_str().unwrap().to_string();
+        let text = line_json.get(text_key).unwrap().as_str().unwrap().to_string();
         if bpe.encode_with_special_tokens(&text).len() > 35_000 {
             continue
         }
@@ -1086,8 +1091,8 @@ fn main() {
             gold_dir, raw_dir, output_dir            
         } => url_scan(gold_dir, raw_dir, output_dir),
         Commands::FrontierRequest {
-            input_dir, output_dir, flavor
-        } => frontier_request(input_dir, output_dir, flavor),
+            input_dir, output_dir, flavor, text_key
+        } => frontier_request(input_dir, output_dir, flavor, text_key),
         Commands::FrontierMerge {
             og_dir, frontier_dir, og_id, output_dir
         } => frontier_merge(og_dir, frontier_dir, og_id, output_dir),    
