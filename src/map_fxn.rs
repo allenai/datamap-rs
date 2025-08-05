@@ -2349,6 +2349,7 @@ pub struct MaxExtractor {
     pub main_attribute: String,
     pub lower_bound: f64, // defaults to 0.0
     pub output_attribute: String,
+    pub keep_nulls: bool, // defaults to true
 }
 
 
@@ -2357,8 +2358,8 @@ impl DataProcessor for MaxExtractor {
         let main_attribute = json_get(config, "main_attribute").unwrap().as_str().unwrap().to_string();
         let lower_bound: f64 = get_default(config, "lower_bound", 0.0);
         let output_attribute = json_get(config, "output_attribute").unwrap().as_str().unwrap().to_string();
-
-        Ok(Self {main_attribute, lower_bound, output_attribute})
+        let keep_nulls = get_default(config, "keep_nulls", true);
+        Ok(Self {main_attribute, lower_bound, output_attribute, keep_nulls})
     }
 
     fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
@@ -2377,9 +2378,14 @@ impl DataProcessor for MaxExtractor {
 
 
         if max_key.len() > 0 {
-            json_set(&mut data, &self.output_attribute, serde_json::Value::String(max_key)).unwrap();
-        }        
+            json_set(&mut data, &self.output_attribute, serde_json::Value::String(max_key)).unwrap();            
+        } else {
+            if !&self.keep_nulls {
+                return Ok(None);
+            }
+        }
         Ok(Some(data))
+
     }
 }
 
