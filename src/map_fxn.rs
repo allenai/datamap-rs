@@ -83,6 +83,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "interval_filter", IntervalFilter);
         register_processor!(m, "dd_max_getter", DDMaxGetter);
         register_processor!(m, "hash_annotator", HashAnnotator);
+        register_processor!(m, "max_extractor", MaxExtractor);
 
         m
     });
@@ -2338,6 +2339,49 @@ impl DataProcessor for DDMaxGetter {
     }
 }
 
+#[derive(Serialize, Debug)]
+pub struct MaxExtractor {
+    /*
+    - main_attribute points to a dict with str->key floats
+    - if the max value is >= lower bound (defaults to 0.0), sets the key to be the value of output_attribute
+    */
+
+    pub main_attribute: String,
+    pub lower_bound: f64, // defaults to 0.0
+    pub output_attribute: String,
+}
+
+
+impl DataProcessor for MaxExtractor {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let main_attribute = json_get(config, "main_attribute").unwrap().as_str().unwrap().to_string();
+        let lower_bound: f64 = get_default(config, "lower_bound", 0.0);
+        let output_attribute = json_get(config, "output_attribute").unwrap().as_str().unwrap().to_string();
+
+        Ok(Self {main_attribute, lower_bound, output_attribute})
+    }
+
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+        let mut max_key = String::from("");
+        let mut max_val: f64 = f64::MIN;
+        let input_dict = json_get(&data, &self.main_attribute).unwrap();
+        if let Value::Object(map) = input_dict {
+            for (key, value) in map {
+                let value = value.as_f64().unwrap();
+                if value >= max_val && value >= self.lower_bound {
+                    max_key = key.to_string();
+                    max_val = value;
+                }                
+            }
+        }
+
+
+        if max_key.len() > 0 {
+            json_set(&mut data, &self.output_attribute, serde_json::Value::String(max_key)).unwrap();
+        }        
+        Ok(Some(data))
+    }
+}
 
 
 
