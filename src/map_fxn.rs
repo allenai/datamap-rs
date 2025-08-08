@@ -84,6 +84,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "dd_max_getter", DDMaxGetter);
         register_processor!(m, "hash_annotator", HashAnnotator);
         register_processor!(m, "max_extractor", MaxExtractor);
+        register_processor!(m, "constant_annotator", ConstantAnnotator);
 
         m
     });
@@ -2428,6 +2429,28 @@ impl DataProcessor for HashAnnotator {
         };
 
         json_set(&mut data, &self.hash_destination, hash_val).unwrap();
+        Ok(Some(data))
+    }
+}
+
+
+#[derive(Serialize, Debug)]
+pub struct ConstantAnnotator {
+    // Adds a string into every json in a directory
+    pub key: String, // location of where we save the constant
+    pub value: String, // what we save    
+}
+
+impl DataProcessor for ConstantAnnotator {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let key = json_get(config, "key").unwrap().as_str().unwrap().to_string();
+        let value = json_get(config, "value").unwrap().as_str().unwrap().to_string();
+
+        Ok(Self { key, value })
+    }
+
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+        json_set(&mut data, &self.key, json!(&self.value)).unwrap();
         Ok(Some(data))
     }
 }
