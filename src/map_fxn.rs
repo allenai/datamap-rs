@@ -1,19 +1,22 @@
 
 use std::cmp;
 use std::time::Instant;
+use std::process::Command; 
 use crate::utils::{extract_subdomain, get_default, json_get, json_set};
 use aho_corasick::AhoCorasick;
 use anyhow::{anyhow, ensure, Error, Result};
 use once_cell::sync::Lazy;
 use rand::rng;
 use rand::Rng;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use serde_json;
 use serde_json::{json, Value};
 use std::collections::VecDeque;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
-use std::io::BufRead;
+use std::io::{BufRead, Write};
+use tempfile::NamedTempFile;
+
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -26,6 +29,8 @@ use url::Url;
 use xxhash_rust::xxh3::{xxh3_128, xxh3_64};
 use once_cell::sync::OnceCell;
 use derivative::Derivative;
+use rustpython_parser::{Mode, parse};
+
 //use mj_io::build_pbar;
 
 /*================================================================================
@@ -85,7 +90,8 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "hash_annotator", HashAnnotator);
         register_processor!(m, "max_extractor", MaxExtractor);
         register_processor!(m, "constant_annotator", ConstantAnnotator);
-
+        register_processor!(m, "python_compile_filter", PythonCompileFilter);
+        register_processor!(m, "ruff_linter_annotator", RuffLinterAnnotator);
         m
     });
 
@@ -2453,4 +2459,377 @@ impl DataProcessor for ConstantAnnotator {
         json_set(&mut data, &self.key, json!(&self.value)).unwrap();
         Ok(Some(data))
     }
+}
+
+
+#[derive(Serialize, Debug)]
+pub struct PythonCompileFilter {
+    pub text_field: String,  // Field that contains the python code
+}
+
+impl DataProcessor for PythonCompileFilter {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let text_field = get_default(&config, "text_field", String::from("text"));
+        Ok(Self{ text_field })
+    }
+
+    fn process(&self, data: Value) -> Result<Option<Value>, Error> {
+        let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
+        if parse(&text, Mode::Module, "<embedded>").is_ok() {
+            Ok(Some(data))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+
+#[derive(Serialize, Debug)]
+pub struct RuffLinterAnnotator {
+    pub text_field: String, // Field that contains python code
+    pub output_field: String, // where output values live, defaults to metadata.lint
+}
+
+impl DataProcessor for RuffLinterAnnotator {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let text_field = get_default(&config, "text_field", String::from("text"));
+        let output_field = get_default(&config, "output_field", String::from("output_field"));
+        Ok(Self{ text_field, output_field})
+    }
+
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+        let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
+        let (sloc, comments) = count_python_statements_and_comments(&text);
+        let scorer = RuffPylintScorer::new();
+
+        let ruff_output = scorer.run_ruff_on_string(&text).unwrap();
+        
+        // Parse the results
+        let messages = if ruff_output.trim().is_empty() {
+            Vec::new()
+        } else {
+            scorer.parse_ruff_json(&ruff_output)?
+        };
+
+        let result = scorer.calculate_score(&messages, sloc, comments);
+        let json_result = json!({"score": result.score, "comment_score": result.comment_score});
+        json_set(&mut data, &self.output_field, json_result).unwrap();        
+
+        Ok(Some(data))
+    }
+}
+
+fn count_python_statements_and_comments(python_code: &str) -> (usize, usize) {
+    let mut statement_count = 0;
+    let mut comment_count = 0;
+    
+    for line in python_code.lines() {
+        let trimmed = line.trim();
+        
+        // Skip empty lines
+        if trimmed.is_empty() {
+            continue;
+        }
+        
+        // Check if line starts with # (pure comment line)
+        if trimmed.starts_with('#') {
+            comment_count += 1;
+            continue;
+        }
+        
+        // For lines that might have both code and comments
+        let mut has_code = false;
+        let mut has_comment = false;
+        let mut chars = trimmed.chars().peekable();
+        let mut in_string = false;
+        let mut string_char = '\0';
+        let mut escape_next = false;
+        
+        while let Some(ch) = chars.next() {
+            if escape_next {
+                escape_next = false;
+                continue;
+            }
+            
+            match ch {
+                '\\' if in_string => {
+                    escape_next = true;
+                }
+                '"' | '\'' => {
+                    if !in_string {
+                        // Check for triple quotes
+                        if chars.peek() == Some(&ch) {
+                            chars.next(); // consume second quote
+                            if chars.peek() == Some(&ch) {
+                                chars.next(); // consume third quote
+                                // Skip to end of triple quote (simplified)
+                                let triple_quote = format!("{}{}{}", ch, ch, ch);
+                                let remaining: String = chars.collect();
+                                if remaining.contains(&triple_quote) {
+                                    has_code = true;
+                                    break;
+                                } else {
+                                    // Triple quote string continues to end of line
+                                    has_code = true;
+                                    break;
+                                }
+                            } else {
+                                // Two quotes - empty string
+                                has_code = true;
+                                continue;
+                            }
+                        } else {
+                            // Start of single/double quote string
+                            in_string = true;
+                            string_char = ch;
+                            has_code = true;
+                        }
+                    } else if ch == string_char {
+                        // End of string
+                        in_string = false;
+                        string_char = '\0';
+                    }
+                }
+                '#' if !in_string => {
+                    // Found comment outside of string
+                    has_comment = true;
+                    break;
+                }
+                c if !c.is_whitespace() && !in_string => {
+                    has_code = true;
+                }
+                _ => continue,
+            }
+        }
+        
+        if has_code {
+            statement_count += 1;
+        }
+        if has_comment {
+            comment_count += 1;
+        }
+    }
+    
+    (statement_count, comment_count)
+}
+
+#[derive(Debug, Deserialize)]
+struct RuffMessage {
+    code: String,
+    message: String,
+    filename: String,
+    #[serde(rename = "type")]
+    message_type: String,
+    // Ruff doesn't always provide these fields, so make them optional
+    #[serde(default)]
+    row: u32,
+    #[serde(default)]
+    column: u32,
+}
+
+#[derive(Debug, Clone)]
+struct MessageWeights {
+    error: f64,
+    warning: f64,
+    refactor: f64,
+    convention: f64,
+}
+
+impl Default for MessageWeights {
+    fn default() -> Self {
+        Self {
+            error: 5.0,
+            warning: 1.0,
+            refactor: 1.0,
+            convention: 1.0,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct ScoreResult {
+    score: f64,
+    comment_score: f64,
+    error_count: u32,
+    warning_count: u32,
+    refactor_count: u32,
+    convention_count: u32,
+    total_statements: u32,
+}
+
+impl ScoreResult {
+    fn print_summary(&self) {
+        println!("Pylint-style Score: {:.2}/10.0", self.score);
+        println!("Breakdown:");
+        println!("  Errors: {} (weight: 5.0)", self.error_count);
+        println!("  Warnings: {} (weight: 1.0)", self.warning_count);
+        println!("  Refactor: {} (weight: 1.0)", self.refactor_count);
+        println!("  Convention: {} (weight: 1.0)", self.convention_count);
+        println!("  Estimated statements: {}", self.total_statements);
+    }
+}
+
+struct RuffPylintScorer {
+    weights: MessageWeights,
+    // Mapping of ruff rule categories to pylint-style categories
+    rule_mapping: HashMap<String, String>,
+}
+
+impl RuffPylintScorer {
+    fn new() -> Self {
+        let mut rule_mapping = HashMap::new();
+        
+        // Map ruff rule prefixes to pylint categories
+        // Errors - things that will cause runtime issues
+        rule_mapping.insert("F".to_string(), "error".to_string());     // Pyflakes
+        rule_mapping.insert("E9".to_string(), "error".to_string());    // Serious syntax errors
+        rule_mapping.insert("B0".to_string(), "error".to_string());    // Bugbear critical issues
+        
+        // Warnings - potential issues
+        rule_mapping.insert("W".to_string(), "warning".to_string());   // Warning
+        rule_mapping.insert("B".to_string(), "warning".to_string());   // Bugbear
+        rule_mapping.insert("S".to_string(), "warning".to_string());   // Security
+        rule_mapping.insert("A".to_string(), "warning".to_string());   // Builtins
+        rule_mapping.insert("T".to_string(), "warning".to_string());   // Print statements
+        
+        // Refactor - code improvement suggestions
+        rule_mapping.insert("C9".to_string(), "refactor".to_string()); // McCabe complexity
+        rule_mapping.insert("N".to_string(), "refactor".to_string());  // Naming
+        rule_mapping.insert("UP".to_string(), "refactor".to_string()); // Pyupgrade
+        rule_mapping.insert("RUF".to_string(), "refactor".to_string());// Ruff-specific
+        rule_mapping.insert("SIM".to_string(), "refactor".to_string());// Simplify
+        rule_mapping.insert("PTH".to_string(), "refactor".to_string());// Use pathlib
+        
+        // Convention - style and formatting
+        rule_mapping.insert("E".to_string(), "convention".to_string()); // PEP8 errors (most)
+        rule_mapping.insert("I".to_string(), "convention".to_string()); // Import sorting
+        rule_mapping.insert("D".to_string(), "convention".to_string()); // Docstring
+        rule_mapping.insert("Q".to_string(), "convention".to_string()); // Quotes
+        rule_mapping.insert("COM".to_string(), "convention".to_string()); // Trailing commas
+
+        Self {
+            weights: MessageWeights::default(),
+            rule_mapping,
+        }
+    }
+
+    fn categorize_message(&self, code: &str) -> String {
+        // Try exact match first
+        if let Some(category) = self.rule_mapping.get(code) {
+            return category.clone();
+        }
+
+        // Try prefix matching (e.g., "E901" -> "E9" -> "error")
+        for len in (1..=code.len()).rev() {
+            let prefix = &code[..len];
+            if let Some(category) = self.rule_mapping.get(prefix) {
+                return category.clone();
+            }
+        }
+
+        // Default to convention if we can't categorize
+        "convention".to_string()
+    }
+
+    fn estimate_statements(&self, messages: &[RuffMessage]) -> u32 {
+        // Simple heuristic: estimate based on files and issues
+        // In practice, you might want to actually count lines of code
+        let unique_files: std::collections::HashSet<_> = 
+            messages.iter().map(|m| &m.filename).collect();
+        
+        // Rough estimate: 20 statements per file on average
+        // You could improve this by actually parsing the files
+        std::cmp::max(unique_files.len() as u32 * 20, 1)
+    }
+
+    fn calculate_score(&self, messages: &[RuffMessage], total_statements: usize, total_comments: usize) -> ScoreResult {
+        let mut error_count = 0;
+        let mut warning_count = 0;
+        let mut refactor_count = 0;
+        let mut convention_count = 0;
+
+        for message in messages {
+            match self.categorize_message(&message.code).as_str() {
+                "error" => error_count += 1,
+                "warning" => warning_count += 1,
+                "refactor" => refactor_count += 1,
+                "convention" => convention_count += 1,
+                _ => convention_count += 1, // fallback
+            }
+        }
+
+        
+        let weighted_issues = 
+            (self.weights.error * error_count as f64) +
+            (self.weights.warning * warning_count as f64) +
+            (self.weights.refactor * refactor_count as f64) +
+            (self.weights.convention * convention_count as f64);
+
+        let (score, comment_score) = if total_statements > 0 {
+            let score = 10.0 - ((weighted_issues / total_statements as f64) * 10.0);
+            let comment_score = score * (1.0 - (total_comments as f64) / (total_comments as f64 + total_statements as f64));
+            (score, comment_score)
+        } else {
+            (0.0, 0.0)
+        };
+
+        ScoreResult {
+            score,
+            comment_score, 
+            error_count,
+            warning_count,
+            refactor_count,
+            convention_count,
+            total_statements: total_statements.try_into().unwrap(),
+        }
+    }
+
+    fn parse_ruff_json(&self, input: &str) -> Result<Vec<RuffMessage>, serde_json::Error> {
+        serde_json::from_str(input)
+    }
+    fn run_ruff(&self, path: &str,) -> Result<String, Box<dyn std::error::Error>> {
+        let mut cmd = Command::new("ruff");
+        cmd.arg("check")
+           .arg("--output-format=json")
+           .arg(path);
+
+
+
+        let output = cmd.output()?;
+        
+        // Ruff returns non-zero exit code when it finds issues, which is expected
+        // We only care if it failed to run at all
+        if !output.status.success() && output.stdout.is_empty() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if stderr.contains("command not found") || stderr.contains("not recognized") {
+                return Err("ruff command not found. Please install ruff: pip install ruff".into());
+            }
+            // If stdout has content, ruff ran successfully but found issues
+            if !stderr.is_empty() && output.stdout.is_empty() {
+                return Err(format!("ruff error: {}", stderr).into());
+            }
+        }
+
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    }
+
+    fn run_ruff_on_string(&self, python_code: &str) -> Result<String, Box<dyn std::error::Error>> {
+        // Create a temporary file with .py extension
+        let mut temp_file = NamedTempFile::with_suffix(".py")?;
+        
+        // Write the Python code to the temporary file
+        temp_file.write_all(python_code.as_bytes())?;
+        temp_file.flush()?;
+        
+        // Get the path as a string
+        let temp_path = temp_file.path().to_str()
+            .ok_or("Failed to convert temp file path to string")?;
+        
+        // Run ruff on the temporary file
+        let result = self.run_ruff(temp_path);
+        
+        // The temp file will be automatically deleted when it goes out of scope
+        result
+    }
+
 }
