@@ -29,6 +29,7 @@ use zstd::Encoder;
 pub mod map_fxn;
 pub mod partition;
 pub mod utils;
+pub mod pyscore;
 use datamap_rs::map_fxn::PipelineProcessor;
 use datamap_rs::partition::partition;
 pub use map_fxn::DataProcessor;
