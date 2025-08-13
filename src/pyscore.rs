@@ -88,8 +88,10 @@ pub fn run_ruff_on_string(code: &str) -> Result<RuffScoreResult, Error> {
     let output = child.wait_with_output().unwrap(); 
 
 
-	let ruff_messages: Vec<RuffMessage> = serde_json::from_str::<Vec<RuffMessage>>(&String::from_utf8_lossy(&output.stdout)).unwrap();
-
+	let ruff_messages: Vec<RuffMessage> = match serde_json::from_str::<Vec<RuffMessage>>(&String::from_utf8_lossy(&output.stdout)) {
+	    Ok(messages) => messages,
+	    Err(_) => return Ok(RuffScoreResult::make_err()),
+	};
 	let mut error_count = 0;
 	let mut other_count = 0;
 	for message in ruff_messages {
