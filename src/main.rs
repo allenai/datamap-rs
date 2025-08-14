@@ -71,6 +71,9 @@ enum Commands {
 
         #[arg(long)]
         err_dir: Option<PathBuf>,
+
+        #[arg(long, default_value_t=false)]
+        novel_only: bool
     },
 
     Reshard {
@@ -214,6 +217,7 @@ fn gen_map(
     output_dir: &PathBuf,
     config: &PathBuf,
     err_dir: Option<PathBuf>,
+    novel_only: &bool
 ) -> Result<(), Error> {
     /* Generic mapping/filtration function.
 
@@ -224,6 +228,36 @@ fn gen_map(
     // Setup data handlers
     let start_main = Instant::now();
     let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
+
+    let all_files = if *novel_only {
+        let output_final_dir = output_dir.clone().join("step_final");
+        let extant_output_files = expand_dirs(vec![output_final_dir.clone()], None).unwrap();
+        
+        // Create a HashSet of relative paths from output directory for fast lookup
+        let extant_relative_paths: std::collections::HashSet<_> = extant_output_files
+            .iter()
+            .filter_map(|path| path.strip_prefix(&output_final_dir).ok())
+            .map(|relative_path| relative_path.to_path_buf())
+            .collect();
+        
+        // Filter files that don't exist in output directory
+        let novel_files: Vec<PathBuf> = all_files
+            .into_iter()
+            .filter(|file| {
+                if let Ok(relative_path) = file.strip_prefix(&input_dir) {
+                    !extant_relative_paths.contains(relative_path)
+                } else {
+                    true // Keep files that can't be made relative (shouldn't happen normally)
+                }
+            })
+            .collect();
+        
+        // Use novel_files instead of all_files for the rest of your processing
+        novel_files
+    } else {
+        all_files
+    };
+
     let json_config = parse_config(config).unwrap();
     let processor = PipelineProcessor::new(&json_config).unwrap();
 
@@ -543,7 +577,8 @@ fn main() {
             output_dir,
             config,
             err_dir,
-        } => gen_map(input_dir, output_dir, config, err_dir.clone()),
+            novel_only
+        } => gen_map(input_dir, output_dir, config, err_dir.clone(), novel_only),
         Commands::Reshard {
             input_dir,
             output_dir,
