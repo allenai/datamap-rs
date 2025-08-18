@@ -161,6 +161,9 @@ enum Commands {
 
         #[arg(required=true, long)]
         output_dir: PathBuf,          
+
+        #[arg(long, default_value_t=String::from("original_text"))]
+        old_text_loc: String
     }
 }
 
@@ -941,7 +944,7 @@ fn create_suffixed_path(base: &PathBuf, i: i32) -> PathBuf {
 }
 
 
-fn frontier_merge(og_dir: &PathBuf, frontier_dir: &PathBuf, og_id: &String, output_dir: &PathBuf) -> Result<(), Error> {
+fn frontier_merge(og_dir: &PathBuf, frontier_dir: &PathBuf, og_id: &String, output_dir: &PathBuf, old_text_loc: &String) -> Result<(), Error> {
     /* Looks for original files in 'og_dir' and frontier output files in 'frontier_dir', moves the elements in og_dir.text field -> og_dir.original_text
        and replaces with the new frontier text
     */
@@ -966,7 +969,7 @@ fn frontier_merge(og_dir: &PathBuf, frontier_dir: &PathBuf, og_id: &String, outp
     let num_og_docs = AtomicUsize::new(0);
     og_files.par_iter().for_each(|p| {
         let output_path = get_output_filename(p, og_dir, output_dir).unwrap();
-        let (num_path_matches, num_path_docs) = merge_frontier_file(p, og_id, &frontier_map, &output_path).unwrap();
+        let (num_path_matches, num_path_docs) = merge_frontier_file(p, og_id, &frontier_map, &output_path, &old_text_loc).unwrap();
         num_matches.fetch_add(num_path_matches, Ordering::SeqCst);
         num_og_docs.fetch_add(num_path_docs, Ordering::SeqCst);
         pbar.inc(1);
@@ -1005,7 +1008,7 @@ fn frontier_req_map(frontier_file: &PathBuf, frontier_map: &DashMap<String, Stri
     Ok(())
 }
 
-fn merge_frontier_file(p: &PathBuf, og_id: &String, frontier_map: &DashMap<String, String>, output_path: &PathBuf) -> Result<(usize, usize), Error> {
+fn merge_frontier_file(p: &PathBuf, og_id: &String, frontier_map: &DashMap<String, String>, output_path: &PathBuf, old_text_loc: &String) -> Result<(usize, usize), Error> {
     let mut num_path_matches = 0;
     let mut num_path_docs = 0;
     let mut output_contents: Vec<u8> = Vec::new();
@@ -1027,7 +1030,7 @@ fn merge_frontier_file(p: &PathBuf, og_id: &String, frontier_map: &DashMap<Strin
         }
         let mut line_json = line_json.clone();
         //json_set(/* &mut serde_json::Value */, /* &std::string::String */, line_json);
-        json_set(&mut line_json, &String::from("original_text"), json!(original_text)).unwrap();
+        json_set(&mut line_json, old_text_loc, json!(original_text)).unwrap();
         json_set(&mut line_json, &String::from("text"), json!(*frontier_map.get(&line_id).unwrap())).unwrap();
         num_path_matches += 1;
         output_contents.extend(serde_json::to_vec(&line_json).unwrap());
@@ -1094,8 +1097,8 @@ fn main() {
             input_dir, output_dir, flavor, text_key
         } => frontier_request(input_dir, output_dir, flavor, text_key),
         Commands::FrontierMerge {
-            og_dir, frontier_dir, og_id, output_dir
-        } => frontier_merge(og_dir, frontier_dir, og_id, output_dir),    
+            og_dir, frontier_dir, og_id, output_dir, old_text_loc
+        } => frontier_merge(og_dir, frontier_dir, og_id, output_dir, old_text_loc),    
         _ => Ok(()),
     };
     result.unwrap();
