@@ -101,6 +101,38 @@ pub fn json_set(input: &mut Value, key: &String, val: Value) -> Result<(), Error
     Ok(())
 }
 
+pub fn json_remove(input: &mut Value, key: &str) -> Result<Option<Value>, Error> {
+    let parts: Vec<&str> = key.split('.').collect();
+    let mut current = input;
+
+    // Navigate to the parent of the field we want to remove
+    for (i, &part) in parts.iter().enumerate() {
+        if i == parts.len() - 1 {
+            // We're at the final key - remove it
+            if let Some(obj) = current.as_object_mut() {
+                return Ok(obj.remove(part));
+            } else {
+                return Err(anyhow!("Cannot remove field from non-object"));
+            }
+        }
+        
+        // Navigate deeper into the structure
+        if !current.is_object() {
+            return Err(anyhow!("Cannot navigate through non-object"));
+        }
+        
+        if !current.get(part).is_some() {
+            // Path doesn't exist, nothing to remove
+            return Ok(None);
+        }
+        
+        current = &mut current[part];
+    }
+    
+    Ok(None)
+}
+
+
 /*====================================================================
 =                            URL HELPERS                             =
 ====================================================================*/

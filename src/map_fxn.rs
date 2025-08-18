@@ -1,7 +1,7 @@
 
 use std::cmp;
 use std::time::Instant;
-use crate::utils::{extract_subdomain, get_default, json_get, json_set};
+use crate::utils::{extract_subdomain, get_default, json_get, json_set, json_remove};
 use aho_corasick::AhoCorasick;
 use anyhow::{anyhow, ensure, Error, Result};
 use once_cell::sync::Lazy;
@@ -85,6 +85,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "hash_annotator", HashAnnotator);
         register_processor!(m, "max_extractor", MaxExtractor);
         register_processor!(m, "constant_annotator", ConstantAnnotator);
+        register_processor!(m, "rename_modifier", RenameModifier);
 
         m
     });
@@ -2454,3 +2455,29 @@ impl DataProcessor for ConstantAnnotator {
         Ok(Some(data))
     }
 }
+
+
+#[derive(Serialize, Debug)]
+pub struct RenameModifier {
+    // Renames a field in the json
+    pub old_field: String, // old field name
+    pub new_field: String, // new field name  
+}
+
+impl DataProcessor for RenameModifier {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let old_field = json_get(config, "old_field").unwrap().as_str().unwrap().to_string();
+        let new_field = json_get(config, "new_field").unwrap().as_str().unwrap().to_string();
+
+        Ok(Self { old_field, new_field })
+    }
+
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+        let old_val = json_get(&data, &self.old_field).unwrap().clone();
+        json_set(&mut data, &self.new_field, old_val).unwrap();
+        json_remove(&mut data, &self.old_field).unwrap();
+
+        Ok(Some(data))
+    }
+}
+
