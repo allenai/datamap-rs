@@ -779,6 +779,14 @@ Just output the refined text, no other text.
 fn make_message(text: &str, flavor: &str) -> Result<Value, Error> {
 
     let message = match flavor {
+        "MIND_2STUDENT" => {
+            json!([{"role": "system", "content": "You are a helpful AI assistant"},
+                   {"role": "user", "content": "Convert the context above as a multi-turn discussions between two students who are working on their assignment related to the given context. Make sure that their discussions strictly adhere to the context above and remains faithful to information in the context. If there are any mathematical calculations that need to be performed, please perform them. Other than that, please DONOT add any new information/reference other than the context. DONOT assume the ability to call any code or tools."}])
+        },
+        "MIND_PROBLEM_SOLVING" => {
+            json!([{"role": "system", "content": "You are a helpful AI assistant"},
+                   {"role": "user", "content": "Convert the context above as a multi-turn problem-solving conversation where participants analyze challenges or scenarios presented in the content and brainstorm solutions within the context of the provided material, avoiding speculation or unrelated discussions. Make sure that their conversation strictly adhere to the context above and remains faithful to information in the context. If there are any mathematical calculations that need to be performed, please perform them. Other than that, please DONOT add any new information/reference other than the context. DONOT assume the ability to call any code or tools."}])
+        },        
         "swallowcode_sgcr" => {
             json!([{"role": "system", "content": "You are a smart software engineer. Please evaluate the following code on a scale of 1 to 10 based on the following criteria:\n
 1. Are variable names descriptive and consistent with naming conventions?
@@ -869,6 +877,8 @@ fn make_frontier_req(p: &PathBuf, base_output_path: &PathBuf, flavor: &str, text
         "swallowcode_scor" => "Qwen/Qwen2.5-Coder-32B-Instruct",
         "swallowcode_sgcr" => "Qwen/Qwen2.5-Coder-32B-Instruct",
         "swallowmath" => "Qwen/Qwen3-32B",
+        "MIND_PROBLEM_SOLVING" => "Qwen/Qwen3-32B",
+        "MIND_2STUDENT" => "Qwen/Qwen3-32B",
         _ => panic!("{}", format!("Unknown flavor {:?}", flavor))
     };
 
