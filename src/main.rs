@@ -1,7 +1,10 @@
 // External crates
 
+use rand::prelude::SliceRandom;
+use rand::rng;
 use std::panic;
-use crate::serde_json::Value;
+use serde_json::json;
+use crate::serde_json::{Value};
 use dashmap::DashMap;
 use rand::Rng;
 use std::cmp::max;
@@ -20,6 +23,7 @@ use rayon::current_num_threads;
 use rayon::prelude::*;
 use serde_json;
 use serde_yaml;
+use tiktoken_rs::{cl100k_base};
 
 use indicatif::ProgressBar;
 use mj_io::{
@@ -105,6 +109,27 @@ enum Commands {
         #[arg(required = true, long)]
         config: PathBuf,
     },
+
+    ShuffleCat {
+        #[arg(required=true, long)]
+        input_dir: PathBuf,
+
+        #[arg(required=true, long)]
+        output_dir: PathBuf,
+
+        #[arg(long, default_value_t=4096)]
+        min_tokens: usize,
+
+        #[arg(long, default_value_t=String::from("\n\n"))]
+        separator: String,
+
+        #[arg(long, default_value_t=256_000_000)]
+        output_file_size: usize,
+
+        #[arg(long, default_value_t=String::from("id"))]
+        id_key: String,
+
+    }
 }
 
 /*============================================================
@@ -525,6 +550,116 @@ fn make_shard_writer(shard_name: PathBuf) -> Result<Encoder<'static, BufWriter<F
     Ok(writer)
 }
 
+
+/*============================================================
+=                           SHUFFLE CAT                      =
+============================================================*/
+
+fn shuffle_cat(input_dir: &PathBuf, output_dir: &PathBuf, min_tokens: &usize, separator: &String, output_file_size: &usize, id_key: &String) -> Result<(), Error> {
+    let start_main = Instant::now();
+    println!("starting shuffle concatenation");
+
+    // Load all docs into memory and get token counts
+
+    let tokenizer = cl100k_base().unwrap();
+
+    let input_paths = expand_dirs(vec![input_dir.clone()], None).unwrap();
+    let pbar = build_pbar(input_paths.len(), "Input paths");    
+    let mut input_docs = input_paths.into_par_iter().flat_map(|p| {
+        let contents = read_pathbuf_to_mem(&p).unwrap();
+        let mut path_docs: Vec<(Value, usize)> = Vec::new();
+        for line in contents.lines() {
+            let line = line.unwrap();
+            let line_obj: Value = serde_json::from_str(&line).unwrap();
+            let token_count = tokenizer.encode_with_special_tokens(line_obj.get("text").unwrap().as_str().unwrap()).len();
+            path_docs.push((line_obj, token_count));
+        }
+        pbar.inc(1);
+        path_docs
+    }).collect::<Vec<(Value, usize)>>();
+
+    // Shuffle the vector in place and break into chunks
+    let mut rrrng = rng();    
+    let total_pre_docs = input_docs.len();
+    input_docs.shuffle(&mut rrrng);
+
+    let mut docs2cat : Vec<Vec<Value>> = Vec::new();
+    let pbar = build_pbar(input_docs.len(), "Cattable dogs");
+    let mut cur_chunk : Vec<Value> = Vec::new();
+    let mut cur_size = 0;
+    for (doc, toksize) in input_docs {
+        cur_size += toksize;
+        cur_chunk.push(doc);
+        if cur_size >= *min_tokens {
+            docs2cat.push(cur_chunk);
+            cur_chunk = Vec::new();
+            cur_size = 0;
+        }
+        pbar.inc(1);
+    }
+    if cur_size > 0 {
+        docs2cat.push(cur_chunk);        
+    }
+
+    // Actually concatenate docs and break into output files
+    let pbar = build_pbar(docs2cat.len(), "Catting...");
+    let catted_docs: Vec<Vec<u8>> = docs2cat.into_par_iter()
+        .map(|chunk| {
+            let catted_doc = cat_docs(chunk, separator, id_key).unwrap();
+            pbar.inc(1);
+            catted_doc
+        })
+        .collect::<Vec<Vec<u8>>>();
+    let total_post_docs = catted_docs.len();
+
+    // Make output chunks
+    let mut output_chunks: Vec<Vec<Vec<u8>>> = Vec::new();
+    let mut cur_chunk: Vec<Vec<u8>> = Vec::new();
+    let mut cur_chunk_size = 0;
+    let pbar = build_pbar(catted_docs.len(), "Building output paths...");
+    for d in catted_docs.into_iter() {
+        cur_chunk_size += d.len();        
+        cur_chunk.push(d);
+        if cur_chunk_size >= *output_file_size {
+            output_chunks.push(cur_chunk);
+            cur_chunk = Vec::new();
+            cur_chunk_size = 0;
+        }
+        pbar.inc(1);
+    };
+    if cur_chunk_size > 0 {
+        output_chunks.push(cur_chunk)        
+    }
+
+    let total_output_files = output_chunks.len();
+    output_chunks.into_par_iter().enumerate().for_each(|(i, chunk)| {
+        let output_file_name = output_dir.clone().join(format!("catted_docs_{:06}.jsonl.zst", i));
+        let contents = chunk.join(&b'\n');
+        write_mem_to_pathbuf(&contents, &output_file_name).unwrap();
+    });
+
+    println!("Saw {:?} docs | Concat into {:?} docs | Made {:?} output_files",
+             total_pre_docs, total_post_docs, total_output_files);
+    println!("Finished concat in {:?} secs", start_main.elapsed().as_secs());
+
+    Ok(())
+}
+
+
+fn cat_docs(chunk: Vec<Value>, separator: &String, id_key: &String) -> Result<Vec<u8>, Error> {
+    let mut id_vecs: Vec<Option<Value>> = Vec::new();
+    let mut content: Vec<String> = Vec::new();
+
+    chunk.into_iter().for_each(|doc| {
+        id_vecs.push(doc.get(id_key).cloned());
+        content.push(doc.get("text").unwrap().as_str().unwrap().to_string());
+    });
+    let new_doc = json!({"ids": id_vecs,
+                         "text": content.join(separator)});
+    Ok(serde_json::to_vec(&new_doc).unwrap())
+}
+
+
 /*============================================================
 =                            MAIN                            =
 ============================================================*/
@@ -565,6 +700,15 @@ fn main() {
             output_dir,
             config,
         } => partition(input_dir, output_dir, config),
+
+        Commands::ShuffleCat {
+            input_dir,
+            output_dir,
+            min_tokens,
+            separator, output_file_size, id_key
+        } => shuffle_cat(input_dir, output_dir, min_tokens, separator, output_file_size, id_key),
+
+
         _ => Ok(()),
     };
     result.unwrap();
