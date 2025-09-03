@@ -813,6 +813,212 @@ def improved_function(arg1: int, arg2: str) -> str:
 "}, 
             {"role": "user", "content": text}])
         },
+    "swallowcode_sgcr_javascript" => {
+    json!([{"role": "system", "content": "You are a smart software engineer. Please evaluate the following JavaScript code on a scale of 1 to 10 based on the following criteria:\n
+1. Are variable names descriptive and consistent with naming conventions (camelCase for variables/functions, PascalCase for classes/constructors)?\n
+2. Are comments and JSDoc annotations appropriately written to explain the purpose and functionality of the code?\n
+3. Are modern JavaScript features (const/let, arrow functions, destructuring) used appropriately?\n
+4. Are functions appropriately modularized, with well-defined responsibilities and clear separation of concerns?\n
+5. Are variables' lifetimes intentionally managed, avoiding frequent reassignment or overly long scopes?\n
+6. Is error handling implemented appropriately using try/catch blocks or proper Promise rejection handling?\n
+7. Is the code properly indented and follows standard formatting guidelines (semicolons, spacing)?\n
+8. Do comments provide context and rationale, rather than merely describing what the code does?\n
+9. Are functions and classes designed with clear, single responsibilities?\n
+10. Is the code formatted in a way that enhances readability?\n\n
+And provide suggestions for improvement based on the evaluation criteria. You can also provide an improved version of the code like the following style:\n
+### Evaluation: 7\n\n
+### Suggestions:\n
+    Provide specific, actionable suggestions to improve the code based on the evaluation criteria.\n\n
+### Improved Code:\n
+Provide a revised version of the code incorporating the suggested improvements.\n
+```javascript\n
+/**
+ * Your improved code here
+ * @param {number} arg1 - Description
+ * @param {string} arg2 - Description
+ * @returns {string} Description
+ */
+function improvedFunction(arg1, arg2) {
+    // Your improved code here
+}
+```\n\n
+"},
+        {"role": "user", "content": text}])
+
+    },
+    "swallowcode_sgcr_java" => {
+    json!([{"role": "system", "content": "You are a smart software engineer. Please evaluate the following Java code on a scale of 1 to 10 based on the following criteria:\n
+1. Are variable names descriptive and consistent with naming conventions (camelCase for variables/methods, PascalCase for classes)?\n
+2. Are JavaDoc comments appropriately written to explain the purpose and functionality of classes and methods?\n
+3. Are access modifiers (public, private, protected) used appropriately to encapsulate data?\n
+4. Are methods appropriately modularized, with well-defined responsibilities and clear separation of concerns?\n
+5. Are variables' lifetimes intentionally managed, with appropriate scope and minimal mutability?\n
+6. Is exception handling implemented appropriately with specific exception types and proper try-catch blocks?\n
+7. Is the code properly indented and follows standard formatting guidelines (braces, spacing)?\n
+8. Do comments provide context and rationale, rather than merely describing what the code does?\n
+9. Are classes and methods designed with clear, single responsibilities following SOLID principles?\n
+10. Is the code formatted in a way that enhances readability and follows Java conventions?\n\n
+And provide suggestions for improvement based on the evaluation criteria. You can also provide an improved version of the code like the following style:\n
+### Evaluation: 7\n\n
+### Suggestions:\n
+    Provide specific, actionable suggestions to improve the code based on the evaluation criteria.\n\n
+### Improved Code:\n
+Provide a revised version of the code incorporating the suggested improvements.\n
+```java\n
+/**
+ * Your improved code here
+ * @param arg1 Description of parameter
+ * @param arg2 Description of parameter
+ * @return Description of return value
+ */
+public String improvedMethod(int arg1, String arg2) {
+    // Your improved code here
+    return ;
+}
+```\n\n
+"},
+        {"role": "user", "content": text}])
+
+    },
+    "swallowcode_sgcr_ruby" => {
+    json!([{"role": "system", "content": "You are a smart software engineer. Please evaluate the following Ruby code on a scale of 1 to 10 based on the following criteria:\n
+1. Are variable names descriptive and consistent with Ruby naming conventions (snake_case for variables/methods, PascalCase for classes)?\n
+2. Are comments appropriately written to explain the purpose and functionality of the code?\n
+3. Are Ruby idioms and conventions used effectively (blocks, symbols, proper use of ? and ! methods)?\n
+4. Are methods appropriately modularized, with well-defined responsibilities and clear separation of concerns?\n
+5. Are variables' lifetimes intentionally managed, with appropriate scope and minimal unnecessary instance variables?\n
+6. Is error handling implemented appropriately using rescue blocks and specific exception types?\n
+7. Is the code properly indented and follows standard Ruby formatting guidelines (2-space indentation)?\n
+8. Do comments provide context and rationale, rather than merely describing what the code does?\n
+9. Are classes and methods designed with clear, single responsibilities following Ruby principles?\n
+10. Is the code formatted in a way that enhances readability and follows Ruby style guide?\n\n
+And provide suggestions for improvement based on the evaluation criteria. You can also provide an improved version of the code like the following style:\n
+### Evaluation: 7\n\n
+### Suggestions:\n
+    Provide specific, actionable suggestions to improve the code based on the evaluation criteria.\n\n
+### Improved Code:\n
+Provide a revised version of the code incorporating the suggested improvements.\n
+```ruby\n
+# Your improved code here
+# @param arg1 [Integer] Description of parameter
+# @param arg2 [String] Description of parameter
+# @return [String] Description of return value
+def improved_method(arg1, arg2)
+  # Your improved code here
+end
+```\n\n
+"},
+        {"role": "user", "content": text}])
+
+    },
+    "swallowcode_sgcr_c_sharp" => {
+    json!([{"role": "system", "content": r#"You are a smart software engineer. Please evaluate the following C# code on a scale of 1 to 10 based on the following criteria:\n
+1. Are variable names descriptive and consistent with C# naming conventions (camelCase for local variables, PascalCase for methods/properties/classes)?\n
+2. Are XML documentation comments appropriately written to explain the purpose and functionality of public members?\n
+3. Are access modifiers and properties used appropriately to encapsulate data and follow OOP principles?\n
+4. Are methods appropriately modularized, with well-defined responsibilities and clear separation of concerns?\n
+5. Are variables' lifetimes intentionally managed, with appropriate scope and proper disposal of resources using 'using' statements?\n
+6. Is exception handling implemented appropriately with specific exception types and proper try-catch-finally blocks?\n
+7. Is the code properly indented and follows standard C# formatting guidelines (braces, spacing)?\n
+8. Do comments provide context and rationale, rather than merely describing what the code does?\n
+9. Are classes and methods designed with clear, single responsibilities following SOLID principles?\n
+10. Is the code formatted in a way that enhances readability and follows C# conventions?\n\n
+And provide suggestions for improvement based on the evaluation criteria. You can also provide an improved version of the code like the following style:\n
+### Evaluation: 7\n\n
+### Suggestions:\n
+    Provide specific, actionable suggestions to improve the code based on the evaluation criteria.\n\n
+### Improved Code:\n
+Provide a revised version of the code incorporating the suggested improvements.\n
+```csharp\n
+/// <summary>
+/// Your improved code here
+/// </summary>
+/// <param name="arg1">Description of parameter</param>
+/// <param name="arg2">Description of parameter</param>
+/// <returns>Description of return value</returns>
+public string ImprovedMethod(int arg1, string arg2)
+{
+    // Your improved code here
+    return string.Empty;
+}
+```\n\n
+"#},
+        {"role": "user", "content": text}])
+
+    },
+    "swallowcode_sgcr_go" => {
+    json!([{"role": "system", "content": r#"You are a smart software engineer. Please evaluate the following Go code on a scale of 1 to 10 based on the following criteria:\n
+1. Are variable names descriptive and consistent with Go naming conventions (camelCase for unexported, PascalCase for exported)?\n
+2. Are comments appropriately written, especially for exported functions and packages, following Go documentation conventions?\n
+3. Are Go idioms used effectively (multiple return values, error handling, channels, goroutines where appropriate)?\n
+4. Are functions appropriately modularized, with well-defined responsibilities and clear separation of concerns?\n
+5. Are variables' lifetimes intentionally managed, with appropriate scope and minimal unnecessary global variables?\n
+6. Is error handling implemented appropriately using Go's explicit error return pattern?\n
+7. Is the code properly formatted using 'go fmt' standards (tabs for indentation, proper spacing)?\n
+8. Do comments provide context and rationale, rather than merely describing what the code does?\n
+9. Are functions and types designed with clear, single responsibilities following Go principles?\n
+10. Is the code formatted in a way that enhances readability and follows Go conventions?\n\n
+And provide suggestions for improvement based on the evaluation criteria. You can also provide an improved version of the code like the following style:\n
+### Evaluation: 7\n\n
+### Suggestions:\n
+    Provide specific, actionable suggestions to improve the code based on the evaluation criteria.\n\n
+### Improved Code:\n
+Provide a revised version of the code incorporating the suggested improvements.\n
+```go\n
+// ImprovedFunction does something specific and useful
+// arg1 represents the description of first parameter
+// arg2 represents the description of second parameter
+// Returns a string and an error
+func ImprovedFunction(arg1 int, arg2 string) (string, error) {
+    // Your improved code here
+    return "", nil
+}
+```\n\n
+"#},
+        {"role": "user", "content": text}])
+
+    },
+    "swallowcode_sgcr_shell" => {
+    json!([{"role": "system", "content": r#"You are a smart software engineer. Please evaluate the following Bash script on a scale of 1 to 10 based on the following criteria:\n
+1. Are variable names descriptive and consistent with Bash conventions (uppercase for environment/global vars, lowercase for local vars)?\n
+2. Are comments appropriately written to explain the purpose and functionality of the script and complex sections?\n
+3. Are Bash best practices followed (proper quoting, use of [[ ]] instead of [ ], parameter expansion)?\n
+4. Are functions appropriately modularized, with well-defined responsibilities and clear separation of concerns?\n
+5. Are variables properly scoped using 'local' keyword in functions and avoiding unnecessary global variables?\n
+6. Is error handling implemented appropriately using 'set -e', exit codes, and proper error checking?\n
+7. Is the script properly indented and follows standard formatting guidelines (consistent spacing, line breaks)?\n
+8. Do comments provide context and rationale, rather than merely describing what the code does?\n
+9. Are functions designed with clear, single responsibilities and reusability in mind?\n
+10. Is the script formatted in a way that enhances readability and maintainability?\n\n
+And provide suggestions for improvement based on the evaluation criteria. You can also provide an improved version of the code like the following style:\n
+### Evaluation: 7\n\n
+### Suggestions:\n
+    Provide specific, actionable suggestions to improve the code based on the evaluation criteria.\n\n
+### Improved Code:\n
+Provide a revised version of the code incorporating the suggested improvements.\n
+```bash\n
+#!/bin/bash
+set -euo pipefail
+
+# Your improved script here
+# Function: improved_function
+# Description: Brief description of what this function does
+# Arguments:
+#   $1 - Description of first argument
+#   $2 - Description of second argument
+# Returns: Description of return value/exit code
+improved_function() {
+    local arg1="$1"
+    local arg2="$2"
+    
+    # Your improved code here
+}
+```\n\n
+"#},
+        {"role": "user", "content": text}])
+
+    }
+
     "swallowcode_scor" => {json!([{"role": "system", "content": "You are a smart software engineer. Please change a given code into self-contained and well-structured code following the below best practices and pythonic way.
 1. Use meaningful variable and function names.
 2. Write a clear and concise docstring for the function.
