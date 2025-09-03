@@ -1082,6 +1082,7 @@ fn make_frontier_req(p: &PathBuf, base_output_path: &PathBuf, flavor: &str, text
     let model = match flavor {
         "swallowcode_scor" => "Qwen/Qwen2.5-Coder-32B-Instruct",
         "swallowcode_sgcr" => "Qwen/Qwen2.5-Coder-32B-Instruct",
+        s if s.starts_with("swallowcode_sgcr") => "Qwen/Qwen3-Coder-30B-A3B-Instruct",
         "swallowmath" => "Qwen/Qwen3-32B",
         "MIND_PROBLEM_SOLVING" => "Qwen/Qwen3-32B",
         "MIND_2STUDENT" => "Qwen/Qwen3-32B",
@@ -1091,6 +1092,7 @@ fn make_frontier_req(p: &PathBuf, base_output_path: &PathBuf, flavor: &str, text
     let id_key = match flavor {
         "swallowcode_scor" => "blob_id",
         "swallowcode_sgcr" => "blob_id",
+        s if s.starts_with("swallowcode_sgcr") => "blob_id",
         "swallowmath" => "<<HASH>>",
         _ => "id"
     };
@@ -1119,7 +1121,7 @@ fn make_frontier_req(p: &PathBuf, base_output_path: &PathBuf, flavor: &str, text
             "body": {
                 "model": model,
                 "messages": make_message(&text, flavor).unwrap(),
-                "max_tokens": 4096
+                "max_tokens": 16384
             }
         });
         all_reqs.push(request);
