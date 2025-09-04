@@ -1022,7 +1022,7 @@ improved_function() {
 
     }
 
-    "swallowcode_scor" => {json!([{"role": "system", "content": "You are a smart software engineer. Please change a given code into self-contained and well-structured code following the below best practices and pythonic way.
+    s if s.starts_with("swallowcode_scor") => {json!([{"role": "system", "content": "You are a smart software engineer. Please change a given code into self-contained and well-structured code following the below best practices and pythonic way.
 1. Use meaningful variable and function names.
 2. Write a clear and concise docstring for the function.
 3. Use type hints for the function signature.
@@ -1085,8 +1085,10 @@ fn make_frontier_req(p: &PathBuf, base_output_path: &PathBuf, flavor: &str, text
     let model = match flavor {
         "swallowcode_scor" => "Qwen/Qwen2.5-Coder-32B-Instruct",
         "swallowcode_sgcr" => "Qwen/Qwen2.5-Coder-32B-Instruct",
+        "swallowcode_scor_qwen3" => "Qwen/Qwen3-Coder-30B-A3B-Instruct",
         s if s.starts_with("swallowcode_sgcr") => "Qwen/Qwen3-Coder-30B-A3B-Instruct",
         "swallowmath" => "Qwen/Qwen3-32B",
+
         "MIND_PROBLEM_SOLVING" => "Qwen/Qwen3-32B",
         "MIND_2STUDENT" => "Qwen/Qwen3-32B",
         _ => panic!("{}", format!("Unknown flavor {:?}", flavor))
@@ -1096,9 +1098,7 @@ fn make_frontier_req(p: &PathBuf, base_output_path: &PathBuf, flavor: &str, text
     let id_key = if let Some(id_key_inner) = id_key {
         id_key_inner.as_str()
     } else { match flavor {
-        "swallowcode_scor" => "blob_id",
-        "swallowcode_sgcr" => "blob_id",
-        s if s.starts_with("swallowcode_sgcr") => "blob_id",
+        s if s.starts_with("swallowcode") => "blob_id",
         "swallowmath" => "<<HASH>>",
         _ => "id"
         }
