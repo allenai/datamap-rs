@@ -145,7 +145,10 @@ enum Commands {
         flavor: String,          
 
         #[arg(long, default_value_t=String::from("text"))]
-        text_key: String
+        text_key: String,
+
+        #[arg(long)]
+        id_key: Option<String>
     },
 
 
@@ -1050,7 +1053,7 @@ If given code is not self-contained or too simple, please change it to a more ed
 
 
 
-fn frontier_request(input_dir: &PathBuf, output_dir: &PathBuf, flavor: &str, text_key: &String) -> Result<(), Error> {
+fn frontier_request(input_dir: &PathBuf, output_dir: &PathBuf, flavor: &str, text_key: &String, id_key: &Option<String>) -> Result<(), Error> {
     let start_main = Instant::now();
     println!("Making frontier requests...");
 
@@ -1060,7 +1063,7 @@ fn frontier_request(input_dir: &PathBuf, output_dir: &PathBuf, flavor: &str, tex
     input_paths.par_iter().for_each(|p| {
         let output_path = get_output_filename(p, input_dir, output_dir).unwrap();
         let base_output_path = get_base_path(&output_path).unwrap();
-        let path_reqs = make_frontier_req(p, &base_output_path, flavor, text_key).unwrap();
+        let path_reqs = make_frontier_req(p, &base_output_path, flavor, text_key, id_key).unwrap();
         total_reqs.fetch_add(path_reqs, Ordering::SeqCst);
         pbar.inc(1);
     });
@@ -1071,7 +1074,7 @@ fn frontier_request(input_dir: &PathBuf, output_dir: &PathBuf, flavor: &str, tex
 }
 
 
-fn make_frontier_req(p: &PathBuf, base_output_path: &PathBuf, flavor: &str, text_key: &String) -> Result<usize, Error> {
+fn make_frontier_req(p: &PathBuf, base_output_path: &PathBuf, flavor: &str, text_key: &String, id_key: &Option<String>) -> Result<usize, Error> {
     let contents = read_pathbuf_to_mem(p).unwrap();
     let bpe = get_bpe_from_model("gpt-4")?;
 
@@ -1089,12 +1092,16 @@ fn make_frontier_req(p: &PathBuf, base_output_path: &PathBuf, flavor: &str, text
         _ => panic!("{}", format!("Unknown flavor {:?}", flavor))
     };
 
-    let id_key = match flavor {
+
+    let id_key = if let Some(id_key_inner) = id_key {
+        id_key_inner.as_str()
+    } else { match flavor {
         "swallowcode_scor" => "blob_id",
         "swallowcode_sgcr" => "blob_id",
         s if s.starts_with("swallowcode_sgcr") => "blob_id",
         "swallowmath" => "<<HASH>>",
         _ => "id"
+        }
     };
 
 
@@ -1312,8 +1319,8 @@ fn main() {
             gold_dir, raw_dir, output_dir            
         } => url_scan(gold_dir, raw_dir, output_dir),
         Commands::FrontierRequest {
-            input_dir, output_dir, flavor, text_key
-        } => frontier_request(input_dir, output_dir, flavor, text_key),
+            input_dir, output_dir, flavor, text_key, id_key
+        } => frontier_request(input_dir, output_dir, flavor, text_key, id_key),
         Commands::FrontierMerge {
             og_dir, frontier_dir, og_id, output_dir, old_text_loc
         } => frontier_merge(og_dir, frontier_dir, og_id, output_dir, old_text_loc),    
