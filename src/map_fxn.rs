@@ -414,7 +414,11 @@ impl DataProcessor for UrlSubstringFilter {
         let url_val = if let Some(url_val) = json_get(&data, &self.url_key) {
             url_val
         } else {
-            json_get(&data, &self.alt_url_key).unwrap()
+            if let Some(url_val) = json_get(&data, &self.alt_url_key) {
+                url_val
+            } else {
+                return Ok(None);
+            }
         };
         let mut url = url_val.as_str().unwrap().to_string();
 
