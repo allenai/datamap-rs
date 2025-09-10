@@ -1,0 +1,4 @@
+name: test_partition
+partition_key: groupkey
+choices: [a, b, c, d, e, f]
+

@@ -1,0 +1,6 @@
+name: dclm
+text_field: text
+pipeline:
+  - name: add_id
+    kwargs:
+      id_key: id

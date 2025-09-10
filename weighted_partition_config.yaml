@@ -1,0 +1,3 @@
+name: percentile_splitter,
+value: metadata.fineweb_edu_gt2.__label__1
+percentile_groups: [0.25, 0.50, 0.75] #-> splits into [[0.0, 0.25), [0.25, 0.5), [0.5, 0.75), [0.75, 1]]

@@ -1,0 +1,6 @@
+name: test
+group_keys: [group]
+sort_keys: [[id]]
+max_file_size: 100000000
+keep_idx: -1 
+num_buckets: 100
