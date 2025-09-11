@@ -1,6 +1,5 @@
 /target
-/examples/**/*.txt
-/examples/**/*.bin
+ft_classifiers/lid176.bin
 Cargo.lock
 .DS_Store
 tmp/

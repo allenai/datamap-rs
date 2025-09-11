@@ -132,6 +132,7 @@ impl PipelineProcessor {
             .unwrap();
             let constructor = PROCESSOR_CONSTRUCTORS[subconfig_name];
             pipeline.push(constructor(&subconfig_kwargs).unwrap());
+
         }
         Ok(Self { pipeline })
     }
@@ -819,7 +820,6 @@ impl DataProcessor for PageLenFilter {
             .ok_or_else(|| anyhow!("Text field '{}' not found or not a string", self.text_field))?;
 
         let len = self.calculate_length(text)?;
-
         if self.lower_bound <= len && len <= self.upper_bound {
             Ok(Some(data))
         } else {
@@ -851,22 +851,35 @@ impl PageLenFilter {
         let mut in_word = false;
 
         for &byte in text.as_bytes() {
-            let is_word_char = if self.ignore_punctuation {
-                byte.is_ascii_alphanumeric()
+            if self.ignore_punctuation {
+                let is_word_char = byte.is_ascii_alphanumeric();
+                if is_word_char && !in_word {
+                    count += 1;
+                    in_word = true;
+                } else if !is_word_char {
+                    in_word = false;
+                }
             } else {
-                !byte.is_ascii_whitespace()
-            };
-
-            if is_word_char && !in_word {
-                count += 1;
-                in_word = true;
-            } else if !is_word_char {
-                in_word = false;
+                // Count alphanumeric sequences and individual punctuation as separate words
+                if byte.is_ascii_alphanumeric() {
+                    if !in_word {
+                        count += 1;
+                        in_word = true;
+                    }
+                } else if byte.is_ascii_punctuation() {
+                    if in_word {
+                        in_word = false;
+                    }
+                    count += 1; // Each punctuation mark is a separate word
+                } else {
+                    // Whitespace or other characters
+                    in_word = false;
+                }
             }
         }
-
         count
     }
+
 
 
     fn count_words_uni(&self, text: &str) -> usize {
@@ -1248,8 +1261,6 @@ impl MassiveWebRepetitionFilter {
         ngram_size: usize,
         weighted: bool,
     ) -> Result<f32, Error> {
-        let mut ngram: VecDeque<&'a str> = VecDeque::with_capacity(ngram_size); // temp to hold current "ngram"
-        let mut ngram_char_len = 0; // temp to current ngram len?
         let mut rolling_hash = CompatibleRollingHash::new(ngram_size);
         let mut ngram_counts: FxHashMap<(u64, usize), Vec<usize>> = FxHashMap::default(); //(ngram_hash, ngram_char_len) -> [idxs where this ngram starts, ...]
         let total_elements = elements.len();
@@ -1595,7 +1606,7 @@ impl DataProcessor for LineLenModifier {
             .filter(|line| line.unicode_words().collect::<Vec<_>>().len() >= self.lower_bound || line.len() == 0)
             .map(|&l| l)
             .collect();
-        if passing_lines.len() == 0 {
+        if passing_lines.iter().map(|v| v.len()).sum::<usize>() == 0 {
             return Ok(None);
         }
 

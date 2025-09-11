@@ -28,13 +28,13 @@ mod tests {
     
     #[test]
     fn test_new_with_minimal_config() {
-        let config = create_basic_config("examples/dclm/example_model.bin");
+        let config = create_basic_config("ft_classifiers/lid176.bin");
         let result = FastTextAnnotator::new(&config);
         
         assert!(result.is_ok());
         let annotator = result.unwrap();
         
-        assert_eq!(annotator.fast_text_file, "examples/dclm/example_model.bin");
+        assert_eq!(annotator.fast_text_file, "ft_classifiers/lid176.bin");
         assert_eq!(annotator.text_field, "text"); // Default value
         assert_eq!(annotator.output_field, "metadata.fasttext"); // Default value
         assert_eq!(annotator.k, 10); // Default value
@@ -43,13 +43,13 @@ mod tests {
     
     #[test]
     fn test_new_with_custom_config() {
-        let config = create_full_config("examples/dclm/example_model.bin");
+        let config = create_full_config("ft_classifiers/lid176.bin");
         let result = FastTextAnnotator::new(&config);
         
         assert!(result.is_ok());
         let annotator = result.unwrap();
         
-        assert_eq!(annotator.fast_text_file, "examples/dclm/example_model.bin");
+        assert_eq!(annotator.fast_text_file, "ft_classifiers/lid176.bin");
         assert_eq!(annotator.text_field, "content.body");
         assert_eq!(annotator.output_field, "metadata.classifications");
         assert_eq!(annotator.k, 5);
@@ -59,7 +59,7 @@ mod tests {
     
     #[test]
     fn test_process_simple_document() {
-        let config = create_basic_config("examples/dclm/example_model.bin");
+        let config = create_basic_config("ft_classifiers/lid176.bin");
         let annotator = FastTextAnnotator::new(&config).unwrap();
         
         let data = json!({
@@ -83,7 +83,7 @@ mod tests {
     
     #[test]
     fn test_process_custom_fields() {
-        let config = create_full_config("examples/dclm/example_model.bin");
+        let config = create_full_config("ft_classifiers/lid176.bin");
         let annotator = FastTextAnnotator::new(&config).unwrap();
         
         let data = json!({
@@ -114,7 +114,7 @@ mod tests {
     
     #[test]
     fn test_process_empty_text() {
-        let config = create_basic_config("examples/dclm/example_model.bin");
+        let config = create_basic_config("ft_classifiers/lid176.bin");
         let annotator = FastTextAnnotator::new(&config).unwrap();
         
         let data = json!({
@@ -136,7 +136,7 @@ mod tests {
     #[test]
     fn test_process_nested_output_field() {
         let config = json!({
-            "fast_text_file": "examples/dclm/example_model.bin",
+            "fast_text_file": "ft_classifiers/lid176.bin",
             "text_field": "text",
             "output_field": "deep.nested.classifications.fasttext",
             "k": 3,
@@ -170,7 +170,7 @@ mod tests {
     #[test]
     fn test_integration() {
         // This test simulates a realistic pipeline with multiple documents
-        let config = create_basic_config("examples/dclm/example_model.bin");
+        let config = create_basic_config("ft_classifiers/lid176.bin");
         let annotator = FastTextAnnotator::new(&config).unwrap();
         
         let documents = vec![

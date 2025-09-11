@@ -1,5 +1,5 @@
 extern crate datamap_rs;
-use datamap_rs::map_fxn::{DataProcessor, PageLenFilter};
+use datamap_rs::map_fxn::{DataProcessor, PageLenFilter, LengthType};
 
 #[cfg(test)]
 mod tests {
@@ -19,7 +19,7 @@ mod tests {
         });
         let filter = PageLenFilter::new(&config).unwrap();
         assert_eq!(filter.text_field, "text");
-        assert_eq!(filter.length_type, "word");
+        assert_eq!(filter.length_type, "word".parse::<LengthType>().unwrap());
         assert_eq!(filter.lower_bound, 1);
         assert_eq!(filter.upper_bound, usize::MAX);
         assert_eq!(filter.ignore_punctuation, true);
@@ -34,7 +34,7 @@ mod tests {
         });
         let filter = PageLenFilter::new(&config).unwrap();
         assert_eq!(filter.text_field, "content");
-        assert_eq!(filter.length_type, "word");
+        assert_eq!(filter.length_type, "word".parse::<LengthType>().unwrap());
         assert_eq!(filter.lower_bound, 5);
         assert_eq!(filter.upper_bound, 10);
         assert_eq!(filter.ignore_punctuation, false);
@@ -135,14 +135,12 @@ mod tests {
     #[test]
     fn test_unimplemented_length_types() {
         // Test other length types which are not yet implemented
-        for length_type in ["sentence", "line", "paragraph", "char"].iter() {
+        for length_type in ["unimplemented"].iter() {
             let config = json!({
                 "length_type": length_type,
             });
-            let filter = PageLenFilter::new(&config).unwrap();
-            let doc = create_test_doc("Test text");
-            let result = filter.process(doc);
-            assert!(result.is_err());
+            let filter = PageLenFilter::new(&config); 
+            assert!(filter.is_err());
         }
     }
 
