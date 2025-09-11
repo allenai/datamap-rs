@@ -2,6 +2,28 @@
 
 A high-performance data processing pipeline for large-scale text datasets built in Rust.
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Commands](#commands)
+  - [Map](#map)
+  - [Reshard](#reshard)
+  - [Partition](#partition)
+- [Configuration](#configuration)
+- [Available Processors](#available-processors)
+  - [Filters](#filters)
+  - [Modifiers](#modifiers)
+  - [Annotators](#annotators)
+- [Architecture](#architecture)
+  - [Pipeline Processing](#pipeline-processing)
+  - [Performance Features](#performance-features)
+  - [Output Organization](#output-organization)
+- [Cloud Storage Integration](#cloud-storage-integration)
+- [Installation](#installation)
+- [Performance Notes](#performance-notes)
+- [Examples](#examples)
+- [License](#license)
+
 ## Overview
 
 DataMap is a Rust-based toolkit designed for efficient processing, filtering, and resharding of large text datasets, primarily in JSONL format. It provides a flexible pipeline architecture for text data transformations with various filters and modifiers.
@@ -149,8 +171,6 @@ The map command can output intermediate results from each pipeline step:
 - `step_final/` for documents that pass all filters
 - Optional error directory for documents that failed processing
 
-
-
 ## Cloud Storage Integration
 We strongly recommend using [s5cmd](https://github.com/peak/s5cmd) for efficient interaction with s3. We find that the workflow of downloading objects to local storage via s5cmd, processing them, and then reuploading the processed data is more efficient and stable than trying to interact with s3 data directly.
 
@@ -180,7 +200,6 @@ python utils/s5cmd_wrapper.py upload --src ./local/path --dst s3://bucket/path
    tar -xvzf s5cmd_2.2.2_Linux-64bit.tar.gz 
    sudo mv s5cmd /usr/local/bin
    ```
-
 
 ## Performance Notes
 
