@@ -13,6 +13,8 @@ Key features:
 - Data resharding and partitioning capabilities
 - High-performance parallel file processing
 
+NOTE: This is intended to be used on local files only. This is because of the unstable nature of rust cloud storage wrappers. We highly recommend heavy utilization of [i4i ec2 instances](https://aws.amazon.com/ec2/instance-types/i4i/) which can be equipped with large AWS Nitro Drives.
+
 ## Commands
 
 DataMap provides three main subcommands:
@@ -147,37 +149,12 @@ The map command can output intermediate results from each pipeline step:
 - `step_final/` for documents that pass all filters
 - Optional error directory for documents that failed processing
 
-## Dependencies
 
-### Core Dependencies
-- `rayon` - Parallel processing
-- `clap` - Command-line interface
-- `serde_json`/`serde_yaml` - Configuration parsing
-- `anyhow` - Error handling
-- `dashmap` - Concurrent data structures
-- `mj_io` - custom io for interacting with the local file system
 
-### Text Processing
-- `regex` - Pattern matching
-- `unicode_segmentation` - Unicode-aware text processing
-- `aho_corasick` - Efficient string matching
-- `url` - URL parsing
+## Cloud Storage Integration
+We strongly recommend using [s5cmd](https://github.com/peak/s5cmd) for efficient interaction with s3. We find that the workflow of downloading objects to local storage via s5cmd, processing them, and then reuploading the processed data is more efficient and stable than trying to interact with s3 data directly.
 
-### Specialized
-- `fasttext` - Language classification
-- `xxhash_rust` - Fast hashing
-- `uuid` - Unique ID generation
-
-### Python Utilities (`utils/s5cmd_wrapper.py`)
-
-Python utilities for cloud storage operations:
-- S3/GCP/WEKA integration via s5cmd
-- Parallel file download/upload capabilities
-- Progress tracking
-
-### Cloud Storage Integration
-
-Upload/download files from cloud storage:
+You can use the s5cmd CLI directly or the python wrappers:
 
 ```bash
 python utils/s5cmd_wrapper.py download --src s3://bucket/path --dst ./local/path [--part 0 --num-parts 4]
@@ -198,8 +175,12 @@ python utils/s5cmd_wrapper.py upload --src ./local/path --dst s3://bucket/path
    ```
 5. Install s5cmd if using cloud storage utilities:
    ```bash
-   # Instructions vary by platform
+   # For linux systems: 
+   wget https://github.com/peak/s5cmd/releases/download/v2.2.2/s5cmd_2.2.2_Linux-64bit.tar.gz 
+   tar -xvzf s5cmd_2.2.2_Linux-64bit.tar.gz 
+   sudo mv s5cmd /usr/local/bin
    ```
+
 
 ## Performance Notes
 
@@ -208,6 +189,9 @@ python utils/s5cmd_wrapper.py upload --src ./local/path --dst s3://bucket/path
 - Documents are processed sequentially through the pipeline stages
 - Memory usage scales with the number of parallel files being processed
 - Large documents may require additional memory for text processing operations
+
+## Examples 
+As examples, we provide configuration files for the DCLM data processing flow as well as our All-Dressed™ mixture. These are almost entirely plug-and-play, with the exception of requiring a download of the lid176.bin language classification fasttext model. To do this, execute the download script at `/configs/all_dressed/download_lid.sh`
 
 ## License
 
