@@ -1,0 +1,8 @@
+name: filter_out_bad_paths
+text_field: text
+pipeline: 
+  - name: deny_list_filter
+    kwargs:
+      attribute_field: metadata.Source-File
+      on_null: remove
+      deny_list_file: "/mnt/raid0/extracted_pdf_paths_take48_take51.txt"

@@ -191,7 +191,7 @@ fn test_nested_attribute_access() {
 
 #[test]
 fn test_missing_attribute_error() {
-    // Test that missing attributes produce an error
+    // Test that missing attributes produce an error with default on_null behavior
     let temp_dir = env::temp_dir();
     let allow_list_path = temp_dir.join("test_missing_allow_list.txt");
         let mut file = File::create(&allow_list_path).unwrap();
@@ -208,5 +208,252 @@ fn test_missing_attribute_error() {
             "text": "Some text"
         });
         
-        assert!(filter.process(data).is_err());
+        // With default on_null="remove", missing attribute should filter out the document
+        assert!(filter.process(data).unwrap().is_none());
+}
+
+#[test]
+fn test_allow_list_filter_on_null_remove() {
+    // Test AllowListFilter with on_null: remove (default behavior)
+    let temp_dir = env::temp_dir();
+    let allow_list_path = temp_dir.join("test_allow_on_null_remove.txt");
+    let mut file = File::create(&allow_list_path).unwrap();
+    writeln!(file, "approved").unwrap();
+    writeln!(file, "verified").unwrap();
+
+    let config = json!({
+        "attribute_field": "status",
+        "allow_list_file": allow_list_path.to_str().unwrap(),
+        "on_null": "remove"
+    });
+
+    let filter = AllowListFilter::new(&config).unwrap();
+
+    // Document with allowed value should pass
+    let data1 = json!({
+        "text": "Some text",
+        "status": "approved"
+    });
+    assert!(filter.process(data1).unwrap().is_some());
+
+    // Document with null value should be removed
+    let data2 = json!({
+        "text": "Some text",
+        "status": null
+    });
+    assert!(filter.process(data2).unwrap().is_none());
+
+    // Document with missing attribute should be removed
+    let data3 = json!({
+        "text": "Some text"
+    });
+    assert!(filter.process(data3).unwrap().is_none());
+
+    // Document with non-allowed value should be removed
+    let data4 = json!({
+        "text": "Some text",
+        "status": "pending"
+    });
+    assert!(filter.process(data4).unwrap().is_none());
+}
+
+#[test]
+fn test_allow_list_filter_on_null_keep() {
+    // Test AllowListFilter with on_null: keep
+    let temp_dir = env::temp_dir();
+    let allow_list_path = temp_dir.join("test_allow_on_null_keep.txt");
+    let mut file = File::create(&allow_list_path).unwrap();
+    writeln!(file, "approved").unwrap();
+    writeln!(file, "verified").unwrap();
+
+    let config = json!({
+        "attribute_field": "status",
+        "allow_list_file": allow_list_path.to_str().unwrap(),
+        "on_null": "keep"
+    });
+
+    let filter = AllowListFilter::new(&config).unwrap();
+
+    // Document with allowed value should pass
+    let data1 = json!({
+        "text": "Some text",
+        "status": "approved"
+    });
+    assert!(filter.process(data1).unwrap().is_some());
+
+    // Document with null value should be kept
+    let data2 = json!({
+        "text": "Some text",
+        "status": null
+    });
+    assert!(filter.process(data2).unwrap().is_some());
+
+    // Document with missing attribute should be kept
+    let data3 = json!({
+        "text": "Some text"
+    });
+    assert!(filter.process(data3).unwrap().is_some());
+
+    // Document with non-allowed value should still be removed
+    let data4 = json!({
+        "text": "Some text",
+        "status": "pending"
+    });
+    assert!(filter.process(data4).unwrap().is_none());
+}
+
+#[test]
+fn test_deny_list_filter_on_null_remove() {
+    // Test DenyListFilter with on_null: remove (default behavior)
+    let temp_dir = env::temp_dir();
+    let deny_list_path = temp_dir.join("test_deny_on_null_remove.txt");
+    let mut file = File::create(&deny_list_path).unwrap();
+    writeln!(file, "spam").unwrap();
+    writeln!(file, "blocked").unwrap();
+
+    let config = json!({
+        "attribute_field": "category",
+        "deny_list_file": deny_list_path.to_str().unwrap(),
+        "on_null": "remove"
+    });
+
+    let filter = DenyListFilter::new(&config).unwrap();
+
+    // Document with non-denied value should pass
+    let data1 = json!({
+        "text": "Some text",
+        "category": "valid"
+    });
+    assert!(filter.process(data1).unwrap().is_some());
+
+    // Document with denied value should be removed
+    let data2 = json!({
+        "text": "Some text",
+        "category": "spam"
+    });
+    assert!(filter.process(data2).unwrap().is_none());
+
+    // Document with null value should be removed
+    let data3 = json!({
+        "text": "Some text",
+        "category": null
+    });
+    assert!(filter.process(data3).unwrap().is_none());
+
+    // Document with missing attribute should be removed
+    let data4 = json!({
+        "text": "Some text"
+    });
+    assert!(filter.process(data4).unwrap().is_none());
+}
+
+#[test]
+fn test_deny_list_filter_on_null_keep() {
+    // Test DenyListFilter with on_null: keep
+    let temp_dir = env::temp_dir();
+    let deny_list_path = temp_dir.join("test_deny_on_null_keep.txt");
+    let mut file = File::create(&deny_list_path).unwrap();
+    writeln!(file, "spam").unwrap();
+    writeln!(file, "blocked").unwrap();
+
+    let config = json!({
+        "attribute_field": "category",
+        "deny_list_file": deny_list_path.to_str().unwrap(),
+        "on_null": "keep"
+    });
+
+    let filter = DenyListFilter::new(&config).unwrap();
+
+    // Document with non-denied value should pass
+    let data1 = json!({
+        "text": "Some text",
+        "category": "valid"
+    });
+    assert!(filter.process(data1).unwrap().is_some());
+
+    // Document with denied value should be removed
+    let data2 = json!({
+        "text": "Some text",
+        "category": "spam"
+    });
+    assert!(filter.process(data2).unwrap().is_none());
+
+    // Document with null value should be kept
+    let data3 = json!({
+        "text": "Some text",
+        "category": null
+    });
+    assert!(filter.process(data3).unwrap().is_some());
+
+    // Document with missing attribute should be kept
+    let data4 = json!({
+        "text": "Some text"
+    });
+    assert!(filter.process(data4).unwrap().is_some());
+}
+
+#[test]
+fn test_on_null_nested_attribute() {
+    // Test on_null behavior with nested attributes
+    let temp_dir = env::temp_dir();
+    let allow_list_path = temp_dir.join("test_nested_on_null.txt");
+    let mut file = File::create(&allow_list_path).unwrap();
+    writeln!(file, "en").unwrap();
+
+    // Test with on_null: keep
+    let config = json!({
+        "attribute_field": "metadata.language",
+        "allow_list_file": allow_list_path.to_str().unwrap(),
+        "on_null": "keep"
+    });
+
+    let filter = AllowListFilter::new(&config).unwrap();
+
+    // Document with missing nested structure should be kept
+    let data1 = json!({
+        "text": "Some text"
+    });
+    assert!(filter.process(data1).unwrap().is_some());
+
+    // Document with partial nested structure should be kept
+    let data2 = json!({
+        "text": "Some text",
+        "metadata": {}
+    });
+    assert!(filter.process(data2).unwrap().is_some());
+
+    // Document with null nested value should be kept
+    let data3 = json!({
+        "text": "Some text",
+        "metadata": {
+            "language": null
+        }
+    });
+    assert!(filter.process(data3).unwrap().is_some());
+}
+
+#[test]
+fn test_invalid_on_null_value() {
+    // Test that invalid on_null values are rejected
+    let temp_dir = env::temp_dir();
+    let allow_list_path = temp_dir.join("test_invalid_on_null.txt");
+    let mut file = File::create(&allow_list_path).unwrap();
+    writeln!(file, "value").unwrap();
+
+    let config = json!({
+        "attribute_field": "field",
+        "allow_list_file": allow_list_path.to_str().unwrap(),
+        "on_null": "invalid"
+    });
+
+    // Should fail to create filter with invalid on_null value
+    assert!(AllowListFilter::new(&config).is_err());
+
+    let config2 = json!({
+        "attribute_field": "field",
+        "deny_list_file": allow_list_path.to_str().unwrap(),
+        "on_null": "invalid"
+    });
+
+    assert!(DenyListFilter::new(&config2).is_err());
 }

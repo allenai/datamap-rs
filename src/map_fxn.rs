@@ -2022,6 +2022,7 @@ pub struct AllowListFilter {
     // Only keeps docs where the specified attribute appears in the allow list
     pub attribute_field: String,
     pub allow_list_file: String,
+    pub on_null: String, // "keep" or "remove" - controls behavior when attribute is null/missing
     #[serde(skip)]
     #[derivative(Debug="ignore")]
     pub allow_list: HashSet<String>,
@@ -2041,6 +2042,12 @@ impl DataProcessor for AllowListFilter {
             .ok_or_else(|| anyhow!("allow_list_file must be a string"))?
             .to_string();
         
+        // Parse on_null field with default "remove"
+        let on_null = get_default(config, "on_null", String::from("remove"));
+        if on_null != "keep" && on_null != "remove" {
+            return Err(anyhow!("on_null must be either 'keep' or 'remove', got: {}", on_null));
+        }
+        
         let list_file = PathBuf::from(&allow_list_file);
         let list_data = read_pathbuf_to_mem(&list_file)?;
         let allow_list: HashSet<String> = list_data.lines()
@@ -2051,14 +2058,25 @@ impl DataProcessor for AllowListFilter {
         Ok(Self {
             attribute_field,
             allow_list_file,
+            on_null,
             allow_list,
         })
     }
     
     fn process(&self, data: Value) -> Result<Option<Value>, Error> {
         // Get the attribute value from the JSON
-        let attr_value = json_get(&data, &self.attribute_field)
-            .ok_or_else(|| anyhow!("Attribute {} not found in document", self.attribute_field))?;
+        let attr_value = json_get(&data, &self.attribute_field);
+        
+        // Handle null/missing attribute based on on_null setting
+        if attr_value.is_none() || attr_value == Some(&Value::Null) {
+            if self.on_null == "keep" {
+                return Ok(Some(data));
+            } else {
+                return Ok(None);
+            }
+        }
+        
+        let attr_value = attr_value.unwrap();
         
         // Convert to string for comparison
         let attr_str = match attr_value {
@@ -2084,6 +2102,7 @@ pub struct DenyListFilter {
     // Filters out docs where the specified attribute appears in the deny list
     pub attribute_field: String,
     pub deny_list_file: String,
+    pub on_null: String, // "keep" or "remove" - controls behavior when attribute is null/missing
     #[serde(skip)]
     #[derivative(Debug="ignore")]
     pub deny_list: HashSet<String>,
@@ -2103,6 +2122,12 @@ impl DataProcessor for DenyListFilter {
             .ok_or_else(|| anyhow!("deny_list_file must be a string"))?
             .to_string();
         
+        // Parse on_null field with default "remove"
+        let on_null = get_default(config, "on_null", String::from("remove"));
+        if on_null != "keep" && on_null != "remove" {
+            return Err(anyhow!("on_null must be either 'keep' or 'remove', got: {}", on_null));
+        }
+        
         let list_file = PathBuf::from(&deny_list_file);
         let list_data = read_pathbuf_to_mem(&list_file)?;
         let deny_list: HashSet<String> = list_data.lines()
@@ -2113,14 +2138,25 @@ impl DataProcessor for DenyListFilter {
         Ok(Self {
             attribute_field,
             deny_list_file,
+            on_null,
             deny_list,
         })
     }
     
     fn process(&self, data: Value) -> Result<Option<Value>, Error> {
         // Get the attribute value from the JSON
-        let attr_value = json_get(&data, &self.attribute_field)
-            .ok_or_else(|| anyhow!("Attribute {} not found in document", self.attribute_field))?;
+        let attr_value = json_get(&data, &self.attribute_field);
+        
+        // Handle null/missing attribute based on on_null setting
+        if attr_value.is_none() || attr_value == Some(&Value::Null) {
+            if self.on_null == "keep" {
+                return Ok(Some(data));
+            } else {
+                return Ok(None);
+            }
+        }
+        
+        let attr_value = attr_value.unwrap();
         
         // Convert to string for comparison
         let attr_str = match attr_value {
