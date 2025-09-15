@@ -5,4 +5,4 @@ pipeline:
     kwargs:
       attribute_field: metadata.Source-File
       on_null: remove
-      deny_list_file: "/mnt/raid0/extracted_pdf_paths_take48_take51.txt"
+      deny_list_file: "/home/ec2-user/extracted_pdf_paths_take48_take51.txt"
