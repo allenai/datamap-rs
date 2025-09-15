@@ -80,6 +80,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
     register_processor!(m, "markdown_table_renderer", MarkdownTableRenderer);
     register_processor!(m, "allow_list_filter", AllowListFilter);
     register_processor!(m, "deny_list_filter", DenyListFilter);
+    register_processor!(m, "non_null_filter", NonNullFilter);
     // Add more processor types as needed
 
     m
@@ -2171,6 +2172,38 @@ impl DataProcessor for DenyListFilter {
             Ok(None) // Filter out
         } else {
             Ok(Some(data)) // Keep
+        }
+    }
+}
+
+#[derive(Serialize, Debug)]
+pub struct NonNullFilter {
+    // Only keeps docs where the specified attribute is present and not null
+    pub attribute_field: String,
+}
+
+impl DataProcessor for NonNullFilter {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let attribute_field = config.get("attribute_field")
+            .ok_or_else(|| anyhow!("attribute_field is required"))?
+            .as_str()
+            .ok_or_else(|| anyhow!("attribute_field must be a string"))?
+            .to_string();
+        
+        Ok(Self {
+            attribute_field,
+        })
+    }
+    
+    fn process(&self, data: Value) -> Result<Option<Value>, Error> {
+        // Get the attribute value from the JSON
+        let attr_value = json_get(&data, &self.attribute_field);
+        
+        // Keep the document only if the attribute is present and not null
+        if attr_value.is_some() && attr_value != Some(&Value::Null) {
+            Ok(Some(data))
+        } else {
+            Ok(None)
         }
     }
 }

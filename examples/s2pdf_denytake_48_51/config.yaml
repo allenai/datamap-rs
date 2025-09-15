@@ -1,8 +1,10 @@
 name: filter_out_bad_paths
 text_field: text
 pipeline: 
+  - name: non_null_filter
+    attribute_field: metadata.Source-Url
   - name: deny_list_filter
     kwargs:
       attribute_field: metadata.Source-File
       on_null: remove
-      deny_list_file: "/home/ec2-user/extracted_pdf_paths_take48_take51.txt"
+      deny_list_file: "/home/ec2-user/extracted_pdf_paths_take48_take50_take51.txt"
