@@ -2,7 +2,7 @@ use std::time::Instant;
 use std::hash::{Hash, Hasher};
 use std::collections::VecDeque;
 use aho_corasick::AhoCorasick;
-use std::io::BufRead;
+use std::io::{BufRead, Write};
 use std::path::PathBuf;
 use rand::rng;
 use serde_json;
@@ -14,6 +14,7 @@ use crate::utils::{get_default, json_get, json_set, extract_subdomain};
 use serde::Serialize;
 use once_cell::sync::Lazy;
 use std::collections::{HashMap, HashSet};
+use zstd::Encoder as ZstdEncoder;
 
 use url::Url;
 use mj_io::read_pathbuf_to_mem;
@@ -81,6 +82,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
     register_processor!(m, "allow_list_filter", AllowListFilter);
     register_processor!(m, "deny_list_filter", DenyListFilter);
     register_processor!(m, "non_null_filter", NonNullFilter);
+	register_processor!(m, "compression_annotator", CompressionAnnotator);
     // Add more processor types as needed
 
     m
@@ -2206,4 +2208,35 @@ impl DataProcessor for NonNullFilter {
             Ok(None)
         }
     }
+}
+
+#[derive(Serialize, Debug)]
+pub struct CompressionAnnotator {
+	pub text_field: String,
+	pub output_field: String,
+	pub compression_level: usize
+}
+
+impl DataProcessor for CompressionAnnotator {
+	fn new(config: &Value) -> Result<Self, Error> {
+		let text_field = get_default(config, "text_field", String::from("text"));
+		let output_field = get_default(config, "output_field", String::from("metadata.compression"));
+		let compression_level = get_default(config, "compression_level", 3 as usize);
+		Ok(Self {text_field, output_field, compression_level})
+	}
+
+	fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+		let input_bytes = json_get(&data, &self.text_field).unwrap().as_str().unwrap().as_bytes();
+		let uncompressed_size = input_bytes.len();
+
+		// Compress the bytes using zstd
+		let mut encoder = ZstdEncoder::new(Vec::new(), self.compression_level as i32)?; // compression level 3
+		encoder.write_all(input_bytes)?;
+		let compressed_bytes = encoder.finish()?;
+
+		let compressed_size = compressed_bytes.len();
+
+		json_set(&mut data, &self.output_field, json!(compressed_size as f32 / uncompressed_size as f32)).unwrap();
+		Ok(Some(data))
+	}
 }
