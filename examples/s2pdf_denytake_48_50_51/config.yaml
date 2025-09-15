@@ -2,7 +2,8 @@ name: filter_out_bad_paths
 text_field: text
 pipeline: 
   - name: non_null_filter
-    attribute_field: metadata.Source-Url
+    kwargs:
+      attribute_field: metadata.Source-Url
   - name: deny_list_filter
     kwargs:
       attribute_field: metadata.Source-File

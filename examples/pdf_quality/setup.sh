@@ -1,7 +1,5 @@
 #!/bin/bash
 
-set -e
-
 # Before running, grab your PDF data, usually from s3://ai2-llm/pretraining-data/sources/s2pdf_dedupe_minhash_v1_with_no_pii_basic_quality_datadelve_norefs_mdtables_v2_denylisted/
 # and store it to /mnt/raid0
 #s5cmd cp -sp s3://ai2-llm/pretraining-data/sources/s2pdf_dedupe_minhash_v1_with_no_pii_basic_quality_datadelve_norefs_mdtables_v2_denylisted/* /mnt/raid0/s2pdf_dedupe_minhash_v1_with_no_pii_basic_quality_datadelve_norefs_mdtables_v2_denylisted/
@@ -47,10 +45,38 @@ CATEGORIES=(
   travel
 )
 
-for CATEGORY in "${CATEGORIES[@]}"; do
-  echo "Processing $CATEGORY..."
-  cargo run --release -- map \
-    --input-dir "/mnt/raid0/s2pdf_dedupe_minhash_v1_with_no_pii_basic_quality_datadelve_norefs_mdtables_v2_denylisted/${CATEGORY}/step_final/step_final" \
-    --output-dir "/mnt/raid0/s2pdf_dedupe_minhash_v1_with_no_pii_basic_quality_datadelve_norefs_mdtables_v2_denylisted_quality_tagged/${CATEGORY}/" \
-    --config ./examples/pdf_quality/config.yaml
+LENGTHS=(
+  length_2e12
+  length_2e13
+  length_2e14
+  length_2e15
+  length_2e16
+  length_2e17
+  length_2e18
+  length_2e19
+  length_2e20
+)
+
+SHARDS=(
+  p010
+  p020
+  p030
+  p040
+  p050
+  p060
+  p070
+  p080
+  p090
+)
+
+for LENGTH in "${LENGTHS[@]}"; do
+  for CATEGORY in "${CATEGORIES[@]}"; do
+    for SHARD in "${SHARDS[@]}"; do
+      echo "Processing $LENGTH $CATEGORY $SHARD..."
+      cargo run --release -- map \
+        --input-dir "/mnt/raid0/s2pdf_dedupe_minhash_v1_with_no_pii_basic_quality_datadelve_norefs_mdtables_v2_denylisted_reshard_length-buckets_compression-decon-2/${LENGTH}/${CATEGORY}/${SHARD}" \
+        --output-dir "/mnt/raid0/s2pdf_dedupe_minhash_v1_with_no_pii_basic_quality_datadelve_norefs_mdtables_v2_denylisted_reshard_length-buckets_compression-decon-2_jpqualtag/${LENGTH}/${CATEGORY}/${SHARD}/" \
+        --config ./examples/pdf_quality/config.yaml
+      done
+  done
 done
