@@ -1,6 +1,6 @@
 // External crates
 
-use crate::serde_json::Value;
+use serde_json::Value;
 use dashmap::DashMap;
 use std::collections::HashMap;
 use std::fs::File;
@@ -21,10 +21,13 @@ use mj_io::{
 pub mod map_fxn;
 pub mod partition;
 pub mod utils;
+pub mod groupfilter;
 pub use map_fxn::DataProcessor;
 use datamap_rs::map_fxn::PipelineProcessor;
 use datamap_rs::partition::partition;
 use datamap_rs::reshard::reshard;
+use datamap_rs::groupfilter::{group, group_filter};
+
 /*
 Map Config layout:
 
@@ -98,6 +101,33 @@ enum Commands {
         #[arg(required = true, long)]
         config: PathBuf,
     },
+
+    Group {
+        #[arg(required = true, long)]
+        input_dir: PathBuf,
+
+        #[arg(required = true, long)]
+        group_dir: PathBuf,
+
+        #[arg(required = true, long)]
+        config: PathBuf,        
+
+        #[arg(long)]
+        subext: Option<String>,
+    },
+
+    GroupFilter {
+        #[arg(required = true, long)]
+        input_dir: PathBuf,
+
+        #[arg(required = true, long)]
+        output_dir: PathBuf,
+
+        #[arg(required = true, long)]
+        config: PathBuf,        
+
+    }
+
 }
 
 /*============================================================
@@ -359,6 +389,17 @@ fn main() {
             output_dir,
             config,
         } => partition(input_dir, output_dir, config),
+        Commands::Group {
+            input_dir,
+            group_dir,
+            config,
+            subext
+        } => group(input_dir, group_dir, config, subext.clone()),
+        Commands::GroupFilter {
+            input_dir,
+            output_dir,
+            config
+        } => group_filter(input_dir, output_dir, config),
         _ => Ok(()),
     };
     result.unwrap();
