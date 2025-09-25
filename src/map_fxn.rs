@@ -211,7 +211,7 @@ impl PipelineProcessor {
                     };                    
                 },
                 Err(_e) => {
-                    // println!("Error parsing json in {:?}:{:?}", filename, line_num);
+                    println!("Error parsing json in {:?}:{:?}", filename, line_num);
                     err_lines.push(line.clone())
                 }
             };

@@ -298,36 +298,6 @@ fn gen_map(
     Ok(())
 }
 
-fn read_local_file_into_memory(input_file: &PathBuf) -> Result<Cursor<Vec<u8>>, Error> {
-    let mut file = File::open(input_file)?;
-    let mut contents = Vec::new();
-    let ext = input_file.extension().unwrap().to_string_lossy().to_lowercase();
-    
-    if ext == "gz" {
-        let mut decoder = MultiGzDecoder::new(file);
-        decoder.read_to_end(&mut contents)?;
-    } else if ext == "zstd" || ext == "zst" {
-        let mut decoder = ZstdDecoder::new(file)?;
-        
-        // Instead of read_to_end, read in chunks with error handling
-        let mut buffer = vec![0; 64 * 1024]; // 64KB buffer
-        loop {
-            match decoder.read(&mut buffer) {
-                Ok(0) => break,
-                Ok(n) => contents.extend_from_slice(&buffer[..n]),
-                Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    // println!("Warning: Incomplete zstd file, recovered {} bytes", contents.len());
-                    break;
-                }
-                Err(e) => return Err(e.into()),
-            }
-        }
-    } else {
-        file.read_to_end(&mut contents)?;
-    }
-    
-    Ok(Cursor::new(contents))
-}
 
 fn gen_map_single(
     input_file: &PathBuf,
@@ -345,7 +315,7 @@ fn gen_map_single(
     */
 
     // Setup for processing
-    let data = read_local_file_into_memory(input_file).unwrap();
+    let data = read_pathbuf_to_mem(input_file).unwrap();
 
     let lines: Vec<_> = data.lines().filter_map(|el| el.ok()).collect();
 
