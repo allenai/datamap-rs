@@ -316,7 +316,7 @@ fn gen_map_single(
 
     // Process data
     let (output_lines, err_lines, timing_info, filter_info) =
-        processor.process_lines(lines).unwrap();
+        processor.process_lines(lines, input_file).unwrap();
     let err_lines_len = err_lines.len();
 
     output_lines.into_iter().for_each(|(k, v)| {

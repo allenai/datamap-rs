@@ -179,6 +179,7 @@ impl PipelineProcessor {
     pub fn process_lines(
         &self,
         lines: Vec<String>,
+        filename: &PathBuf,
     ) -> Result<
         (
             HashMap<usize, Vec<Value>>,
@@ -192,19 +193,27 @@ impl PipelineProcessor {
         let mut filter_info = FilterInfo::new();
         let mut output_lines: HashMap<usize, Vec<Value>> = HashMap::new();
         let mut err_lines: Vec<String> = Vec::new();
-        for line in lines {
-            let json_line = serde_json::from_str(&line).unwrap();
-            let process_out = self.process(json_line, &mut timing_info, &mut filter_info);
-            match process_out {
-                Ok((step_out, json_result)) => {
-                    if let Some(json_out) = json_result {
-                        output_lines
-                            .entry(step_out)
-                            .or_insert_with(Vec::new)
-                            .push(json_out);
-                    }
+        for (line_num, line) in lines.into_iter().enumerate() {        
+            let json_parse_result = serde_json::from_str(&line);
+            match json_parse_result {
+                Ok(json_line) => {
+                    let process_out = self.process(json_line, &mut timing_info, &mut filter_info);
+                    match process_out {
+                        Ok((step_out, json_result)) => {
+                            if let Some(json_out) = json_result {
+                                output_lines
+                                    .entry(step_out)
+                                    .or_insert_with(Vec::new)
+                                    .push(json_out);
+                            }
+                        }
+                        Err(_e) => err_lines.push(line.clone()),
+                    };                    
+                },
+                Err(_e) => {
+                    println!("Error parsing json in {:?}:{:?}", filename, line_num);
+                    err_lines.push(line.clone())
                 }
-                Err(_e) => err_lines.push(line.clone()),
             };
         }
 
