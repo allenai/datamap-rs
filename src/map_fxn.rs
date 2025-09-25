@@ -2514,6 +2514,7 @@ impl DataProcessor for CCSchemaModifier {
 
     fn process(&self, data: Value) -> Result<Option<Value>, Error> {
         let json_zero = json!(0.0);
+        let json_null_arr = json!([]);
 
         let id = data.get("id").unwrap();
         let text = data.get("text").unwrap();
@@ -2543,8 +2544,8 @@ impl DataProcessor for CCSchemaModifier {
         let madlad = json_get(&data, "metadata.madlad").unwrap();
         let madlad_num_sentences = madlad.get("num_sentences").unwrap().as_array().unwrap()[0].clone();
 
-        let madlad_rule2 = madlad.get("rule.2").unwrap();
-        let madlad_rule5 = madlad.get("rule.5").unwrap();
+        let madlad_rule2 = madlad.get("rule.2").unwrap_or(&json_null_arr);
+        let madlad_rule5 = madlad.get("rule.5").unwrap_or(&json_null_arr);
         let madlad_status = json_get(&data, "metadata.madlad_status").unwrap();
         let lang_en = json_get(&data, "metadata.lang.__label__en").unwrap_or(&json_zero);
         let weborganizer_max = json_get(&data, "metadata.weborganizer_max").unwrap();
