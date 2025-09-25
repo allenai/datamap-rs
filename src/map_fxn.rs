@@ -1,4 +1,5 @@
 
+use std::fs;
 use std::cmp;
 use std::time::Instant;
 use crate::utils::{extract_subdomain, get_default, json_get, json_set, json_remove};
@@ -86,7 +87,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "max_extractor", MaxExtractor);
         register_processor!(m, "constant_annotator", ConstantAnnotator);
         register_processor!(m, "rename_modifier", RenameModifier);
-
+        register_processor!(m, "cc_schema_modifier", CCSchemaModifier);
         m
     });
 
@@ -2496,3 +2497,107 @@ impl DataProcessor for RenameModifier {
     }
 }
 
+
+
+#[derive(Serialize, Debug)]
+pub struct CCSchemaModifier {
+    // Modifies CC documents to be proper schema 
+    dump_data: Vec<Value>, // Commoncrawl dump data
+}
+
+impl DataProcessor for CCSchemaModifier {
+    fn new(_config: &Value) -> Result<Self, Error> {
+        let json_data = fs::read_to_string("examples/all_dressed/crawl_dates.json").unwrap();
+        let dump_data: Vec<Value> = serde_json::from_str(&json_data).unwrap();
+        Ok(Self { dump_data })
+    }
+
+    fn process(&self, data: Value) -> Result<Option<Value>, Error> {
+        let json_zero = json!(0.0);
+
+        let id = data.get("id").unwrap();
+        let text = data.get("text").unwrap();
+        let word_count = json_get(&data, "metadata.original_word_count").unwrap();
+        let sa_remove_ranges = json_get(&data, "metadata.sa_remove_ranges").unwrap();
+        let exact_duplicates = json_get(&data, "metadata.exact_duplicates").unwrap();
+        let text_hash = json_get(&data, "text_hash").unwrap();
+
+        let warc_date = if let Some(date) = json_get(&data, "metadata.WARC-Date") {
+            date
+        } else {
+            json_get(&data, "metadata.warc_date").unwrap()
+        };
+
+        let url = if let Some(url) = json_get(&data, "metadata.WARC-Target-URI") {
+            url 
+        } else {
+            json_get(&data, "metadata.warc_url").unwrap()
+        };
+
+        let content_type = if let Some(content_type) = json_get(&data, "metadata.Content-Type") {
+            content_type
+        } else {
+            json_get(&data, "metadata.content_type").unwrap()
+        };
+
+        let madlad = json_get(&data, "metadata.madlad").unwrap();
+        let madlad_num_sentences = madlad.get("num_sentences").unwrap().as_array().unwrap()[0].clone();
+
+        let madlad_rule2 = madlad.get("rule.2").unwrap();
+        let madlad_rule5 = madlad.get("rule.5").unwrap();
+        let madlad_status = json_get(&data, "metadata.madlad_status").unwrap();
+        let lang_en = json_get(&data, "metadata.lang.__label__en").unwrap_or(&json_zero);
+        let weborganizer_max = json_get(&data, "metadata.weborganizer_max").unwrap();
+        let weborganizer = json_get(&data, "metadata.weborganizer").unwrap();
+
+
+        // Fancy stuff to get commoncrawl dump
+        let cc_dump = self.find_matching_dump(&warc_date.as_str().unwrap()).unwrap();
+
+        // Since I'm only doing this for 1 ft-classifier, just manually do it
+        let qc0 = json_get(&data, "metadata.dclm_plus2.__label__0").unwrap_or(&json_zero);
+        let qc1 = json_get(&data, "metadata.dclm_plus2.__label__1").unwrap_or(&json_zero);
+        
+        let minhash = json_get(&data, "metadata.minhash").unwrap_or(&Value::Null);
+        
+        let output_json = json!({
+            "id": *id,
+            "text": *text,
+            "metadata": {
+                "cc_dump": cc_dump,
+                "warc_url": *url,
+                "warc_date": *warc_date,            
+                "warc_content_type": *content_type,
+                "dolma2_qc": {"0": *qc0, "1": *qc1},
+                "exact_duplicates": *exact_duplicates,
+                "minhash": *minhash,
+                "text_hash": *text_hash,
+                "lang": {"en": *lang_en},
+                "madlad": {"num_sentences": madlad_num_sentences, 
+                           "rule.2": *madlad_rule2,
+                           "rule.5": *madlad_rule5,
+                           "status": *madlad_status,
+                           },
+                "sa_remove_ranges": *sa_remove_ranges,
+                "original_word_count": *word_count,
+                "weborganizer": *weborganizer,
+                "weborganizer_max": *weborganizer_max
+            }
+        });
+        Ok(Some(output_json))
+    }
+
+}   
+
+impl CCSchemaModifier {
+    fn find_matching_dump(&self, datestr: &str) -> Result<Value, Error> {
+        for dump in &self.dump_data {
+            let from_date = dump["from"].as_str().unwrap();
+            let to_date = dump["to"].as_str().unwrap();
+            if datestr >= from_date && datestr <= to_date {
+                return Ok(dump["id"].clone())
+            }
+        }
+        Err(anyhow!("No matching dump for date: {}", datestr))        
+    }
+}
