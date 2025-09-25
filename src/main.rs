@@ -346,7 +346,8 @@ fn gen_map_single(
 
     // Setup for processing
     let data = read_local_file_into_memory(input_file).unwrap();
-    let lines: Vec<_> = data.lines().map(|el| el.unwrap()).collect();
+
+    let lines: Vec<_> = data.lines().filter_map(|el| el.ok()).collect();
 
     // Process data
     let (output_lines, err_lines, timing_info, filter_info) =
