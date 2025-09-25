@@ -1,5 +1,6 @@
 // External crates
 
+use std::fs;
 use serde_json::Value;
 use dashmap::DashMap;
 use std::collections::HashMap;
@@ -66,6 +67,9 @@ enum Commands {
 
         #[arg(long)]
         err_dir: Option<PathBuf>,
+
+        #[arg(long)]
+        delete_after_read: bool,
     },
 
     Reshard {
@@ -236,6 +240,7 @@ fn gen_map(
     output_dir: &PathBuf,
     config: &PathBuf,
     err_dir: Option<PathBuf>,
+    delete_after_read: bool,
 ) -> Result<(), Error> {
     /* Generic mapping/filtration function.
 
@@ -280,6 +285,9 @@ fn gen_map(
             &err_count,
         )
         .unwrap();
+        if delete_after_read {
+            fs::remove_file(p).unwrap();
+        }
         pbar.inc(1);
     });
 
@@ -366,7 +374,9 @@ fn main() {
             output_dir,
             config,
             err_dir,
-        } => gen_map(input_dir, output_dir, config, err_dir.clone()),
+            delete_after_read,
+
+        } => gen_map(input_dir, output_dir, config, err_dir.clone(), *delete_after_read),
         Commands::Reshard {
             input_dir,
             output_dir,
