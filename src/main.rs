@@ -316,7 +316,7 @@ fn read_local_file_into_memory(input_file: &PathBuf) -> Result<Cursor<Vec<u8>>, 
                 Ok(0) => break,
                 Ok(n) => contents.extend_from_slice(&buffer[..n]),
                 Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    println!("Warning: Incomplete zstd file, recovered {} bytes", contents.len());
+                    // println!("Warning: Incomplete zstd file, recovered {} bytes", contents.len());
                     break;
                 }
                 Err(e) => return Err(e.into()),
