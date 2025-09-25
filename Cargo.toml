@@ -23,7 +23,6 @@ serde_json = "1.0.139"
 serde_yaml = "0.9.34"
 url = "2.5.4"
 uuid = { version = "1.4", features = ["v4"] }
-zstd = "0.12"
 fasttext = "0.7"
 unicode-segmentation = "1.12.0"
 regex = "1.11.1"
@@ -31,6 +30,9 @@ derivative = "2.2.0"
 fxhash = "0.2.1"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 chrono = {version = "0.4.42", features=["serde"]}
+flate2 = "1.0.35"
+glob = "0.3.2"
+zstd = "0.13.2"
 
 [[test]]
 name = "tests"
