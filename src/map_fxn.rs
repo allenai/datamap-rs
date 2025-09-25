@@ -2520,7 +2520,7 @@ impl DataProcessor for CCSchemaModifier {
         let word_count = json_get(&data, "original_word_count").unwrap();
         let sa_remove_ranges = json_get(&data, "sa_remove_ranges").unwrap();
         let exact_duplicates = json_get(&data, "metadata.exact_duplicates").unwrap();
-        let text_hash = json_get(&data, "text_hash").unwrap();
+        let text_hash = json_get(&data, "metadata.text_hash").unwrap();
 
         let warc_date = if let Some(date) = json_get(&data, "metadata.WARC-Date") {
             date
