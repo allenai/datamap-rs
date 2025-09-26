@@ -1,8 +1,6 @@
 
-use std::fs;
 use std::cmp;
 use std::time::Instant;
-use std::collections::BTreeMap;
 use crate::utils::{extract_subdomain, get_default, json_get, json_set, json_remove};
 use aho_corasick::AhoCorasick;
 use anyhow::{anyhow, ensure, Error, Result};
@@ -28,7 +26,6 @@ use url::Url;
 use xxhash_rust::xxh3::{xxh3_128, xxh3_64};
 use once_cell::sync::OnceCell;
 use derivative::Derivative;
-use chrono::{DateTime, Utc, NaiveDateTime};
 
 /*================================================================================
 =                            PIPELINE PROCESSING                                 =
@@ -88,7 +85,6 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "max_extractor", MaxExtractor);
         register_processor!(m, "constant_annotator", ConstantAnnotator);
         register_processor!(m, "rename_modifier", RenameModifier);
-        register_processor!(m, "cc_schema_modifier", CCSchemaModifier);
         m
     });
 
@@ -2507,176 +2503,3 @@ impl DataProcessor for RenameModifier {
     }
 }
 
-
-#[derive(Serialize)]
-#[derive(Derivative)]
-#[derivative(Debug)]
-pub struct CCSchemaModifier {
-    // Modifies CC documents to be proper schema 
-    #[derivative(Debug = "ignore")]
-    #[serde(skip)]
-    dump_matcher: CCDateMatcher, // Commoncrawl dump data
-}
-
-impl DataProcessor for CCSchemaModifier {
-    fn new(_config: &Value) -> Result<Self, Error> {
-        let json_data = fs::read_to_string("examples/all_dressed/crawl_dates.json").unwrap();
-        let dump_data: Vec<Value> = serde_json::from_str(&json_data).unwrap();
-
-        let dump_dates: Vec<(&str, String)> = dump_data.iter().flat_map(|v| {
-            let cc_id = v["id"].as_str().unwrap().to_string();
-            let from_str = v["from"].as_str().unwrap();
-            let to_str = v["to"].as_str().unwrap();
-            vec![(from_str, cc_id.clone()), (to_str, cc_id)]
-        }).collect();
-
-        let dump_matcher = CCDateMatcher::new(dump_dates).unwrap();
-
-        Ok(Self { dump_matcher })
-    }
-
-    fn process(&self, data: Value) -> Result<Option<Value>, Error> {
-        let json_zero = json!(0.0);
-        let json_null_arr = json!([]);
-
-        let id = data.get("id").unwrap();
-        let text = data.get("text").unwrap();
-        let word_count = json_get(&data, "original_word_count").unwrap();
-        let sa_remove_ranges = json_get(&data, "sa_remove_ranges").unwrap();
-        let exact_duplicates = json_get(&data, "metadata.exact_duplicates").unwrap();
-        let text_hash = json_get(&data, "metadata.text_hash").unwrap();
-
-        let warc_date = if let Some(date) = json_get(&data, "metadata.WARC-Date") {
-            date
-        } else {
-            json_get(&data, "metadata.warc_date").unwrap()
-        };
-
-        let url = if let Some(url) = json_get(&data, "metadata.WARC-Target-URI") {
-            url 
-        } else {
-            json_get(&data, "metadata.warc_url").unwrap()
-        };
-
-        let content_type = if let Some(content_type) = json_get(&data, "metadata.Content-Type") {
-            content_type
-        } else {
-            json_get(&data, "metadata.content_type").unwrap()
-        };
-
-        let madlad = json_get(&data, "metadata.madlad").unwrap();
-        let madlad_num_sentences = madlad.get("num_sentences").unwrap().as_array().unwrap()[0].clone();
-
-        let madlad_rule2 = madlad.get("rule.2").unwrap_or(&json_null_arr);
-        let madlad_rule5 = madlad.get("rule.5").unwrap_or(&json_null_arr);
-        let madlad_status = json_get(&data, "metadata.madlad_status").unwrap();
-        let lang_en = json_get(&data, "metadata.lang.__label__en").unwrap_or(&json_zero);
-        let weborganizer_max = json_get(&data, "metadata.weborganizer_max").unwrap();
-        let weborganizer = json_get(&data, "metadata.weborganizer").unwrap();
-
-
-        // Fancy stuff to get commoncrawl dump
-        let cc_dump = self.dump_matcher.find_closest(&warc_date.as_str().unwrap()).unwrap();
-
-
-        // Since I'm only doing this for 1 ft-classifier, just manually do it
-        let qc0 = json_get(&data, "metadata.dclm_plus2.__label__0").unwrap_or(&json_zero);
-        let qc1 = json_get(&data, "metadata.dclm_plus2.__label__1").unwrap_or(&json_zero);
-        
-        let minhash = json_get(&data, "metadata.minhash").unwrap_or(&Value::Null);
-        
-        let output_json = json!({
-            "id": *id,
-            "text": *text,
-            "metadata": {
-                "cc_dump": cc_dump,
-                "warc_url": *url,
-                "warc_date": *warc_date,            
-                "warc_content_type": *content_type,
-                "dolma2_qc": {"0": *qc0, "1": *qc1},
-                "exact_duplicates": *exact_duplicates,
-                "minhash": *minhash,
-                "text_hash": *text_hash,
-                "lang": {"en": *lang_en},
-                "madlad": {"num_sentences": madlad_num_sentences, 
-                           "rule.2": *madlad_rule2,
-                           "rule.5": *madlad_rule5,
-                           "status": *madlad_status,
-                           },
-                "sa_remove_ranges": *sa_remove_ranges,
-                "original_word_count": *word_count,
-                "weborganizer": *weborganizer,
-                "weborganizer_max": *weborganizer_max
-            }
-        });
-        Ok(Some(output_json))
-    }
-
-}   
-
-
-#[derive(Debug, Clone)]
-struct CCDateMatcher {
-    sorted_dates: BTreeMap<i64, String>
-}
-
-
-impl CCDateMatcher {
-    fn new(date_strings: Vec<(&str, String)>) -> Result<Self, Error> {
-        let mut sorted_dates = BTreeMap::new();
-        for (date_str, event_name) in date_strings {
-            let timestamp = parse_datetime_flexible(date_str)?;
-            sorted_dates.insert(timestamp, event_name);
-        }
-        Ok(CCDateMatcher { sorted_dates })
-    }
-    
-    fn find_closest(&self, query: &str) -> Result<Option<&String>, Error> {
-        let query_timestamp = parse_datetime_flexible(query).unwrap();
-        
-        if self.sorted_dates.is_empty() {
-            return Ok(None);
-        }
-        
-        // Find the first date >= query_timestamp
-        let mut iter = self.sorted_dates.range(query_timestamp..);
-        let after = iter.next();
-        
-        // Find the last date < query_timestamp
-        let mut iter = self.sorted_dates.range(..query_timestamp);
-        let before = iter.next_back();
-        
-        let closest = match (before, after) {
-            (None, None) => return Ok(None),
-            (Some((_ts, name)), None) => name,
-            (None, Some((_ts, name))) => name,
-            (Some((before_ts, before_name)), Some((after_ts, after_name))) => {
-                let before_diff = (query_timestamp - before_ts).abs();
-                let after_diff = (after_ts - query_timestamp).abs();
-                
-                if before_diff <= after_diff {
-                    before_name
-                } else {
-                    after_name
-                }
-            }
-        };
-        
-        Ok(Some(&closest))
-    }
-}
-
-fn parse_datetime_flexible(date_str: &str) -> Result<i64, Error> {
-    // Try parsing as DateTime<Utc> first (has timezone info)
-    if let Ok(dt) = date_str.parse::<DateTime<Utc>>() {
-        return Ok(dt.timestamp());
-    }
-    
-    // If that fails, try parsing as NaiveDateTime and assume UTC
-    if let Ok(naive_dt) = NaiveDateTime::parse_from_str(date_str, "%Y-%m-%dT%H:%M:%S") {
-        let dt_utc = naive_dt.and_utc();
-        return Ok(dt_utc.timestamp());
-    }
-    
-    anyhow::bail!("Unable to parse date: {:?}", date_str)
-}
