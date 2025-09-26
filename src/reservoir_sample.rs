@@ -47,24 +47,26 @@ fn unweighted_reservoir(input_dir: &PathBuf, key: &String, reservoir_size: usize
 
     let base_thread_res_size = reservoir_size / num_threads;
     let pbar = build_pbar(all_files.len(), "Paths");
-    let full_res: Vec<Vec<Value>> = (0..num_threads).into_par_iter().map(|i| {
+    let full_res: Vec<(Vec<Value>, usize)> = (0..num_threads).into_par_iter().map(|i| {
     	let res_size = if i < (reservoir_size % num_threads) {base_thread_res_size + 1} else {base_thread_res_size};
 		thread_res(&chunks[i], key, res_size, &pbar).unwrap()
     }).collect();
 
 
 
-    let full_res: Vec<Value> = full_res.into_iter().flat_map(|k| k).collect();
+
+    let total_seen = full_res.par_iter().map(|k| k.1).sum::<usize>();
+    let full_res: Vec<Value> = full_res.into_iter().flat_map(|k| k.0).collect();
     let json_res = json!(full_res);
     let output_contents = serde_json::to_vec(&json_res).unwrap();
     write_mem_to_pathbuf(&output_contents, output_file).unwrap();
-
+    println!("Made a reservoir of size {:?} from {:?} documents total", full_res.len(), total_seen);
 
 	Ok(())
 }
 
 
-fn thread_res(input_paths: &Vec<PathBuf>, key: &String, reservoir_size: usize, pbar: &ProgressBar) -> Result<Vec<Value>, Error> {
+fn thread_res(input_paths: &Vec<PathBuf>, key: &String, reservoir_size: usize, pbar: &ProgressBar) -> Result<(Vec<Value>, usize), Error> {
 	let mut cur_res: Vec<Value> = Vec::new();
 	let mut total_seen: usize = 0;
 	let mut rng = rand::rng();
@@ -87,7 +89,7 @@ fn thread_res(input_paths: &Vec<PathBuf>, key: &String, reservoir_size: usize, p
 		}
 		pbar.inc(1);
 	});
-	Ok(cur_res)
+	Ok((cur_res, total_seen))
 }
 
 
