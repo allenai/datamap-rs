@@ -448,7 +448,7 @@ fn main() {
             input_dir,
             output_dir, 
             config
-        } => range_partition(input_dir, output_dir, &None, &None, config, &false),
+        } => range_partition(input_dir, output_dir, config,),
         Commands::Group {
             input_dir,
             group_dir,

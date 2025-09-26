@@ -18,6 +18,28 @@ use mj_io::{expand_dirs, read_pathbuf_to_mem, build_pbar};
 use zstd::stream::Encoder;
 use serde::{Deserialize, Serialize};
 
+/*
+Tools for partitioning a dataset across categories or across ranges (like quantile bucketing).
+
+These are treated separately:
+
+Discrete (Categorical) Partitioning:
+- Takes an input dataset and the config holds the key we're partitioning on as well as optional known categories
+	- If categories are known beforehand, will bucket anything not matching these categories into a separate bucket
+	- If categories are not known beforehand, will create one bucket per category as it's seen
+- Output files are stored like chunk_{category}_{filenum}.jsonl.zst
+
+
+
+Range Partitioning:
+- Takens an input dataset and the config holds the key, a default value, 
+  and either a list of the range groups we want OR a pointer to a reservoir sample and number of desired buckets
+
+- Output files are stored like 
+	bucket_{bucket_num}/shard_{:08}.jsonl.zst
+	
+*/
+
 
 /*================================================================
 =                            DISCRETE PARTITION                  =
@@ -28,7 +50,7 @@ use serde::{Deserialize, Serialize};
 struct DiscretePartitionConfig {
 	name: String,
 	partition_key: String,
-	choices: Vec<String>,
+	choices: Option<Vec<String>>,
 	#[serde(default="default_max_file_size")]
 	max_file_size: usize,
 }
@@ -53,7 +75,6 @@ pub fn discrete_partition(input_dir: &PathBuf, output_dir: &PathBuf, config_path
 	let global_counts: DashMap<Option<String>, AtomicUsize> = DashMap::new();
 	let pbar = build_pbar(input_paths.len(), "Paths");
 	input_paths.par_iter().for_each(|p| {
-
 		let local_counts = partition_single_path(p, &config, &writer).unwrap();
 		local_counts.into_iter().for_each(|(k, v)| {
 		    global_counts.entry(k).or_insert_with(|| AtomicUsize::new(0)).fetch_add(v, Ordering::Relaxed);
@@ -87,17 +108,15 @@ fn partition_single_path(path: &PathBuf, config: &DiscretePartitionConfig, write
 	let contents = read_pathbuf_to_mem(path).unwrap();
 	let mut partitioned_bytes: HashMap<Option<String>, Vec<u8>> = HashMap::new();
 	let mut counts: HashMap<Option<String>, usize> = HashMap::new();
-	let WriterConfig::Category {ref full_choices} = writer.config else {panic!("should never happen")};
-
 	for line in contents.lines() {
 		let line = line.unwrap();
 		let json_value = serde_json::from_str(&line).unwrap();
-		let partition_value = json_get(&json_value, &config.partition_key).unwrap().as_str().unwrap().to_string();
-		let key: &Option<String> = if full_choices.contains(&Some(partition_value.clone())) {
-			&Some(partition_value)
-		} else {
-			&None
+		let partition_value = json_get(&json_value, &config.partition_key).unwrap();
+		let key = match partition_value {
+			serde_json::Value::Null => &None,
+			_ => &Some(partition_value.as_str().unwrap().to_string())
 		};
+
 		let append_vec = partitioned_bytes.entry(key.clone()).or_default();
 		*counts.entry(key.clone()).or_insert(0) += 1;
 		append_vec.extend(line.as_bytes());
@@ -118,7 +137,9 @@ struct PercentilePartitionConfig {
 	name: String,
 	value: String,
 	default_value: Option<f64>, // defaults to 0	
-	range_groups: Vec<f64>, // e.g. [0.25, 0.50, 0.75] -> splits into [[0.0, 0.25), [0.25, 0.5), [0.5, 0.75), [0.75, 1]]
+	range_groups: Option<Vec<f64>>, // e.g. [0.25, 0.50, 0.75] -> splits into [[0.0, 0.25), [0.25, 0.5), [0.5, 0.75), [0.75, 1]]
+	reservoir_path: Option<PathBuf>,
+	num_buckets: Option<usize>,
 	#[serde(default="default_max_file_size")]
 	max_file_size: usize,
 	#[serde(default="default_bucket_name")]
@@ -133,58 +154,40 @@ fn default_bucket_name() -> String {
 }
 
 
-pub fn range_partition(input_dir: &PathBuf, output_dir: &PathBuf, reservoir_path: &Option<PathBuf>, reservoir: &Option<Vec<f64>>, config_path: &PathBuf, weighted_percentiles: &bool) -> Result<(), Error> {
+pub fn range_partition(input_dir: &PathBuf, output_dir: &PathBuf, config_path: &PathBuf) -> Result<(), Error> {
 	println!("Starting partition...");
 	let start_time = Instant::now();
 	let config_contents = read_pathbuf_to_mem(config_path).unwrap();
 	let config: PercentilePartitionConfig = serde_yaml::from_reader(config_contents).unwrap();		
 	let input_paths = expand_dirs(vec![input_dir.clone()], None).unwrap();
 
-
-
-
-
-	let percentile_values = if *weighted_percentiles {
-		// reservoir is [{percentile, value: f64}, ...]
-		let reservoir_path = reservoir_path.clone().unwrap();
-		let res_contents = read_pathbuf_to_mem(&reservoir_path).unwrap().into_inner().into_inner();
-		let reservoir_json: Vec<serde_json::Value> = serde_json::from_slice(&res_contents).unwrap();
-		let mut pct_vals : Vec<f64> = Vec::new();
-		let mut pct_idx = 0;
-		for i in 0..(reservoir_json.len() - 1) {
-			let pct_lo = json_get(&reservoir_json[i], "percentile").unwrap().as_f64().unwrap();
-			let pct_hi = json_get(&reservoir_json[i+1], "percentile").unwrap().as_f64().unwrap();
-			if (pct_lo <= config.range_groups[pct_idx] * 100.0) && (pct_hi > config.range_groups[pct_idx] * 100.0) {
-				pct_vals.push(json_get(&reservoir_json[i], "value").unwrap().as_f64().unwrap());
-				pct_idx += 1;			
+	let ranges: Vec<f64> = if let Some(ref range_groups) = config.range_groups {
+		range_groups.to_vec()
+	} else if let Some(ref res_path) = config.reservoir_path {
+		let reservoir_content = read_pathbuf_to_mem(&res_path).unwrap().into_inner().into_inner();
+		let reservoir_data: Vec<f64> = serde_json::from_slice(&reservoir_content).unwrap();
+		let num_buckets = config.num_buckets.unwrap();
+		(1..num_buckets).map(|i| {
+			let index = (i * reservoir_data.len()) / num_buckets;
+			if index < reservoir_data.len() {
+				reservoir_data[index] 				
+			} else {
+				reservoir_data[reservoir_data.len() - 1]
 			}
-			if pct_idx >= config.range_groups.len() {
-				break;
-			}
-		}
-		pct_vals
-	} else { // reservoir is just a vec<f64>
-		let reservoir: Vec<f64> = if reservoir.is_some() {
-			reservoir.clone().unwrap()
-		} else {
-			let reservoir_path = reservoir_path.clone().unwrap();
-			let res_contents = read_pathbuf_to_mem(&reservoir_path).unwrap().into_inner().into_inner();
-			let reservoir_json = serde_json::from_slice(&res_contents).unwrap();
-			reservoir_json
-		};
-		config.range_groups.iter()
-		.map(|p| reservoir[(((reservoir.len() as f64) * p).round() as usize).clamp(0, reservoir.len() - 1)])
+		})
 		.collect()
+	} else {
+		panic!("Need either range groups or a reservoir");
 	};
+	println!("Range groups are {:?}", ranges);
 
-	println!("Percentile values are {:?}", percentile_values);
-	//println!("PCT VAL {:?}", percentile_values);
-	let counter: DashMap<usize, usize> = DashMap::new();
+
+	let counter: DashMap<usize, usize> = DashMap::new(); // counts range group -> num docs
 	let writer = GenWriter::new_bucket_writer(output_dir, config.max_file_size, &config.bucket_name);
 	let pbar = build_pbar(input_paths.len(), "Paths");
 
 	input_paths.par_iter().for_each(|p| {
-		percentile_partition_path(p, &writer, &percentile_values, &config, &counter).unwrap();
+		percentile_partition_path(p, &writer, &ranges, &config, &counter).unwrap();
 		pbar.inc(1);
 	});
 	writer.finish().unwrap();
@@ -197,15 +200,13 @@ pub fn range_partition(input_dir: &PathBuf, output_dir: &PathBuf, reservoir_path
 		let binding = counter.get(&k).unwrap();
 	    let v = binding.value();
 		if k == 0 {
-			println!("[0.0, {:?}) | {:?} score upper bound |{:?} docs", config.range_groups[0], percentile_values[0], v);
-		} else if k == config.range_groups.len() + 1 {
-			println!("[{:?}, 1.0] | {:?} score upper bound |{:?} docs", config.range_groups[config.range_groups.len() -1], 1.0, v);
+			println!("(-∞, {:?}) | {:?} docs", ranges[0], v);
+		} else if k == ranges.len() + 1 {
+			println!("[{:?}, ∞) | {:?} docs", ranges[ranges.len() -1], v);
 		} else {
-			println!("[{:?}, {:?}) | {:?} score upper bound |{:?} docs", config.range_groups[k-1], config.range_groups[k], percentile_values[k], v);
+			println!("[{:?}, {:?}) | {:?} docs", ranges[k-1], ranges[k], v);
 		}
 	});
-
-
 	Ok(())
 }
 
@@ -243,12 +244,11 @@ fn f64_to_bucket(bucket_bounds: &Vec<f64>, value: f64) -> usize {
 	if value < bucket_bounds[0] {
 		return 0;
 	}
-	for j in 0..bucket_bounds.len() - 1 {
-		if bucket_bounds[j] <= value && value < bucket_bounds[j+1] {
-			return j + 1
-		}
+	match bucket_bounds.binary_search_by(|x| x.partial_cmp(&value).unwrap()) {
+		Ok(index) => index,
+		Err(index) => index
 	}
-	bucket_bounds.len()
+
 }
 
 
@@ -283,7 +283,7 @@ pub struct WriterInfo<'a> {
 #[derive(Clone)]
 pub enum WriterConfig {
     Category {
-        full_choices: HashSet<Option<String>>,
+        full_choices: Option<HashSet<Option<String>>>,
     },
     Bucket {
         bucket_name: String,
@@ -294,17 +294,28 @@ impl<'a> GenWriter<'a> {
     // Constructor for category-based writer (Version 1)
     pub fn new_category_writer(
         storage_loc: &PathBuf, 
-        choices: &Vec<String>, 
+        choices: &Option<Vec<String>>, 
         max_len: usize
     ) -> Self {
         let writer = DashMap::new();
-        let mut full_choices: HashSet<Option<String>> = choices
-            .iter()
-            .map(|c| Some(c.clone()))
-            .collect();
-        full_choices.insert(None);
+
+
+        let (full_choices, fc_len) = if let Some(choices) = choices {
+        	let mut full_choices: HashSet<Option<String>> = HashSet::new();
+        	for choice in choices {
+        		full_choices.insert(Some(choice.clone()));
+        	}
+        	full_choices.insert(None);
+        	let fc_len = full_choices.len();
+        	(Some(full_choices), fc_len)
+
+        } else {
+        	(None, 0)
+        };
+
+
         
-        println!("Opening {:?} writer files", full_choices.len());
+        println!("Opening {:?} writer files", fc_len);
         
         GenWriter {
             writer,
@@ -376,20 +387,52 @@ impl<'a> GenWriter<'a> {
     }
 
     pub fn write_contents(&self, key: WriterKey, contents: Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
-        let writer_arc = self.writer.entry(key.clone()).or_insert_with(|| {
-            let filename = self.get_filename(&key, 0);
-            if let Some(parent_dir) = filename.parent() {
-                if !parent_dir.exists() {
-                    create_dir_all(parent_dir).unwrap();
-                }
-            }
-            let writer_info = WriterInfo {
-                encoder: Some(self.create_new_encoder(&key, 0)),
-                bytes_written: 0,
-                file_idx: 0,
-            };
-            Arc::new(Mutex::new(writer_info))
-        });
+
+    	let writer_arc = match (&self.config, &key) {
+    		(WriterConfig::Category { full_choices }, WriterKey::Category(choice)) => {
+    			if let Some(og_choices) = full_choices { // Choices are prespecified -- either we match or None
+    				let proper_key = if og_choices.contains(&choice) {
+    					key.clone()
+    				} else {
+    					WriterKey::Category(None)
+    				};
+    				&self.writer.get_mut(&proper_key).unwrap()
+    			} else { // Choices are not prespecified, always match
+					&self.writer.entry(key.clone()).or_insert_with(|| {
+			            let filename = self.get_filename(&key, 0);
+			            if let Some(parent_dir) = filename.parent() {
+			                if !parent_dir.exists() {
+			                    create_dir_all(parent_dir).unwrap();
+			                }
+			            }
+			            let writer_info = WriterInfo {
+			                encoder: Some(self.create_new_encoder(&key, 0)),
+			                bytes_written: 0,
+			                file_idx: 0,
+			            };
+			            Arc::new(Mutex::new(writer_info))
+			        })    				
+    			}
+    		},
+    		(WriterConfig::Bucket { .. }, WriterKey::Bucket(..)) => {
+				&self.writer.entry(key.clone()).or_insert_with(|| {
+		            let filename = self.get_filename(&key, 0);
+		            if let Some(parent_dir) = filename.parent() {
+		                if !parent_dir.exists() {
+		                    create_dir_all(parent_dir).unwrap();
+		                }
+		            }
+		            let writer_info = WriterInfo {
+		                encoder: Some(self.create_new_encoder(&key, 0)),
+		                bytes_written: 0,
+		                file_idx: 0,
+		            };
+		            Arc::new(Mutex::new(writer_info))
+		        })    	    			
+    		}
+    		_ => panic!("Mismatched writer config and key type"),
+    	};
+
 
         let mut writer_info = writer_arc.lock().unwrap();
         writer_info.bytes_written += contents.len();
@@ -397,6 +440,7 @@ impl<'a> GenWriter<'a> {
         if writer_info.encoder.is_none() {
             writer_info.encoder = Some(self.create_new_encoder(&key, writer_info.file_idx));
         }
+
 
         if let Some(encoder) = &mut writer_info.encoder {
             encoder.write_all(&contents)?;
@@ -412,6 +456,8 @@ impl<'a> GenWriter<'a> {
 
         Ok(())
     }
+
+
 
     // Convenience methods for the different key types
     pub fn write_category_contents(
