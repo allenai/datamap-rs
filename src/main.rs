@@ -29,9 +29,6 @@ use datamap_rs::partition::partition;
 use datamap_rs::reshard::reshard;
 use datamap_rs::groupfilter::{group, group_filter};
 
-use flate2::read::MultiGzDecoder;
-use zstd::stream::read::Decoder as ZstdDecoder;
-use std::io::{Cursor, Write, Read};
 /*
 Map Config layout:
 
