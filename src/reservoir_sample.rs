@@ -21,7 +21,7 @@ use tiktoken_rs::cl100k_base;
 
 pub fn reservoir_sample(input_dir: &PathBuf, output_file: &PathBuf, key: &String, reservoir_size: usize, token_weighted: bool, text_key: Option<String>) -> Result<(), Error> {
 	println!("Starting reservoir sampling...");
-	if token_weighted {
+	if !token_weighted {
 		unweighted_reservoir(input_dir, key, reservoir_size, output_file).unwrap();
 	} else {
 		token_weighted_reservoir(input_dir, key, &text_key.unwrap(), reservoir_size, output_file).unwrap();

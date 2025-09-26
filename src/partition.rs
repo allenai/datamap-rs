@@ -165,7 +165,8 @@ pub fn range_partition(input_dir: &PathBuf, output_dir: &PathBuf, config_path: &
 		range_groups.to_vec()
 	} else if let Some(ref res_path) = config.reservoir_path {
 		let reservoir_content = read_pathbuf_to_mem(&res_path).unwrap().into_inner().into_inner();
-		let reservoir_data: Vec<f64> = serde_json::from_slice(&reservoir_content).unwrap();
+		let mut reservoir_data: Vec<f64> = serde_json::from_slice(&reservoir_content).unwrap();
+		reservoir_data.sort_unstable_by(|a,b| a.total_cmp(b));
 		let num_buckets = config.num_buckets.unwrap();
 		(1..num_buckets).map(|i| {
 			let index = (i * reservoir_data.len()) / num_buckets;
