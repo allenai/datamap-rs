@@ -202,7 +202,7 @@ pub fn range_partition(input_dir: &PathBuf, output_dir: &PathBuf, config_path: &
 	    let v = binding.value();
 		if k == 0 {
 			println!("(-∞, {:?}) | {:?} docs", ranges[0], v);
-		} else if k == ranges.len() + 1 {
+		} else if k == ranges.len() {
 			println!("[{:?}, ∞) | {:?} docs", ranges[ranges.len() -1], v);
 		} else {
 			println!("[{:?}, {:?}) | {:?} docs", ranges[k-1], ranges[k], v);
