@@ -300,7 +300,7 @@ impl<'a> GenWriter<'a> {
     ) -> Self {
         let writer = DashMap::new();
 
-
+        let fake_config = &WriterKey::Category {full_choices: None};
         let (full_choices, fc_len) = if let Some(choices) = choices {
         	let mut full_choices: HashSet<Option<String>> = HashSet::new();
         	for choice in choices {
@@ -308,22 +308,41 @@ impl<'a> GenWriter<'a> {
         	}
         	full_choices.insert(None);
         	let fc_len = full_choices.len();
-        	(Some(full_choices), fc_len)
 
+        	for choice in &full_choices {
+        		let key = WriterKey::Category(choice.clone());
+				writer.entry(key.clone()).or_insert_with(|| {
+		            let filename = GenWriter::get_filename(&fake_config, &key, 0, storage_loc);
+		            if let Some(parent_dir) = filename.parent() {
+		                if !parent_dir.exists() {
+		                    create_dir_all(parent_dir).unwrap();
+		                }
+		            }
+		            let writer_info = WriterInfo {
+		                encoder: Some(Self::create_new_encoder(&fake_config, &key, 0, storage_loc)),
+		                bytes_written: 0,
+		                file_idx: 0,
+		            };
+		            Arc::new(Mutex::new(writer_info))
+		        });  
+			}
+        	(Some(full_choices), fc_len)
+       		        	
         } else {
         	(None, 0)
         };
-
-
-        
-        println!("Opening {:?} writer files", fc_len);
-        
-        GenWriter {
+        let gen_writer = GenWriter {
             writer,
             storage_loc: storage_loc.clone(),
             max_len,
             config: WriterConfig::Category { full_choices },
-        }
+        };
+
+
+
+
+        println!("Opening {:?} writer files", fc_len);        
+        gen_writer
     }
 
     // Constructor for bucket-based writer (Version 2)
@@ -344,13 +363,13 @@ impl<'a> GenWriter<'a> {
         }
     }
 
-    pub fn get_filename(&self, key: &WriterKey, file_idx: usize) -> PathBuf {
-        match (&self.config, key) {
+    pub fn get_filename(config: &WriterConfig, key: &WriterKey, file_idx: usize, storage_loc: &PathBuf) -> PathBuf {
+        match (config, key) {
             (WriterConfig::Category { .. }, WriterKey::Category(choice)) => {
                 if choice.is_none() {
-                    self.storage_loc.join(format!("no_category.{:08}.jsonl.zst", file_idx))
+                    storage_loc.join(format!("no_category.{:08}.jsonl.zst", file_idx))
                 } else {
-                    self.storage_loc.join(format!(
+                    storage_loc.join(format!(
                         "chunk_{}.{:08}.jsonl.zst",
                         choice.as_ref().unwrap(),
                         file_idx
@@ -358,7 +377,7 @@ impl<'a> GenWriter<'a> {
                 }
             }
             (WriterConfig::Bucket { bucket_name }, WriterKey::Bucket(bucket_num)) => {
-                self.storage_loc
+                storage_loc
                     .join(format!("{}_{:04}", bucket_name, bucket_num))
                     .join(format!("shard_{:08}.jsonl.zst", file_idx))
             }
@@ -366,8 +385,8 @@ impl<'a> GenWriter<'a> {
         }
     }
 
-    fn create_new_encoder(&self, key: &WriterKey, file_idx: usize) -> Encoder<'a, File> {
-        let new_filename = self.get_filename(key, file_idx);
+    fn create_new_encoder(config: &WriterConfig, key: &WriterKey, file_idx: usize, storage_loc: &PathBuf) -> Encoder<'a, File> {
+        let new_filename = GenWriter::get_filename(config, key, file_idx, storage_loc);
 
         if let Some(parent_dir) = new_filename.parent() {
             if !parent_dir.exists() {
@@ -400,14 +419,14 @@ impl<'a> GenWriter<'a> {
     				&self.writer.get_mut(&proper_key).unwrap()
     			} else { // Choices are not prespecified, always match
 					&self.writer.entry(key.clone()).or_insert_with(|| {
-			            let filename = self.get_filename(&key, 0);
+			            let filename = GenWriter::get_filename(&self.config, &key, 0, &self.storage_loc);
 			            if let Some(parent_dir) = filename.parent() {
 			                if !parent_dir.exists() {
 			                    create_dir_all(parent_dir).unwrap();
 			                }
 			            }
 			            let writer_info = WriterInfo {
-			                encoder: Some(self.create_new_encoder(&key, 0)),
+			                encoder: Some(GenWriter::create_new_encoder(&self.config, &key, 0, &self.storage_loc)),
 			                bytes_written: 0,
 			                file_idx: 0,
 			            };
@@ -417,14 +436,14 @@ impl<'a> GenWriter<'a> {
     		},
     		(WriterConfig::Bucket { .. }, WriterKey::Bucket(..)) => {
 				&self.writer.entry(key.clone()).or_insert_with(|| {
-		            let filename = self.get_filename(&key, 0);
+		            let filename = GenWriter::get_filename(&self.config, &key, 0, &self.storage_loc);
 		            if let Some(parent_dir) = filename.parent() {
 		                if !parent_dir.exists() {
 		                    create_dir_all(parent_dir).unwrap();
 		                }
 		            }
 		            let writer_info = WriterInfo {
-		                encoder: Some(self.create_new_encoder(&key, 0)),
+		                encoder: Some(GenWriter::create_new_encoder(&self.config, &key, 0, &self.storage_loc)),
 		                bytes_written: 0,
 		                file_idx: 0,
 		            };
@@ -439,7 +458,7 @@ impl<'a> GenWriter<'a> {
         writer_info.bytes_written += contents.len();
 
         if writer_info.encoder.is_none() {
-            writer_info.encoder = Some(self.create_new_encoder(&key, writer_info.file_idx));
+            writer_info.encoder = Some(GenWriter::create_new_encoder(&self.config, &key, writer_info.file_idx, &self.storage_loc));
         }
 
 
