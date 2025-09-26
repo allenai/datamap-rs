@@ -30,6 +30,9 @@ derivative = "2.2.0"
 fxhash = "0.2.1"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 zstd = "0.13.3"
+tiktoken = "1.0.1"
+tiktoken-rs = "0.7.0"
+binary-heap-plus = "0.5.0"
 
 [[test]]
 name = "tests"

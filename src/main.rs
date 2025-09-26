@@ -23,12 +23,13 @@ pub mod map_fxn;
 pub mod partition;
 pub mod utils;
 pub mod groupfilter;
+pub mod reservoir_sample;
 pub use map_fxn::DataProcessor;
 use datamap_rs::map_fxn::PipelineProcessor;
-use datamap_rs::partition::partition;
+use datamap_rs::partition::{discrete_partition, range_partition};
 use datamap_rs::reshard::reshard;
 use datamap_rs::groupfilter::{group, group_filter};
-
+use datamap_rs::reservoir_sample::reservoir_sample;
 /*
 Map Config layout:
 
@@ -95,7 +96,28 @@ enum Commands {
         delete_after_read: bool,
     },
 
-    Partition {
+    ReservoirSample {
+        #[arg(required=true, long)]
+        input_dir: PathBuf,
+
+        #[arg(required=true, long)]
+        output_file: PathBuf,
+
+        #[arg(required=true, long)]
+        key: String,
+
+        #[arg(required=true, long, default_value_t=100_000)]
+        reservoir_size: usize,
+
+        #[arg(long)]
+        token_weighted: bool,
+
+        #[arg(long)]
+        text_key: Option<String>,
+
+    },
+
+    DiscretePartition {
         #[arg(required = true, long)]
         input_dir: PathBuf,
 
@@ -103,6 +125,17 @@ enum Commands {
         output_dir: PathBuf,
 
         #[arg(required = true, long)]
+        config: PathBuf,
+    },
+
+    RangePartition {
+        #[arg(required=true, long)]
+        input_dir: PathBuf,
+
+        #[arg(required=true, long)]
+        output_dir: PathBuf,
+
+        #[arg(required=true, long)]
         config: PathBuf,
     },
 
@@ -396,11 +429,26 @@ fn main() {
             *keep_dirs,
             *delete_after_read,
         ),
-        Commands::Partition {
+        Commands::ReservoirSample {
+            input_dir,
+            output_file,
+            key, 
+            reservoir_size,
+            token_weighted,
+            text_key
+        } => reservoir_sample(input_dir, output_file, key, *reservoir_size, *token_weighted, text_key.clone()),
+
+        Commands::DiscretePartition {
             input_dir,
             output_dir,
             config,
-        } => partition(input_dir, output_dir, config),
+        } => discrete_partition(input_dir, output_dir, config),
+
+        Commands::RangePartition {
+            input_dir,
+            output_dir, 
+            config
+        } => range_partition(input_dir, output_dir, &None, &None, config, &false),
         Commands::Group {
             input_dir,
             group_dir,

@@ -4,3 +4,4 @@ pub mod utils;
 pub use map_fxn::DataProcessor;
 pub mod partition;
 pub mod groupfilter; 
+pub mod reservoir_sample;
