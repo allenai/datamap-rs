@@ -300,7 +300,7 @@ impl<'a> GenWriter<'a> {
     ) -> Self {
         let writer = DashMap::new();
 
-        let fake_config = &WriterKey::Category {full_choices: None};
+        let fake_config = &WriterConfig::Category {full_choices: None};
         let (full_choices, fc_len) = if let Some(choices) = choices {
         	let mut full_choices: HashSet<Option<String>> = HashSet::new();
         	for choice in choices {
@@ -312,14 +312,14 @@ impl<'a> GenWriter<'a> {
         	for choice in &full_choices {
         		let key = WriterKey::Category(choice.clone());
 				writer.entry(key.clone()).or_insert_with(|| {
-		            let filename = GenWriter::get_filename(&fake_config, &key, 0, storage_loc);
+		            let filename = GenWriter::get_filename(fake_config, &key, 0, storage_loc);
 		            if let Some(parent_dir) = filename.parent() {
 		                if !parent_dir.exists() {
 		                    create_dir_all(parent_dir).unwrap();
 		                }
 		            }
 		            let writer_info = WriterInfo {
-		                encoder: Some(Self::create_new_encoder(&fake_config, &key, 0, storage_loc)),
+		                encoder: Some(Self::create_new_encoder(fake_config, &key, 0, storage_loc)),
 		                bytes_written: 0,
 		                file_idx: 0,
 		            };
