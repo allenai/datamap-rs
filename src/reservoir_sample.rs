@@ -52,9 +52,6 @@ fn unweighted_reservoir(input_dir: &PathBuf, key: &String, reservoir_size: usize
 		thread_res(&chunks[i], key, res_size, &pbar).unwrap()
     }).collect();
 
-
-
-
     let total_seen = full_res.par_iter().map(|k| k.1).sum::<usize>();
     let full_res: Vec<Value> = full_res.into_iter().flat_map(|k| k.0).collect();
     let json_res = json!(full_res);

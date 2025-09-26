@@ -105,6 +105,8 @@ pub fn discrete_partition(input_dir: &PathBuf, output_dir: &PathBuf, config_path
 
 fn partition_single_path(path: &PathBuf, config: &DiscretePartitionConfig, writer: &GenWriter) -> Result<HashMap<Option<String>, usize>, Error> {
 
+
+
 	let contents = read_pathbuf_to_mem(path).unwrap();
 	let mut partitioned_bytes: HashMap<Option<String>, Vec<u8>> = HashMap::new();
 	let mut counts: HashMap<Option<String>, usize> = HashMap::new();
@@ -112,9 +114,23 @@ fn partition_single_path(path: &PathBuf, config: &DiscretePartitionConfig, write
 		let line = line.unwrap();
 		let json_value = serde_json::from_str(&line).unwrap();
 		let partition_value = json_get(&json_value, &config.partition_key).unwrap();
+
+
 		let key = match partition_value {
 			serde_json::Value::Null => &None,
-			_ => &Some(partition_value.as_str().unwrap().to_string())
+			_ => {
+
+				let str_key = partition_value.as_str().unwrap().to_string();
+				&if let Some(valid_choices) = &config.choices {
+					if valid_choices.contains(&str_key) {
+						Some(str_key)
+					} else {
+						None
+					}
+				} else {
+					Some(str_key)
+				}
+			}
 		};
 
 		let append_vec = partitioned_bytes.entry(key.clone()).or_default();
@@ -407,17 +423,16 @@ impl<'a> GenWriter<'a> {
     }
 
     pub fn write_contents(&self, key: WriterKey, contents: Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
-
     	let writer_arc = match (&self.config, &key) {
     		(WriterConfig::Category { full_choices }, WriterKey::Category(choice)) => {
-    			if let Some(og_choices) = full_choices { // Choices are prespecified -- either we match or None
+    			if let Some(og_choices) = full_choices { // Choices are prespecified -- either we match or key=None
     				let proper_key = if og_choices.contains(&choice) {
     					key.clone()
     				} else {
     					WriterKey::Category(None)
     				};
     				&self.writer.get_mut(&proper_key).unwrap()
-    			} else { // Choices are not prespecified, always match
+    			} else { // Choices are not prespecified, always match, otherwise create a new thing
 					&self.writer.entry(key.clone()).or_insert_with(|| {
 			            let filename = GenWriter::get_filename(&self.config, &key, 0, &self.storage_loc);
 			            if let Some(parent_dir) = filename.parent() {
