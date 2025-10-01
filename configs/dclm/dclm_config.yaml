@@ -3,24 +3,24 @@ text_field: text
 pipeline:
   - name: url_substring_filter
     kwargs:
-      url_key: metadata.WARC-Target-URI
-      banlist_file: banlists/refinedweb_banned_domains_curated.txt
+      url_key: metadata.warc_url
+      banlist_file: banlists/refinedweb_banned_domains_curated.txt.gz
       exact_domain_match: true
       ignore_chars: ['www']
   - name: url_substring_filter
     kwargs:
-      url_key: metadata.WARC-Target-URI
-      banlist_file: banlists/refinedweb_banned_words_strict_reverse_engineered.txt
+      url_key: metadata.warc_url
+      banlist_file: banlists/refinedweb_banned_words_strict_reverse_engineered.txt.gz
       ignore_chars: ['-', '.']
   - name: url_substring_filter
     kwargs:
-      url_key: metadata.WARC-Target-URI
-      banlist_file: banlists/refinedweb_banned_words_hard_reverse_engineered.txt
+      url_key: metadata.warc_url
+      banlist_file: banlists/refinedweb_banned_words_hard_reverse_engineered.txt.gz
       match_substrings: false
   - name: url_substring_filter
     kwargs:
-      url_key: metadata.WARC-Target-URI
-      banlist_file: banlists/refinedweb_banned_words_soft_reverse_engineered.txt
+      url_key: metadata.warc_url
+      banlist_file: banlists/refinedweb_banned_words_soft_reverse_engineered.txt.gz
       num_banned_substrs: 2
       match_substrings: false
   - name: newline_removal_modifier
