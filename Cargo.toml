@@ -33,6 +33,8 @@ zstd = "0.13.3"
 tiktoken = "1.0.1"
 tiktoken-rs = "0.7.0"
 binary-heap-plus = "0.5.0"
+ahash = "0.8.12"
+sonic-rs = "0.5.5"
 
 [[test]]
 name = "tests"
