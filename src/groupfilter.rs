@@ -18,10 +18,9 @@ use crate::utils::json_get;
 use mj_io::{expand_dirs, read_pathbuf_to_mem, build_pbar, write_mem_to_pathbuf, get_output_filename};
 use zstd::stream::Encoder;
 use serde::{Deserialize, Serialize};
-use rand::Rng;
 use ahash::AHasher; 
 use sonic_rs::{JsonValueTrait, Value as SonicValue};
-
+use fastrand;
 
 
 /*
@@ -103,7 +102,7 @@ pub fn group(input_dir: &PathBuf, group_dir: &PathBuf, config_path: &PathBuf, su
 fn group_path(path: &PathBuf, group_keys: &Vec<String>, writer: &GenWriter) -> Result<(), Error> {
 	let num_chunks = writer.num_chunks;
 	let contents = read_pathbuf_to_mem(path).unwrap();
-	let mut line_bytes = Vec::with_capacity(65536);
+    let mut buckets: Vec<Vec<u8>> = vec![Vec::new(); num_chunks];
 
 	for line in contents.lines() {
 		let line = line.unwrap();
@@ -113,16 +112,20 @@ fn group_path(path: &PathBuf, group_keys: &Vec<String>, writer: &GenWriter) -> R
 			hash_val
 		} else {
 			// missing group info, put in random shard 			
-			let mut rng = rand::rng();
-			let random_usize: usize = rng.random_range(0..=usize::MAX);
-			random_usize 
+			fastrand::usize(0..usize::MAX)
 		};
 
-		line_bytes.clear();
-		line_bytes.extend_from_slice(line.as_bytes());
-		line_bytes.push(b'\n');
-		writer.write_line(hash_val % num_chunks, &line_bytes).unwrap();
+		let bucket_id = hash_val % num_chunks;
+		buckets[bucket_id].extend_from_slice(line.as_bytes());
+		buckets[bucket_id].push(b'\n');
+
 	}
+	for (bucket_id, contents) in buckets.into_iter().enumerate() {
+		if !contents.is_empty() {
+			writer.write_batch(bucket_id, contents).unwrap();
+		}
+	}
+
 	Ok(())
 }
 
@@ -347,6 +350,30 @@ impl<'a> GenWriter<'a> {
             .unwrap(),
         3).unwrap()
     }	
+
+    pub fn write_batch(&self, key: usize, contents: Vec<u8>) -> Result<(), Error> {
+        let binding = self.writer.get(&key).unwrap();
+        let mut writer_info = binding.lock().unwrap();
+        
+        writer_info.bytes_written += contents.len();
+        
+        if let Some(encoder) = &mut writer_info.encoder {
+            encoder.write_all(&contents)?;
+            
+            // Handle file rotation if needed
+            if writer_info.bytes_written >= self.max_len {
+                let mut old_encoder = writer_info.encoder.take().unwrap();
+                old_encoder.flush()?;
+                old_encoder.finish()?;
+                writer_info.file_idx += 1;
+                let new_encoder = self.create_new_encoder(key, writer_info.file_idx, &writer_info.subext);
+                writer_info.encoder = Some(new_encoder);
+                writer_info.bytes_written = 0;
+            }
+        }
+        
+        Ok(())
+    }
 
 
 	pub fn write_line(&self, key: usize, contents: &Vec<u8>) -> Result<(), Error> {

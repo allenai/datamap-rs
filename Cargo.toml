@@ -35,6 +35,7 @@ tiktoken-rs = "0.7.0"
 binary-heap-plus = "0.5.0"
 ahash = "0.8.12"
 sonic-rs = "0.5.5"
+fastrand = "2.3.0"
 
 [[test]]
 name = "tests"
