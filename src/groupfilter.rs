@@ -5,7 +5,7 @@ use anyhow::{Error, Result};
 use dashmap::DashMap;
 use std::{
     fs::{create_dir_all, File, OpenOptions},
-    hash::{DefaultHasher, Hash, Hasher},
+    hash::{Hash, Hasher},
     io::{Write, BufRead},
     os::unix::fs::OpenOptionsExt,
     path::PathBuf,
@@ -19,6 +19,9 @@ use mj_io::{expand_dirs, read_pathbuf_to_mem, build_pbar, write_mem_to_pathbuf, 
 use zstd::stream::Encoder;
 use serde::{Deserialize, Serialize};
 use rand::Rng;
+use ahash::AHasher; 
+use sonic_rs::{JsonValueTrait, Value as SonicValue};
+
 
 
 /*
@@ -100,10 +103,13 @@ pub fn group(input_dir: &PathBuf, group_dir: &PathBuf, config_path: &PathBuf, su
 fn group_path(path: &PathBuf, group_keys: &Vec<String>, writer: &GenWriter) -> Result<(), Error> {
 	let num_chunks = writer.num_chunks;
 	let contents = read_pathbuf_to_mem(path).unwrap();
+	let mut line_bytes = Vec::with_capacity(65536);
+
 	for line in contents.lines() {
 		let line = line.unwrap();
-		let value : serde_json::Value = serde_json::from_str(&line).unwrap();
-		let hash_val = if let Some(hash_val) = get_group_hash(&value, group_keys).unwrap() {
+        let value: SonicValue = sonic_rs::from_str(&line).unwrap();
+
+		let hash_val = if let Some(hash_val) = get_group_hash_sonic(&value, group_keys).unwrap() {
 			hash_val
 		} else {
 			// missing group info, put in random shard 			
@@ -111,17 +117,67 @@ fn group_path(path: &PathBuf, group_keys: &Vec<String>, writer: &GenWriter) -> R
 			let random_usize: usize = rng.random_range(0..=usize::MAX);
 			random_usize 
 		};
-		let mut line_bytes: Vec<u8> = line.into();
-		line_bytes.push(b'\n');
 
-		writer.write_line(hash_val % num_chunks, line_bytes).unwrap();
+		line_bytes.clear();
+		line_bytes.extend_from_slice(line.as_bytes());
+		line_bytes.push(b'\n');
+		writer.write_line(hash_val % num_chunks, &line_bytes).unwrap();
 	}
 	Ok(())
 }
 
+fn get_group_hash_sonic(
+    value: &sonic_rs::Value, 
+    group_keys: &Vec<String>,
+) -> Result<Option<usize>, Error> {
+    let mut hasher = AHasher::default();
 
+    for k in group_keys {
+        if let Some(group_val) = get_nested_value(value, k)? {
+            // Use the JsonValueTrait methods instead of pattern matching
+            if group_val.is_str() {
+                group_val.as_str().unwrap().hash(&mut hasher);
+            } else if group_val.is_number() {
+                // Hash the string representation for consistency
+                group_val.as_f64().unwrap().to_string().hash(&mut hasher);
+            } else if group_val.is_boolean() {
+                group_val.as_bool().unwrap().hash(&mut hasher);
+            } else if group_val.is_null() {
+                "null".hash(&mut hasher);
+            } else if group_val.is_array() || group_val.is_object() {
+                // For complex types, hash the JSON string representation
+                group_val.to_string().hash(&mut hasher);
+            }
+        } else {
+            return Ok(None);
+        }
+    }
+    Ok(Some(hasher.finish() as usize))
+}
+
+fn get_nested_value<'a>(
+    value: &'a sonic_rs::Value, 
+    key_path: &str
+) -> Result<Option<&'a sonic_rs::Value>, Error> {
+    let keys: Vec<&str> = key_path.split('.').collect();
+    let mut current = value;
+    
+    for key in keys {
+        if current.is_object() {
+            if let Some(next) = current.get(key) {
+                current = next;
+            } else {
+                return Ok(None);
+            }
+        } else {
+            return Ok(None);
+        }
+    }
+    
+    Ok(Some(current))
+}
 fn get_group_hash(value: &serde_json::Value, group_keys: &Vec<String>) -> Result<Option<usize>, Error> {
-	let mut hasher = DefaultHasher::new();
+	let mut hasher = AHasher::default();
 	for k in group_keys {
 		if let Some(group_val) = json_get(value, &k) {
 			let group_val_string = group_val.to_string();
@@ -293,14 +349,14 @@ impl<'a> GenWriter<'a> {
     }	
 
 
-	pub fn write_line(&self, key: usize, contents: Vec<u8>) -> Result<(), Error> {
+	pub fn write_line(&self, key: usize, contents: &Vec<u8>) -> Result<(), Error> {
 		// hash the key and take mod num_chunks to get location
 
 		let binding = self.writer.get(&key).unwrap();
 		let mut writer_info = binding.lock().unwrap();
 		writer_info.bytes_written += contents.len();		
 		if let Some(encoder) = &mut writer_info.encoder {
-			encoder.write_all(&contents).unwrap();
+			encoder.write_all(contents).unwrap();
 			if writer_info.bytes_written >= self.max_len {
 				let mut old_encoder = writer_info.encoder.take().unwrap();
 				old_encoder.flush().unwrap();
