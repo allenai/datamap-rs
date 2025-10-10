@@ -1,5 +1,7 @@
 // External crates
 
+use crate::utils::json_get;
+use ahash::HashSet;
 use std::fs;
 use serde_json::Value;
 use dashmap::DashMap;
@@ -163,6 +165,17 @@ enum Commands {
         #[arg(required = true, long)]
         config: PathBuf,        
 
+    },
+
+    Sanity {
+        #[arg(required=true, long)]
+        input_dir: PathBuf,
+
+        #[arg(required=true, long)]
+        output_dir: PathBuf,
+
+        #[arg(required=true, long)]
+        cc_id_file: PathBuf,        
     }
 
 }
@@ -263,6 +276,57 @@ fn print_global_stats_stuff(
 
     ()
 }
+
+/*============================================================
+=                            SANITY                          =
+============================================================*/
+
+fn sanity(input_dir: &PathBuf, output_dir: &PathBuf, cc_id_file: &PathBuf) -> Result<(), Error>{
+    let start_main = Instant::now();    
+    println!("Starting sanity check");
+
+    let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
+    let matching_docs = AtomicUsize::new(0);
+    let pbar = build_pbar(all_files.len(), "Paths");
+    let cc_id_contents = read_pathbuf_to_mem(cc_id_file).unwrap();
+    let cc_ids: Vec<usize> = serde_json::from_reader(cc_id_contents).unwrap();
+    let cc_id_set: HashSet<usize> = cc_ids.into_iter().map(|v| v).collect();
+
+    all_files.into_par_iter().for_each(|p| {
+        let contents = read_pathbuf_to_mem(&p).unwrap();
+        let mut output_vec: Vec<u8> = Vec::new();
+        let mut path_matching_docs = 0;
+        for line in contents.lines() {
+            let line = line.unwrap();
+            let json_line = serde_json::from_str(&line).unwrap();
+            let cc_id = json_get(&json_line, "metadata.minhash.cc_id");
+            if let Some(cc_val) = cc_id {
+                let cc_val: usize = cc_val.as_u64().unwrap() as usize;
+                if cc_id_set.contains(&cc_val) {
+                    output_vec.extend(serde_json::to_vec(&json_line).unwrap());
+                    output_vec.push(b'\n');
+                    path_matching_docs += 1;
+                }
+            } else {
+                continue;
+            }    
+        }
+        if output_vec.len() > 0 {
+            matching_docs.fetch_add(path_matching_docs, Ordering::SeqCst);
+            let output_file = get_output_filename(&p, input_dir, output_dir).unwrap();
+            write_mem_to_pathbuf(&output_vec, &output_file).unwrap();
+        }
+        pbar.inc(1);
+    });
+
+
+    println!("Finished sanity check in {:?} secs | saw {:?} matching docs", start_main.elapsed().as_secs(), matching_docs.into_inner());
+    Ok(())
+}
+
+
+
+
 
 /*============================================================
 =                            GENERAL MAP                     =
@@ -460,6 +524,12 @@ fn main() {
             output_dir,
             config
         } => group_filter(input_dir, output_dir, config),
+
+        Commands::Sanity {
+            input_dir,
+            output_dir,
+            cc_id_file
+        } => sanity(input_dir, output_dir, cc_id_file),
         _ => Ok(()),
     };
     result.unwrap();
