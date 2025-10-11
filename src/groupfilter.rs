@@ -1,3 +1,5 @@
+use std::hash::BuildHasher;
+use ahash::RandomState;
 use std::sync::atomic;
 use serde_json::Value;
 use std::sync::atomic::AtomicUsize;
@@ -109,6 +111,7 @@ fn group_path(path: &PathBuf, group_keys: &Vec<String>, writer: &GenWriter) -> R
         let value: SonicValue = sonic_rs::from_str(&line).unwrap();
 
 		let hash_val = if let Some(hash_val) = get_group_hash_sonic(&value, group_keys).unwrap() {
+			println!("HASH VAL {:?}", hash_val);
 			hash_val
 		} else {
 			// missing group info, put in random shard 			
@@ -133,10 +136,11 @@ fn get_group_hash_sonic(
     value: &sonic_rs::Value, 
     group_keys: &Vec<String>,
 ) -> Result<Option<usize>, Error> {
-    let mut hasher = AHasher::default();
-
+    let hash_builder = RandomState::with_seeds(1,2,3,4);
+    let mut hasher = hash_builder.build_hasher();
     for k in group_keys {
         if let Some(group_val) = get_nested_value(value, k)? {
+        	println!("GROUP VAL {:?}", group_val);
             // Use the JsonValueTrait methods instead of pattern matching
             if group_val.is_str() {
                 group_val.as_str().unwrap().hash(&mut hasher);
