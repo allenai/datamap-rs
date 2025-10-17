@@ -36,12 +36,13 @@ pub fn shuffle(input_dir: &PathBuf, output_dir: &PathBuf, num_outputs: usize, ma
 			line_bytes.push(b'\n');
 			let chunk_num = fastrand::usize(0..usize::MAX) % num_outputs;
 			gen_writer.write_line(chunk_num, &line_bytes).unwrap();
-			if delete_after_read {
-				fs::remove_file(&p).unwrap();
-			}
 			seen_docs += 1;
 		}
 		total_docs_seen.fetch_add(seen_docs, Ordering::SeqCst);
+		if delete_after_read {
+			fs::remove_file(&p).unwrap();
+		}
+		
 		pbar.inc(1);
 	});
 
