@@ -5,3 +5,4 @@ pub use map_fxn::DataProcessor;
 pub mod partition;
 pub mod groupfilter; 
 pub mod reservoir_sample;
+pub mod shuffle;
