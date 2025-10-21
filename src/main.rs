@@ -1,5 +1,6 @@
 // External crates
 
+use serde_json::json;
 use std::fs;
 use serde_json::Value;
 use dashmap::DashMap;
@@ -181,7 +182,15 @@ enum Commands {
 
         #[arg(long, default_value_t=false)]
         delete_after_read: bool
-    }
+    },
+
+    CountDocs {
+        #[arg(required=true, long)]
+        input_dir: PathBuf,
+
+        #[arg(required=true, long)]
+        output_file: PathBuf,
+    },
 
 }
 
@@ -411,6 +420,38 @@ fn gen_map_single(
 }
 
 
+pub fn count_docs(input_dir: &PathBuf, output_file: &PathBuf) -> Result<(), Error> {
+    let start_main = Instant::now();
+    let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
+
+    let total_count = AtomicUsize::new(0);
+    let total_size = AtomicUsize::new(0);
+    let pbar = build_pbar(all_files.len(), "files");
+
+    all_files.into_par_iter().for_each(|p| {
+        let contents = read_pathbuf_to_mem(&p).unwrap();
+        let mut file_len = 0;
+        let mut file_size = 0;
+        for line in contents.lines() {
+            file_len += 1;
+            file_size += line.unwrap().len();
+        }
+        total_count.fetch_add(file_len, Ordering::SeqCst);
+        total_size.fetch_add(file_size, Ordering::SeqCst);
+        pbar.inc(1);
+    });
+    let total_count = total_count.into_inner();
+    let total_size = total_size.into_inner();
+    let output_json = json!({"total_docs": total_count, "total_size": total_size});
+    let output_contents = serde_json::to_vec(&output_json).unwrap();
+    write_mem_to_pathbuf(&output_contents, output_file).unwrap();
+
+    println!("Saw {:?} docs ({:?} bytes) in {:?} secs", total_count, total_size, start_main.elapsed().as_secs());
+
+    Ok(())
+}
+
+
 /*============================================================
 =                            MAIN                            =
 ============================================================*/
@@ -483,6 +524,10 @@ fn main() {
         Commands::Shuffle {
             input_dir, output_dir, num_outputs, max_len, delete_after_read
         } => shuffle(input_dir, output_dir, *num_outputs, *max_len, *delete_after_read),
+
+        Commands::CountDocs {
+            input_dir, output_file
+        } => count_docs(input_dir, output_file),
         _ => Ok(()),
     };
     result.unwrap();
