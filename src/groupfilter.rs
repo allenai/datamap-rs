@@ -6,7 +6,7 @@ use std::sync::atomic::AtomicUsize;
 use anyhow::{Error, Result};
 use dashmap::DashMap;
 use std::{
-    fs::{create_dir_all, File, OpenOptions},
+    fs::{create_dir_all, File, OpenOptions, remove_file},
     hash::{Hash, Hasher},
     io::{Write, BufRead},
     os::unix::fs::OpenOptionsExt,
@@ -60,12 +60,18 @@ struct GroupFilterConfig {
 	#[serde(default="default_max_file_size")]
 	max_file_size: usize,
 	keep_idx: i32, // 0 means keep first, -1 means keep last
-	size_key: Option<String> // if present, add the size of this chunk to the doc we keep in the filter step 
+	size_key: Option<String>, // if present, add the size of this chunk to the doc we keep in the filter step 
+	#[serde(default="default_delete_after_read")]
+	delete_after_read: bool,
 }
 
 
 fn default_max_file_size() -> usize {
 	256_000_000
+}
+
+fn default_delete_after_read() -> bool {
+	false
 }
 
 
@@ -90,7 +96,7 @@ pub fn group(input_dir: &PathBuf, group_dir: &PathBuf, config_path: &PathBuf, su
 	let writer = GenWriter::new(group_dir, num_buckets, &subext, config.max_file_size);
 	let pbar = build_pbar(input_paths.len(), "Paths");
 	input_paths.par_iter().for_each(|p| {
-		group_path(p, &config.group_keys, &writer).unwrap();
+		group_path(p, &config.group_keys, &writer, &config.delete_after_read).unwrap();
 		pbar.inc(1);
 	});
 
@@ -101,7 +107,7 @@ pub fn group(input_dir: &PathBuf, group_dir: &PathBuf, config_path: &PathBuf, su
 }
 
 
-fn group_path(path: &PathBuf, group_keys: &Vec<String>, writer: &GenWriter) -> Result<(), Error> {
+fn group_path(path: &PathBuf, group_keys: &Vec<String>, writer: &GenWriter, delete_after_read: &bool) -> Result<(), Error> {
 	let num_chunks = writer.num_chunks;
 	let contents = read_pathbuf_to_mem(path).unwrap();
     let mut buckets: Vec<Vec<u8>> = vec![Vec::new(); num_chunks];
@@ -127,7 +133,9 @@ fn group_path(path: &PathBuf, group_keys: &Vec<String>, writer: &GenWriter) -> R
 			writer.write_batch(bucket_id, contents).unwrap();
 		}
 	}
-
+	if *delete_after_read {
+        remove_file(path).unwrap();
+	}
 	Ok(())
 }
 
@@ -272,6 +280,9 @@ fn group_filter_path(input_path: &PathBuf, output_path: &PathBuf, config: &Group
 		}
 		output_bytes.push(b'\n');
 	}	
+	if config.delete_after_read {
+		remove_file(input_path).unwrap();
+	}
 
 	write_mem_to_pathbuf(&output_bytes, output_path).unwrap();
 	Ok((docs_seen, docs_kept))
