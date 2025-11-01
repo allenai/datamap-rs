@@ -496,6 +496,7 @@ pub fn butterfly(input_dir: &PathBuf, num_reports: usize, report_dir: &PathBuf) 
         if cur_path % report_interval == 0 {
             write_butterfly_report(&id_map,&reports_written, &report_dir).unwrap();
         }
+
         pbar.inc(1);
     });
     write_butterfly_report(&id_map, &reports_written, &report_dir).unwrap();
@@ -511,7 +512,7 @@ fn write_butterfly_report(id_map: &DashMap<Option<Value>, usize>, reports_writte
         let v = entry.value();
         *freq_count.entry(*v).or_insert(0) += 1;
     }
-    let report_json = json!(report_path);
+    let report_json = json!(freq_count);
     let contents = serde_json::to_vec(&report_json).unwrap();
     write_mem_to_pathbuf(&contents, &report_path).unwrap();
 
