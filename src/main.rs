@@ -500,7 +500,7 @@ pub fn butterfly(input_dir: &PathBuf, num_reports: usize, report_dir: &PathBuf) 
         pbar.inc(1);
     });
     write_butterfly_report(&id_map, &reports_written, &report_dir).unwrap();
-    println!("Wrote {:?} reports for {:?} docs in {:?} secs", reports_written.into_inner(), total_doc_count.into_inner(), start_main.elapsed().as_secs());
+    println!("Wrote {:?} reports for {:?} docs in {:?} secs", reports_written.into_inner() - 1, total_doc_count.into_inner(), start_main.elapsed().as_secs());
     Ok(())
 
 }
@@ -508,10 +508,17 @@ pub fn butterfly(input_dir: &PathBuf, num_reports: usize, report_dir: &PathBuf) 
 fn write_butterfly_report(id_map: &DashMap<Option<Value>, usize>, reports_written: &AtomicUsize, report_dir: &PathBuf) -> Result<(), Error> {
     let report_path = report_dir.clone().join(format!("report_{:08}.json", reports_written.fetch_add(1, Ordering::SeqCst) - 1));
     let mut freq_count: HashMap<usize, usize>  = HashMap::new();
+    let mut none_count = 0;
     for entry in id_map.iter() {
+        if *entry.key() == None {
+            none_count = *entry.value();
+            println!("SKIPPING NONE");
+            continue;
+        }
         let v = entry.value();
         *freq_count.entry(*v).or_insert(0) += 1;
     }
+    *freq_count.entry(1).or_insert(0) += none_count;
     let report_json = json!(freq_count);
     let contents = serde_json::to_vec(&report_json).unwrap();
     write_mem_to_pathbuf(&contents, &report_path).unwrap();
