@@ -505,7 +505,7 @@ pub fn butterfly(input_dir: &PathBuf, num_reports: usize, report_dir: &PathBuf) 
 }
 
 fn write_butterfly_report(id_map: &DashMap<Option<Value>, usize>, reports_written: &AtomicUsize, report_dir: &PathBuf) -> Result<(), Error> {
-    let report_path = report_dir.clone().join(format!("report_{:8}.json", reports_written.fetch_add(1, Ordering::SeqCst) - 1));
+    let report_path = report_dir.clone().join(format!("report_{:08}.json", reports_written.fetch_add(1, Ordering::SeqCst) - 1));
     let mut freq_count: HashMap<usize, usize>  = HashMap::new();
     for entry in id_map.iter() {
         let v = entry.value();
