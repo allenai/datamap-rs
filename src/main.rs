@@ -512,7 +512,6 @@ fn write_butterfly_report(id_map: &DashMap<Option<Value>, usize>, reports_writte
     for entry in id_map.iter() {
         if *entry.key() == None {
             none_count = *entry.value();
-            println!("SKIPPING NONE");
             continue;
         }
         let v = entry.value();
