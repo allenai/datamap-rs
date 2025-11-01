@@ -11,8 +11,10 @@ use std::{
     time::Instant,
 };
 use rayon::prelude::*;
-use mj_io::{expand_dirs, read_pathbuf_to_mem, build_pbar};
+use mj_io::{expand_dirs, read_pathbuf_to_mem, build_pbar, get_output_filename, write_mem_to_pathbuf};
 use zstd::stream::Encoder;
+use rand::seq::SliceRandom;
+use rand::rng;
  
 use fastrand;
 
@@ -53,6 +55,31 @@ pub fn shuffle(input_dir: &PathBuf, output_dir: &PathBuf, num_outputs: usize, ma
 
 	println!("Shuffled {:?} docs into {:?} new files in {:?} seconds", total_docs_seen.into_inner(), total_output_docs, start_main.elapsed().as_secs());
 
+	Ok(())
+}
+
+pub fn shuffle_map(input_dir: &PathBuf, output_dir: &PathBuf, delete_after_read: bool) -> Result<(), Error> {
+	println!("Starting shufflemap");
+	let start_main = Instant::now();
+	let input_paths = expand_dirs(vec![input_dir.clone()], None).unwrap();
+	let total_paths = input_paths.len();
+	let pbar = build_pbar(input_paths.len(), "Paths");
+	let total_docs = AtomicUsize::new(0);
+	input_paths.into_par_iter().for_each(|p| {
+		let contents = read_pathbuf_to_mem(&p).unwrap();
+		let output_path = get_output_filename(&p, input_dir, output_dir).unwrap();
+		let mut lines: Vec<Vec<u8>> = contents.lines().map(|line| line.unwrap().into_bytes()).collect();
+		let mut rng = rng();
+		lines.shuffle(&mut rng);
+		total_docs.fetch_add(lines.len(), Ordering::SeqCst);
+		let new_contents = lines.join(&b'\n');
+		write_mem_to_pathbuf(&new_contents, &output_path).unwrap();
+		if  delete_after_read  {
+			fs::remove_file(&p).unwrap();
+		}
+		pbar.inc(1);
+	});
+	println!("Shuffled {:?} paths, {:?} docs, in {:?} secs", total_paths, total_docs.into_inner(), start_main.elapsed().as_secs());
 	Ok(())
 }
 

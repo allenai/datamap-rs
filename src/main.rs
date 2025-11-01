@@ -32,6 +32,7 @@ use datamap_rs::reshard::reshard;
 use datamap_rs::groupfilter::{group, group_filter};
 use datamap_rs::reservoir_sample::reservoir_sample;
 use datamap_rs::shuffle::shuffle; 
+use datamap_rs::utils::json_get;
 /*
 Map Config layout:
 
@@ -191,6 +192,17 @@ enum Commands {
         #[arg(required=true, long)]
         output_file: PathBuf,
     },
+
+    Butterfly {
+        #[arg(required=true, long)]
+        input_dir: PathBuf,
+
+        #[arg(required=true, long)]
+        num_reports: usize,
+
+        #[arg(required=true, long)]
+        report_dir: PathBuf
+    }
 
 }
 
@@ -451,6 +463,62 @@ pub fn count_docs(input_dir: &PathBuf, output_file: &PathBuf) -> Result<(), Erro
     Ok(())
 }
 
+pub fn butterfly(input_dir: &PathBuf, num_reports: usize, report_dir: &PathBuf) -> Result<(), Error> {
+    let start_main = Instant::now();
+    let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
+
+    let total_doc_count = AtomicUsize::new(0);
+    let id_map: DashMap<Option<Value>, usize> = DashMap::new();
+    let paths_processed = AtomicUsize::new(0);
+    let reports_written = AtomicUsize::new(0);
+    let pbar = build_pbar(all_files.len(), "Paths");
+    let report_interval = all_files.len() / num_reports;
+
+    all_files.par_iter().for_each(|p| {
+        let contents = read_pathbuf_to_mem(p).unwrap();
+        let mut doc_count = 0;
+        for line in contents.lines() {
+            doc_count += 1;
+            let line = line.unwrap();
+            let line_json = serde_json::from_str(&line).unwrap();
+            // Get actual cc id
+            let cc_key: Option<Value> = if let Some(cc_id) = json_get(&line_json, "metadata.jaccard.cc_id") {
+                Some(cc_id.clone())
+            } else if let Some(cc_id) = json_get(&line_json, "metadata.minhash.cc_id") {
+                Some(cc_id.clone())
+            } else {
+                None
+            };    
+            *id_map.entry(cc_key).or_insert(0) += 1;            
+        }
+        total_doc_count.fetch_add(doc_count, Ordering::SeqCst);
+        let cur_path = paths_processed.fetch_add(1, Ordering::SeqCst);
+        if cur_path % report_interval == 0 {
+            write_butterfly_report(&id_map,&reports_written, &report_dir).unwrap();
+        }
+        pbar.inc(1);
+    });
+    write_butterfly_report(&id_map, &reports_written, &report_dir).unwrap();
+    println!("Wrote {:?} reports for {:?} docs in {:?} secs", reports_written.into_inner(), total_doc_count.into_inner(), start_main.elapsed().as_secs());
+    Ok(())
+
+}
+
+fn write_butterfly_report(id_map: &DashMap<Option<Value>, usize>, reports_written: &AtomicUsize, report_dir: &PathBuf) -> Result<(), Error> {
+    let report_path = report_dir.clone().join(format!("report_{:8}.json", reports_written.fetch_add(1, Ordering::SeqCst) - 1));
+    let mut freq_count: HashMap<usize, usize>  = HashMap::new();
+    for entry in id_map.iter() {
+        let v = entry.value();
+        *freq_count.entry(*v).or_insert(0) += 1;
+    }
+    let report_json = json!(report_path);
+    let contents = serde_json::to_vec(&report_json).unwrap();
+    write_mem_to_pathbuf(&contents, &report_path).unwrap();
+
+    Ok(())
+}
+
+
 
 /*============================================================
 =                            MAIN                            =
@@ -528,6 +596,10 @@ fn main() {
         Commands::CountDocs {
             input_dir, output_file
         } => count_docs(input_dir, output_file),
+
+        Commands::Butterfly {
+            input_dir, num_reports, report_dir
+        } => butterfly(input_dir, *num_reports, report_dir),
         _ => Ok(()),
     };
     result.unwrap();
