@@ -18,7 +18,7 @@ use serde_json;
 use serde_yaml;
 
 use mj_io::{
-    build_pbar, expand_dirs, get_output_filename, read_pathbuf_to_mem, write_mem_to_pathbuf,
+    build_pbar, expand_dirs, get_output_filename, write_mem_to_pathbuf, read_pathbuf,
 };
 pub mod map_fxn;
 pub mod partition;
@@ -385,7 +385,7 @@ fn gen_map_single(
     */
 
     // Setup for processing
-    let data = read_pathbuf_to_mem(input_file).unwrap();
+    let data = read_pathbuf(input_file, true).unwrap();
 
     let lines: Vec<_> = data.lines().filter_map(|el| el.ok()).collect();
 
@@ -441,7 +441,7 @@ pub fn count_docs(input_dir: &PathBuf, output_file: &PathBuf) -> Result<(), Erro
     let pbar = build_pbar(all_files.len(), "files");
 
     all_files.into_par_iter().for_each(|p| {
-        let contents = read_pathbuf_to_mem(&p).unwrap();
+        let contents = read_pathbuf(&p, true).unwrap();
         let mut file_len = 0;
         let mut file_size = 0;
         for line in contents.lines() {
@@ -475,7 +475,7 @@ pub fn butterfly(input_dir: &PathBuf, num_reports: usize, report_dir: &PathBuf) 
     let report_interval = all_files.len() / num_reports;
 
     all_files.par_iter().for_each(|p| {
-        let contents = read_pathbuf_to_mem(p).unwrap();
+        let contents = read_pathbuf(p, true).unwrap();
         let mut doc_count = 0;
         for line in contents.lines() {
             doc_count += 1;
