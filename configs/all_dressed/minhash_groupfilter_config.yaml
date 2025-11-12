@@ -1,0 +1,6 @@
+name: minhash_groupfilter
+group_keys: [metadata.minhash.cc_id]
+sort_keys: [["metadata.WARC-Date"]]
+num_buckets: 1024
+keep_idx: -1
+delete_after_read: false
