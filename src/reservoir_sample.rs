@@ -1,5 +1,6 @@
 /* Reservoir sampling */
 
+use std::fs;
 use std::cmp::Ordering;
 use serde_json::json;
 use crate::utils::json_get;
@@ -37,20 +38,16 @@ pub fn reservoir_sample(input_dir: &PathBuf, output_file: &PathBuf, key: &String
 fn unweighted_reservoir(input_dir: &PathBuf, key: &String, reservoir_size: usize, output_file: &PathBuf) -> Result<(), Error> {
 
 
-    let num_threads = current_num_threads();
     let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
-    let chunk_size = (all_files.len() + num_threads - 1) / num_threads;    
-    let mut chunks: Vec<Vec<PathBuf>> = all_files.chunks(chunk_size).map(|c| c.to_vec()).collect();
-    while chunks.len() < num_threads {
-    	chunks.push(Vec::new());
-    }
+    let num_files = all_files.len();
 
-    let base_thread_res_size = reservoir_size / num_threads;
-    let pbar = build_pbar(all_files.len(), "Paths");
-    let full_res: Vec<(Vec<Value>, usize)> = (0..num_threads).into_par_iter().map(|i| {
-    	let res_size = if i < (reservoir_size % num_threads) {base_thread_res_size + 1} else {base_thread_res_size};
-		thread_res(&chunks[i], key, res_size, &pbar).unwrap()
+    let chunks_targets = get_chunks_targets(all_files, reservoir_size).unwrap();
+    let pbar = build_pbar(num_files, "Paths");
+
+    let full_res: Vec<(Vec<Value>, usize)> = chunks_targets.into_par_iter().map(|(pvec, target_size)| {
+        thread_res(&pvec, key, target_size, &pbar).unwrap()
     }).collect();
+
 
     let total_seen = full_res.par_iter().map(|k| k.1).sum::<usize>();
     let full_res: Vec<Value> = full_res.into_iter().flat_map(|k| k.0).collect();
@@ -90,6 +87,23 @@ fn thread_res(input_paths: &Vec<PathBuf>, key: &String, reservoir_size: usize, p
 }
 
 
+fn get_chunks_targets(all_paths: Vec<PathBuf>, reservoir_size: usize) -> Result<Vec<(Vec<PathBuf>, usize)>, Error> {
+    let num_threads = current_num_threads();    
+    let mut chunks: Vec<Vec<PathBuf>> = (0..num_threads).map(|_i| Vec::new()).collect();
+    let mut total_size = 0;
+    all_paths.into_iter().enumerate().for_each(|(i, p)| {
+        total_size += fs::metadata(&p).unwrap().len();
+        chunks[i % num_threads].push(p);
+    });
+    let chunks: Vec<Vec<PathBuf>> = chunks.into_iter().filter(|v| v.len() > 0).collect();
+    let chunks_targets = chunks.into_par_iter().map(|pvec| {
+        let chunk_size: usize = pvec.iter().map(|p| fs::metadata(p).unwrap().len() as usize).sum();
+        let target_size = ((reservoir_size as f64) * ((chunk_size as f64) / (total_size as f64))) as usize;        
+        (pvec, target_size)
+    }).collect();
+    Ok(chunks_targets)
+}
+
 /*==================================================================
 =                      Weighted Reservoir Sampling                 =
 ==================================================================*/
@@ -97,20 +111,13 @@ fn thread_res(input_paths: &Vec<PathBuf>, key: &String, reservoir_size: usize, p
 
 
 fn token_weighted_reservoir(input_dir: &PathBuf, score_key: &String, text_key: &String, reservoir_size: usize, output_file: &PathBuf) -> Result<(), Error> {
-
-    let num_threads = current_num_threads();
     let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
-    let chunk_size = (all_files.len() + num_threads - 1) / num_threads;    
-    let mut chunks: Vec<Vec<PathBuf>> = all_files.chunks(chunk_size).map(|c| c.to_vec()).collect();
-    while chunks.len() < num_threads {
-    	chunks.push(Vec::new());
-    }
+    let num_files = all_files.len();
+    let chunks_targets = get_chunks_targets(all_files, reservoir_size).unwrap();
 
-    let base_thread_res_size = reservoir_size / num_threads;
-    let pbar = build_pbar(all_files.len(), "Paths");
-    let full_res: Vec<Vec<WeightedItem>> = (0..num_threads).into_par_iter().map(|i| {
-    	let res_size = if i < (reservoir_size % num_threads) {base_thread_res_size + 1} else {base_thread_res_size};
-		token_weighted_thread_res(&chunks[i], score_key, text_key, res_size, &pbar).unwrap()
+    let pbar = build_pbar(num_files, "Paths");
+    let full_res: Vec<Vec<WeightedItem>> = chunks_targets.into_par_iter().map(|(pvec, res_size)| {
+        token_weighted_thread_res(&pvec, score_key, text_key, res_size, &pbar).unwrap()
     }).collect();
 
     let mut full_res: Vec<WeightedItem> = full_res.into_iter().flat_map(|k| k).collect();
@@ -127,11 +134,8 @@ fn token_weighted_reservoir(input_dir: &PathBuf, score_key: &String, text_key: &
     let output_contents = serde_json::to_vec(&percentiles).unwrap();
     write_mem_to_pathbuf(&output_contents, output_file).unwrap();
 
-
 	Ok(())
 }
-
-
 
 
 #[derive(Clone, Debug)]
