@@ -114,8 +114,8 @@ enum Commands {
         #[arg(long)]
         token_weighted: bool,
 
-        #[arg(long)]
-        text_key: Option<String>,
+        #[arg(long, default_value_t=String::from("text"))]
+        text_key: String,
 
     },
 

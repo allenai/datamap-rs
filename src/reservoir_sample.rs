@@ -20,12 +20,12 @@ use binary_heap_plus::*;
 use tiktoken_rs::cl100k_base;
 
 
-pub fn reservoir_sample(input_dir: &PathBuf, output_file: &PathBuf, key: &String, reservoir_size: usize, token_weighted: bool, text_key: Option<String>) -> Result<(), Error> {
+pub fn reservoir_sample(input_dir: &PathBuf, output_file: &PathBuf, key: &String, reservoir_size: usize, token_weighted: bool, text_key: &String) -> Result<(), Error> {
 	println!("Starting reservoir sampling...");
 	if !token_weighted {
 		unweighted_reservoir(input_dir, key, reservoir_size, output_file).unwrap();
 	} else {
-		token_weighted_reservoir(input_dir, key, &text_key.unwrap(), reservoir_size, output_file).unwrap();
+		token_weighted_reservoir(input_dir, key, &text_key, reservoir_size, output_file).unwrap();
 	}
 	Ok(())
 }
@@ -131,6 +131,8 @@ fn token_weighted_reservoir(input_dir: &PathBuf, score_key: &String, text_key: &
         percentiles.push(json!({"percentile": percentile, "value": item.value}));
     }
 
+    println!("Made a reservoir of size {:?} from {:?} tokens total", percentiles.len(), total_weight);
+
     let output_contents = serde_json::to_vec(&percentiles).unwrap();
     write_mem_to_pathbuf(&output_contents, output_file).unwrap();
 
@@ -205,6 +207,6 @@ fn token_weighted_thread_res(
         }
         pbar.inc(1);
     });
-    
+        
     Ok(heap.into_vec())
 }
