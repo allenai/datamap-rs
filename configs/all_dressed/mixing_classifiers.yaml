@@ -12,5 +12,4 @@ pipeline:
   - name: max_extractor
     kwargs:
       main_attribute: metadata.weborganizer
-      output_attribute: metadata.weborganizer.topic
-      
+      output_attribute: metadata.wo_topic
