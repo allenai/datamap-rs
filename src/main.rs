@@ -499,7 +499,7 @@ fn main() {
             reservoir_size,
             token_weighted,
             text_key
-        } => reservoir_sample(input_dir, output_file, key, *reservoir_size, *token_weighted, text_key.clone()),
+        } => reservoir_sample(input_dir, output_file, key, *reservoir_size, *token_weighted, &text_key.clone()),
 
         Commands::DiscretePartition {
             input_dir,
