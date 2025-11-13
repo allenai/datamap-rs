@@ -38,7 +38,7 @@ if __name__ == "__main__":
     if args.max_workers == None:
         args.max_workers = os.cpu_count() - 1
 
-    download_data(
+    download_model(
         args.dataset,
         args.loc,
         max_workers=args.max_workers,
