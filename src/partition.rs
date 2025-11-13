@@ -63,12 +63,20 @@ fn default_max_file_size() -> usize {
 
 
 
-pub fn discrete_partition(input_dir: &PathBuf, output_dir: &PathBuf, config_path: &PathBuf) -> Result<(), Error> {
+pub fn discrete_partition(input_dir: &PathBuf, output_dir: &PathBuf, config_opt: &Option<PathBuf>, partition_key: &Option<String>) -> Result<(), Error> {
 	let start_main = Instant::now();
 	println!("Starting partition operation");
 	let input_paths = expand_dirs(vec![input_dir.clone()], None).unwrap();
-	let config_contents = read_pathbuf_to_mem(config_path).unwrap();
-	let config: DiscretePartitionConfig = serde_yaml::from_reader(config_contents).unwrap();
+
+	let config: DiscretePartitionConfig = if let Some(config_path) = config_opt {
+		let config_contents = read_pathbuf_to_mem(config_path).unwrap();
+		serde_yaml::from_reader(config_contents).unwrap()
+	} else {
+		DiscretePartitionConfig {name: String::from("Discrete partition"),
+							     partition_key: partition_key.clone().unwrap(), 
+							     choices: None,
+							 	 max_file_size: default_max_file_size()}
+	};
 
 
 	let writer = GenWriter::new_category_writer(output_dir, &config.choices, config.max_file_size);

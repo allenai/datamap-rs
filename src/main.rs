@@ -127,7 +127,10 @@ enum Commands {
         output_dir: PathBuf,
 
         #[arg(required = true, long)]
-        config: PathBuf,
+        config: Option<PathBuf>,
+
+        #[arg(long)]
+        partition_key: Option<String>  // Use this as the partition key if no config specified
     },
 
     RangePartition {
@@ -502,7 +505,8 @@ fn main() {
             input_dir,
             output_dir,
             config,
-        } => discrete_partition(input_dir, output_dir, config),
+            partition_key
+        } => discrete_partition(input_dir, output_dir, config, partition_key),
 
         Commands::RangePartition {
             input_dir,
