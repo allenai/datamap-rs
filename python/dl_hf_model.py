@@ -6,7 +6,7 @@ from huggingface_hub import login, snapshot_download
 from tqdm import tqdm
 
 
-def download_model(huggingface_path, local_path, cache_dir, max_workers=8):
+def download_model(huggingface_path, local_path, max_workers=8):
     while True:
         try:
             snapshot_download(
