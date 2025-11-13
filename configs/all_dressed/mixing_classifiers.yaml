@@ -1,0 +1,16 @@
+name: dolma3_classifiers
+text_field: text
+pipeline:
+  - name: fasttext_annotator
+    kwargs:
+      fast_text_file: ft_classifiers/dolma3_qc/model.bin
+      output_field: metadata.dolma3_qc
+  - name: fasttext_annotator
+    kwargs:
+      fast_text_file: ft_classifiers/weborganizer/model.bin
+      output_field: metadata.weborganizer
+  - name: max_extractor
+    kwargs:
+      main_attribute: metadata.weborganizer
+      output_attribute: metadata.weborganizer.topic
+      
