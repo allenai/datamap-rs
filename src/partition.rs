@@ -391,13 +391,12 @@ impl<'a> GenWriter<'a> {
         match (config, key) {
             (WriterConfig::Category { .. }, WriterKey::Category(choice)) => {
                 if choice.is_none() {
-                    storage_loc.join(format!("no_category.{:08}.jsonl.zst", file_idx))
+                    storage_loc.join("no_category")
+                    	.join(format!("chunk_{:08}.jsonl.zst", file_idx))
                 } else {
-                    storage_loc.join(format!(
-                        "chunk_{}.{:08}.jsonl.zst",
-                        choice.as_ref().unwrap(),
-                        file_idx
-                    ))
+
+                    storage_loc.join(format!("{}", choice.as_ref().unwrap()))
+                    	.join(format!("chunk_{:08}.jsonl.zst", file_idx))
                 }
             }
             (WriterConfig::Bucket { bucket_name }, WriterKey::Bucket(bucket_num)) => {
