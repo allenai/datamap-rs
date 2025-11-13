@@ -126,7 +126,7 @@ enum Commands {
         #[arg(required = true, long)]
         output_dir: PathBuf,
 
-        #[arg(required = true, long)]
+        #[arg(long)]
         config: Option<PathBuf>,
 
         #[arg(long)]
