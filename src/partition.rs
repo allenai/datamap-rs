@@ -178,11 +178,27 @@ fn default_bucket_name() -> String {
 }
 
 
-pub fn range_partition(input_dir: &PathBuf, output_dir: &PathBuf, config_path: &PathBuf) -> Result<(), Error> {
+pub fn range_partition(input_dir: &PathBuf, output_dir: &PathBuf, config_opt: &Option<PathBuf>,
+					  value: &Option<String>, default_value: &Option<f64>, range_groups: &Option<Vec<f64>>, reservoir_path: &Option<PathBuf>, num_buckets: &Option<usize>, 
+					  max_file_size: &Option<usize>, bucket_name: &Option<String>) -> Result<(), Error> {
 	println!("Starting partition...");
 	let start_time = Instant::now();
-	let config_contents = read_pathbuf_to_mem(config_path).unwrap();
-	let config: PercentilePartitionConfig = serde_yaml::from_reader(config_contents).unwrap();		
+
+	let config: PercentilePartitionConfig = if let Some(config_path) = config_opt {
+		let config_contents = read_pathbuf_to_mem(config_path).unwrap();
+		let config: PercentilePartitionConfig = serde_yaml::from_reader(config_contents).unwrap();
+		config
+	} else {
+		PercentilePartitionConfig {name: "Range Partition".to_string(), 
+							       value: value.clone().unwrap(),
+							   	   default_value: default_value.clone(),
+							   	   range_groups: range_groups.clone(),
+							   	   reservoir_path: reservoir_path.clone(), 
+							   	   num_buckets: num_buckets.clone(),
+							   	   max_file_size: max_file_size.clone().unwrap_or(default_max_file_size()),
+							   	   bucket_name: bucket_name.clone().unwrap_or(default_bucket_name())}
+	};
+	
 	let input_paths = expand_dirs(vec![input_dir.clone()], None).unwrap();
 
 	let ranges: Vec<f64> = if let Some(ref range_groups) = config.range_groups {

@@ -140,8 +140,29 @@ enum Commands {
         #[arg(required=true, long)]
         output_dir: PathBuf,
 
-        #[arg(required=true, long)]
-        config: PathBuf,
+        #[arg(long)]
+        config: Option<PathBuf>,
+
+        #[arg(long)]
+        value: Option<String>,
+
+        #[arg(long)]
+        default_value: Option<f64>,
+
+        #[arg(long, value_delimiter = ',')]
+        range_groups: Option<Vec<f64>>,
+        
+        #[arg(long)]
+        reservoir_path: Option<PathBuf>,
+        
+        #[arg(long)]
+        num_buckets: Option<usize>,
+        
+        #[arg(long)]
+        max_file_size: Option<usize>,
+        
+        #[arg(long)]
+        bucket_name: Option<String>,
     },
 
     Group {
@@ -166,8 +187,7 @@ enum Commands {
         output_dir: PathBuf,
 
         #[arg(required = true, long)]
-        config: PathBuf,        
-
+        config: PathBuf,                
     },
 
     Shuffle {
@@ -511,8 +531,10 @@ fn main() {
         Commands::RangePartition {
             input_dir,
             output_dir, 
-            config
-        } => range_partition(input_dir, output_dir, config,),
+            config,
+            value, default_value, range_groups, reservoir_path, num_buckets, max_file_size, bucket_name
+
+        } => range_partition(input_dir, output_dir, config, value, default_value, range_groups, reservoir_path, num_buckets, max_file_size, bucket_name),
         Commands::Group {
             input_dir,
             group_dir,
