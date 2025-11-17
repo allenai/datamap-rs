@@ -36,6 +36,8 @@ binary-heap-plus = "0.5.0"
 ahash = "0.8.12"
 sonic-rs = "0.5.5"
 fastrand = "2.3.0"
+simd-json = "0.15.1"
+gjson = "0.8.1"
 
 [[test]]
 name = "tests"

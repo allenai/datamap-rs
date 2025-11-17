@@ -16,6 +16,7 @@ use clap::{Parser, Subcommand};
 use rayon::prelude::*;
 use serde_json;
 use serde_yaml;
+use gjson;
 
 use mj_io::{
     build_pbar, expand_dirs, get_output_filename, read_pathbuf_to_mem, write_mem_to_pathbuf,
@@ -207,13 +208,18 @@ enum Commands {
         delete_after_read: bool
     },
 
-    CountDocs {
+    Count {
         #[arg(required=true, long)]
         input_dir: PathBuf,
 
         #[arg(required=true, long)]
         output_file: PathBuf,
+
+        #[arg(long)] // If not None, points to string of key where we count total size
+        count_bytes: Option<String>
     },
+
+
 
 }
 
@@ -443,33 +449,51 @@ fn gen_map_single(
 }
 
 
-pub fn count_docs(input_dir: &PathBuf, output_file: &PathBuf) -> Result<(), Error> {
+pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<String>) -> Result<(), Error> {
     let start_main = Instant::now();
     let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
 
-    let total_count = AtomicUsize::new(0);
-    let total_size = AtomicUsize::new(0);
+    let total_doc_count = AtomicUsize::new(0);
+    let total_file_sizes = AtomicUsize::new(0); // uncompressed file sizes
+    let total_text_bytes = AtomicUsize::new(0);
+    let text_key: String = if let Some(text_key) = count_bytes {
+        text_key
+    } else {
+        String::from("")
+    };
+
+
     let pbar = build_pbar(all_files.len(), "files");
 
     all_files.into_par_iter().for_each(|p| {
         let contents = read_pathbuf_to_mem(&p).unwrap();
         let mut file_len = 0;
         let mut file_size = 0;
+        let mut text_bytes = 0;
         for line in contents.lines() {
             file_len += 1;
-            file_size += line.unwrap().len();
+            let line = line.unwrap();
+            file_size += line.len();
+            if text_key.len() > 0 {
+                let value = gjson::get(&line, &text_key);
+                if value.exists() {
+                    text_bytes += value.str().len();
+                }
+            }            
         }
-        total_count.fetch_add(file_len, Ordering::SeqCst);
-        total_size.fetch_add(file_size, Ordering::SeqCst);
+        total_doc_count.fetch_add(file_len, Ordering::SeqCst);
+        total_file_sizes.fetch_add(file_size, Ordering::SeqCst);
+        total_text_bytes.fetch_add(text_bytes, Ordering::SeqCst);
         pbar.inc(1);
     });
-    let total_count = total_count.into_inner();
-    let total_size = total_size.into_inner();
-    let output_json = json!({"total_docs": total_count, "total_size": total_size});
+    let total_doc_count = total_doc_count.into_inner();
+    let total_file_sizes = total_file_sizes.into_inner();
+    let total_text_bytes = total_text_bytes.into_inner();
+    let output_json = json!({"total_docs": total_doc_count, "total_file_size": total_file_sizes, "total_text_bytes": total_text_bytes});
     let output_contents = serde_json::to_vec(&output_json).unwrap();
     write_mem_to_pathbuf(&output_contents, output_file).unwrap();
 
-    println!("Saw {:?} docs ({:?} bytes) in {:?} secs", total_count, total_size, start_main.elapsed().as_secs());
+    println!("Saw {:?} docs ({:?} bytes)| {:?} text bytes | in {:?} secs", total_doc_count, total_file_sizes, total_text_bytes, start_main.elapsed().as_secs());
 
     Ok(())
 }
@@ -551,9 +575,9 @@ fn main() {
             input_dir, output_dir, num_outputs, max_len, delete_after_read
         } => shuffle(input_dir, output_dir, *num_outputs, *max_len, *delete_after_read),
 
-        Commands::CountDocs {
-            input_dir, output_file
-        } => count_docs(input_dir, output_file),
+        Commands::Count {
+            input_dir, output_file, count_bytes
+        } => count(input_dir, output_file, count_bytes.clone()),
         _ => Ok(()),
     };
     result.unwrap();
