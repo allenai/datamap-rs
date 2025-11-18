@@ -216,7 +216,10 @@ enum Commands {
         output_file: PathBuf,
 
         #[arg(long)] // If not None, points to string of key where we count total size
-        count_bytes: Option<String>
+        count_bytes: Option<String>,
+
+        #[arg(long)] // for counting sa_remove_ranges
+        count_ranges: Option<String>
     },
 
 
@@ -449,20 +452,25 @@ fn gen_map_single(
 }
 
 
-pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<String>) -> Result<(), Error> {
+pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<String>, count_ranges: Option<String>) -> Result<(), Error> {
     let start_main = Instant::now();
     let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
 
     let total_doc_count = AtomicUsize::new(0);
     let total_file_sizes = AtomicUsize::new(0); // uncompressed file sizes
     let total_text_bytes = AtomicUsize::new(0);
+    let total_ranges = AtomicUsize::new(0);
     let text_key: String = if let Some(text_key) = count_bytes {
         text_key
     } else {
         String::from("")
     };
 
-
+    let range_key: String = if let Some(range_key) = count_ranges {
+        range_key
+    } else {
+        String::from("")
+    };
     let pbar = build_pbar(all_files.len(), "files");
 
     all_files.into_par_iter().for_each(|p| {
@@ -470,6 +478,7 @@ pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<Str
         let mut file_len = 0;
         let mut file_size = 0;
         let mut text_bytes = 0;
+        let mut ranges = 0;
         for line in contents.lines() {
             file_len += 1;
             let line = line.unwrap();
@@ -480,20 +489,33 @@ pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<Str
                     text_bytes += value.str().len();
                 }
             }            
+
+            if range_key.len() > 0 {
+                let sa_range = gjson::get(&line, &range_key);
+                sa_range.each(|_, v| {
+                    let vjson = v.json();
+                    let e = gjson::get(&vjson, "1").u64() as usize;
+                    let s = gjson::get(&vjson, "0").u64() as usize;
+                    ranges += e - s;
+                    true
+                });
+            };
         }
         total_doc_count.fetch_add(file_len, Ordering::SeqCst);
         total_file_sizes.fetch_add(file_size, Ordering::SeqCst);
         total_text_bytes.fetch_add(text_bytes, Ordering::SeqCst);
+        total_ranges.fetch_add(ranges, Ordering::SeqCst);
         pbar.inc(1);
     });
     let total_doc_count = total_doc_count.into_inner();
     let total_file_sizes = total_file_sizes.into_inner();
     let total_text_bytes = total_text_bytes.into_inner();
-    let output_json = json!({"total_docs": total_doc_count, "total_file_size": total_file_sizes, "total_text_bytes": total_text_bytes});
+    let total_ranges = total_ranges.into_inner();
+    let output_json = json!({"total_docs": total_doc_count, "total_file_size": total_file_sizes, "total_text_bytes": total_text_bytes, "total_sa_ranges": total_ranges});
     let output_contents = serde_json::to_vec(&output_json).unwrap();
     write_mem_to_pathbuf(&output_contents, output_file).unwrap();
 
-    println!("Saw {:?} docs ({:?} bytes)| {:?} text bytes | in {:?} secs", total_doc_count, total_file_sizes, total_text_bytes, start_main.elapsed().as_secs());
+    println!("Saw {:?} docs ({:?} bytes)| {:?} text bytes | {:?} total ranges | in {:?} secs", total_doc_count, total_file_sizes, total_text_bytes, total_ranges, start_main.elapsed().as_secs());
 
     Ok(())
 }
@@ -576,8 +598,8 @@ fn main() {
         } => shuffle(input_dir, output_dir, *num_outputs, *max_len, *delete_after_read),
 
         Commands::Count {
-            input_dir, output_file, count_bytes
-        } => count(input_dir, output_file, count_bytes.clone()),
+            input_dir, output_file, count_bytes, count_ranges
+        } => count(input_dir, output_file, count_bytes.clone(), count_ranges.clone()),
         _ => Ok(()),
     };
     result.unwrap();
