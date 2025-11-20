@@ -41,8 +41,8 @@ datamap discrete-partition \
 ```yaml
 name: "Language Partition"
 partition_key: "metadata.language"
-choices: ["en", "es", "fr", "de"]  # Optional: predefined categories
-max_file_size: 268435456  # Optional: max bytes per output file (default: 256MB)
+choices: ["en", "es", "fr", "de"]  # Optional: predefined categories -- if not specified, will automatically infer categories 
+max_file_size: 256000000  # Optional: max bytes per output file (default: 256MB)
 ```
 
 #### Configuration Fields
@@ -50,7 +50,7 @@ max_file_size: 268435456  # Optional: max bytes per output file (default: 256MB)
 - `name`: Descriptive name for the partition operation
 - `partition_key`: JSON field path to partition on (e.g., "metadata.language", "url", "domain")
 - `choices`: (Optional) List of valid categories. Documents not matching these go to "no_category"
-- `max_file_size`: (Optional) Maximum uncompressed bytes per output file (default: 268435456 = 256MB)
+- `max_file_size`: (Optional) Maximum uncompressed bytes per output file (default: 256_000_000 = 256MB)
 
 ### Input/Output Format
 
@@ -103,7 +103,6 @@ output_dir/
 name: "Language Partition"
 partition_key: "metadata.language"
 choices: ["en", "es", "fr", "de", "zh", "ja"]
-max_file_size: 268435456
 ```
 
 #### Partition by Domain
@@ -177,7 +176,7 @@ range_groups: [0.25, 0.5, 0.75]  # Option 1: Manual ranges
 # OR
 reservoir_path: "./stats/quality_sample.json"  # Option 2: Automatic from sample
 num_buckets: 10
-max_file_size: 268435456  # Optional: 256MB default
+max_file_size: 256000000  # Optional: 256MB default
 bucket_name: "quality"  # Optional: "bucket" default
 ```
 

@@ -10,7 +10,7 @@ datamap shuffle \
   --input_dir ./data/input \
   --output_dir ./data/shuffled \
   --num_outputs 100 \
-  [--max_len 268435456] \
+  [--max_len 256000000] \
   [--delete_after_read] \
   [--threads 16]
 ```
@@ -63,7 +63,6 @@ output_dir/
 ### What This Does NOT Do
 
 - **Fine-Grained Shuffling**: Does not shuffle documents within each output file
-- **Perfect Randomization**: Documents from the same input file may cluster in output files
 - **Deterministic Output**: Random assignment means different runs produce different outputs
 
 ## Performance Characteristics
@@ -78,47 +77,12 @@ output_dir/
 
 ### Prepare Data for Parallel Training
 ```bash
-# Shuffle into 1000 files for distributed training
+# Shuffle into at least 1000 files for distributed training
 datamap shuffle \
   --input_dir ./processed_data \
   --output_dir ./training_shards \
   --num_outputs 1000 \
-  --max_len 268435456
-```
-
-### Break Up Sequential Patterns
-```bash
-# Data is organized by date, shuffle to randomize
-datamap shuffle \
-  --input_dir ./data/by_date \
-  --output_dir ./data/shuffled \
-  --num_outputs 500
-```
-
-### Redistribute Before Sampling
-```bash
-# Shuffle before taking a sample to avoid bias
-datamap shuffle \
-  --input_dir ./full_dataset \
-  --output_dir ./shuffled \
-  --num_outputs 100
-
-# Then sample from shuffled data
-datamap reshard \
-  --input_dir ./shuffled \
-  --output_dir ./sampled \
-  --subsample 0.1 \
-  --max_size 268435456
-```
-
-### Prepare for Multi-Node Processing
-```bash
-# Create 100 shards for distribution across 10 nodes
-datamap shuffle \
-  --input_dir ./data \
-  --output_dir ./distributed_shards \
-  --num_outputs 100 \
-  --delete_after_read
+  --max_len 256000000
 ```
 
 ## Choosing `num_outputs`
@@ -138,43 +102,6 @@ datamap shuffle \
 | Preprocessing for sampling | 50-100 |
 | Breaking up patterns | 100-500 |
 
-## Combining with Other Commands
-
-### Shuffle + Reshard (Fine-Grained Shuffle)
-
-For true document-level shuffling, combine shuffle with reshard:
-```bash
-# Step 1: Coarse shuffle into many files
-datamap shuffle \
-  --input_dir ./data \
-  --output_dir ./coarse_shuffled \
-  --num_outputs 500
-
-# Step 2: Reshard with subsample=1.0 to shuffle within files
-datamap reshard \
-  --input_dir ./coarse_shuffled \
-  --output_dir ./fully_shuffled \
-  --max_size 268435456 \
-  --subsample 1.0
-```
-
-### Shuffle + Partition
-
-Shuffle before partitioning to balance partition sizes:
-```bash
-# Step 1: Shuffle to break up clustering
-datamap shuffle \
-  --input_dir ./data \
-  --output_dir ./shuffled \
-  --num_outputs 200
-
-# Step 2: Partition by quality
-datamap range-partition \
-  --input_dir ./shuffled \
-  --output_dir ./partitioned \
-  --value "metadata.quality_score" \
-  --num_buckets 10
-```
 
 ## Output Statistics
 
@@ -203,73 +130,5 @@ This command performs **coarse shuffling only**. If you need true random shuffli
 ### File System Limits
 
 Most systems limit open file handles:
-- Linux default: 1024 per process
-- Recommended max `num_outputs`: 500-1000
 - Use `ulimit -n` to check/adjust limits
 
-## Technical Details
-
-### Random Assignment
-
-- Uses `fastrand` for fast random number generation
-- Each document independently assigned: `chunk_id = random() % num_outputs`
-- No guarantees on output file sizes (statistical distribution)
-
-### Compression
-
-- All output files compressed with zstd level 3
-- Compression applied on-the-fly during writing
-- No additional disk space required for uncompressed data
-
-### File Rotation
-
-When an output chunk exceeds `max_len`:
-1. Current encoder is flushed and finished
-2. New file created with incremented `FILE_IDX`
-3. Writing continues to new file
-4. Original chunk ID maintained
-
-## Examples
-
-### Basic Shuffle
-```bash
-datamap shuffle \
-  --input_dir ./data \
-  --output_dir ./shuffled \
-  --num_outputs 100
-```
-
-### Shuffle with Cleanup
-```bash
-datamap shuffle \
-  --input_dir ./data \
-  --output_dir ./shuffled \
-  --num_outputs 200 \
-  --delete_after_read
-```
-
-### Shuffle into Smaller Files
-```bash
-datamap shuffle \
-  --input_dir ./data \
-  --output_dir ./shuffled \
-  --num_outputs 500 \
-  --max_len 104857600  # 100MB files
-```
-
-### High-Parallelism Shuffle
-```bash
-datamap shuffle \
-  --input_dir ./data \
-  --output_dir ./shuffled \
-  --num_outputs 1000 \
-  --threads 32
-```
-
-## Notes
-
-- **Non-Deterministic**: Different runs produce different outputs
-- **No Ordering Guarantees**: Documents may appear in any order in output files
-- **Parallel Safe**: Multiple threads write to different chunks safely
-- **Space Efficient**: Streaming operation, no intermediate storage required
-- **Fast Operation**: Typically I/O bound, very little computation

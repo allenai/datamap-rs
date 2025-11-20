@@ -51,7 +51,6 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "non_null_filter", NonNullFilter);
         register_processor!(m, "text_len_filter", TextLenFilter);
         register_processor!(m, "subsample", SubsampleFilter);
-        register_processor!(m, "santcoder_pl_filter", SantaCoderPLFilter);
         register_processor!(m, "add_id", AddIdModifier);
         register_processor!(m, "url_substring_filter", UrlSubstringFilter);
         register_processor!(m, "newline_removal_modifier", NewlineRemovalModifier);
@@ -309,26 +308,6 @@ impl DataProcessor for AddIdModifier {
     }
 }
 
-#[derive(Serialize, Debug)]
-pub struct SantaCoderPLFilter {
-    // Filters to collect only documents tha have pl_key in [Python, Java, Javascript]
-    pub pl_key: String,
-}
-impl DataProcessor for SantaCoderPLFilter {
-    fn new(config: &Value) -> Result<Self, Error> {
-        let pl_key = get_default(config, "pl_key", String::from("metadata.language"));
-        Ok(Self { pl_key })
-    }
-
-    fn process(&self, data: Value) -> Result<Option<Value>, Error> {
-        let pl = json_get(&data, &self.pl_key).unwrap();
-        if pl == "Python" || pl == "Java" || pl == "Javascript" {
-            Ok(Some(data))
-        } else {
-            Ok(None)
-        }
-    }
-}
 
 #[derive(Serialize, Debug)]
 struct SubsampleFilter {

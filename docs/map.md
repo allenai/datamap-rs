@@ -92,24 +92,23 @@ Filters return `None` to remove documents from the pipeline.
 #### Basic Filters
 - **non_null_filter**: Removes documents that are JSON null values
 - **text_len_filter**: Filters by character count in text field (lower_bound, upper_bound)
-- **page_len_filter**: Filters by document length measured in words, sentences, lines, paragraphs, or characters
-- **word_len_filter**: Filters by average word length
+- **page_len_filter**: Filters by document length measured in words, sentences, lines, paragraphs, or characters (lower_bound, upper_bound)
+- **word_len_filter**: Filters by average word length (lower_bound, upper_bound)
 - **subsample**: Randomly samples documents at specified rate
 - **float_filter**: Filters by numeric field values with optional range negation
 - **string_eq_filter**: Filters by exact string field equality
 
 #### Content Quality Filters
-- **symbol_ratio_filter**: Filters by ratio of symbols (#, ..., ellipsis) to words
-- **bullet_filter**: Filters by density of lines starting with bullet points
-- **ellipsis_line_ratio_filter**: Filters by fraction of lines ending with ellipsis
-- **alphabetic_word_ratio_filter**: Filters by ratio of non-alphabetic words
-- **stop_word_filter**: Filters by presence of common English stop words
-- **word_removal_ratio_filter**: Filters documents that lost too many words during processing (requires prior word count annotation)
+- **symbol_ratio_filter**: Filters by ratio of symbols ("#", "...", "ellipsis") to words -- removes if too many symbols
+- **bullet_filter**: Filters by density of lines starting with bullet points -- removes if ratio of bullet-lines : non-bullet-lines too high
+- **ellipsis_line_ratio_filter**: Filters by fraction of lines ending with ellipsis -- removes if proportion of lines starting with ["...", ". . .", \u{2026}] too high
+- **alphabetic_word_ratio_filter**: Filters by ratio of non-alphabetic words -- removes if proportion of non-alphanumeric words too high
+- **stop_word_filter**: Filters by presence of common English stop words -- ensures that documents have at least some words like ["the", "be", "to", "of", "and", "that", "have", "with"]
+- **word_removal_ratio_filter**: Filters documents that lost too many words during processing (requires prior word count annotation) 
 
 #### Advanced Filters
 - **url_substring_filter**: Comprehensive URL filtering with domain/subdomain matching, banlist support, and various matching modes (exact domain, subdomain, substring, etc.)
 - **massive_web_repetition_filter**: Advanced repetition detection using rolling hash algorithm (based on Gopher paper methodology)
-- **santcoder_pl_filter**: Filters for specific programming languages (Python, Java, Javascript)
 - **madlad400_sentence_annotator**: Multi-criteria sentence-level quality analysis (document consistency, list case, abnormal lengths, technical characters, cursed patterns)
 - **madlad400_rule_filter**: Filters based on Madlad400 sentence analysis annotations
 - **interval_filter**: Removes text in specified character intervals with optional fuzzy interval merging
@@ -152,7 +151,7 @@ Annotators add metadata without filtering.
 
 ### Basic Quality Filtering
 ```yaml
-text_field: "text"
+text_field: "text" # global text field if not otherwise specified
 pipeline:
   - name: "text_len_filter"
     kwargs:
@@ -163,13 +162,15 @@ pipeline:
       min_stop_word: 5
 ```
 
-### Deduplication Pipeline
+### Line Length Filter
 ```yaml
 pipeline:
   - name: "word_count_adder"
     kwargs:
       word_count_field: "original_word_count"
-  - name: "massive_web_repetition_filter"
+  - name: "line_len_modifier"
+    kwargs:
+      lower_bound: 5
   - name: "word_removal_ratio_filter"
     kwargs:
       word_count_field: "original_word_count"
@@ -184,9 +185,8 @@ pipeline:
       fast_text_file: "./models/lid176.bin"
       output_field: "metadata.language"
       k: 3
-      threshold: 0.5
-  - name: "string_eq_filter"
+  - name: "float_filter"
     kwargs:
-      str_field: "metadata.language.__label__en"
-      eq: "__label__en"
+      float_field: "metadata.language.__label__en"
+      lower_bound: 0.65
 ```

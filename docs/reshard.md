@@ -10,7 +10,7 @@ datamap reshard \
   --input_dir ./data/input \
   --output_dir ./data/output \
   [--max_lines 10000] \
-  [--max_size 268435456] \
+  [--max_size 256000000] \
   [--subsample 0.1] \
   [--keep_dirs] \
   [--delete_after_read] \
@@ -22,7 +22,7 @@ datamap reshard \
 - `--input_dir`: Directory containing input JSONL files
 - `--output_dir`: Directory for resharded output files
 - `--max_lines`: (Optional) Maximum number of lines per output shard (default: unlimited)
-- `--max_size`: (Optional) Maximum size in bytes per output shard (default: unlimited, recommended: 268435456 for 256MB)
+- `--max_size`: (Optional) Maximum size in bytes per output shard (default: unlimited, recommended: 256000000 for 256MB)
 - `--subsample`: (Optional) Subsample rate (0.0-1.0) to randomly sample documents (default: 0.0 = no sampling)
 - `--keep_dirs`: (Optional) Preserve subdirectory structure from input
 - `--delete_after_read`: (Optional) Delete input files after successful processing
@@ -100,7 +100,7 @@ With `--keep_dirs`:
 datamap reshard \
   --input_dir ./raw_data \
   --output_dir ./sharded_data \
-  --max_size 268435456
+  --max_size 256000000
 ```
 
 ### Reshard While Subsampling
@@ -108,7 +108,7 @@ datamap reshard \
 datamap reshard \
   --input_dir ./full_dataset \
   --output_dir ./sampled_dataset \
-  --max_size 268435456 \
+  --max_size 256000000 \
   --subsample 0.1
 ```
 
@@ -117,7 +117,7 @@ datamap reshard \
 datamap reshard \
   --input_dir ./data/by_source \
   --output_dir ./data/sharded_by_source \
-  --max_size 268435456 \
+  --max_size 256000000 \
   --keep_dirs
 ```
 
@@ -132,7 +132,7 @@ datamap reshard \
 
 ## Why 256MB?
 
-The recommended 256MB shard size (268435456 bytes) represents a "sweet spot" for most use cases:
+The recommended 256MB shard size (256000000 bytes) represents a "sweet spot" for most use cases:
 - Large enough to minimize file system overhead
 - Small enough to fit comfortably in memory during processing
 - Optimal for parallel processing across many files

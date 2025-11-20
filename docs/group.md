@@ -42,7 +42,7 @@ datamap discrete-partition \
 name: "Language Partition"
 partition_key: "metadata.language"
 choices: ["en", "es", "fr", "de"]  # Optional: predefined categories
-max_file_size: 268435456  # Optional: max bytes per output file (default: 256MB)
+max_file_size: 256000000  # Optional: max bytes per output file (default: 256MB)
 ```
 
 #### Configuration Fields
