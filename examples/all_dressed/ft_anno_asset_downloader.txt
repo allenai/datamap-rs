@@ -1,4 +1,0 @@
-cp s3://allennlp-mattj/profanity/dclm/lid.176.bin /mnt/raid0/ft_models/
-cp s3://ai2-llm/fasttext_models/openhermes_reddit_eli5_vs_rw_v2_bigram_200k_train.bin /mnt/raid0/ft_models/
-cp s3://ai2-llm/pretraining-data/sources/dclm/refinedweb/dolma_reformat/fineweb_edu_6way_bigram_200k.bin /mnt/raid0/ft_models/
-cp s3://ai2-llm/pretraining-data/sources/dclm/refinedweb/dolma_reformat/fineweb_edu_gt2_bigram_200k.bin /mnt/raid0/ft_models/

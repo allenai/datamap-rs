@@ -1,8 +1,0 @@
-name: madlad_annotator
-text_field: text
-pipeline:
-  - name: madlad400_sentence_annotator
-    kwargs:
-      fast_text_file: examples/dclm/lid.176.bin
-      langid_field: metadata.lang
-      cursed_regex_file: examples/dclm/madlad400_cursed.txt
