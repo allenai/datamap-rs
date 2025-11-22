@@ -1,5 +1,6 @@
 // External crates
 
+use std::collections::HashSet;
 use serde_json::json;
 use std::fs;
 use serde_json::Value;
@@ -219,6 +220,16 @@ enum Commands {
         count_bytes: Option<String>
     },
 
+    LineFilter {
+        #[arg(required=true, long)]
+        input_dir: PathBuf,
+
+        #[arg(required=true, long)]
+        lookup_json: PathBuf,
+
+        #[arg(required=true, long)]
+        output_dir: PathBuf,
+    },
 
 
 }
@@ -499,6 +510,75 @@ pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<Str
 }
 
 
+pub fn line_filter(input_dir: &PathBuf, lookup_json: &PathBuf, output_dir: &PathBuf) -> Result<(), Error> {
+    let start_main = Instant::now();
+
+    // Load json lookup
+    let contents = read_pathbuf_to_mem(lookup_json).unwrap().into_inner().into_inner();
+    let lookup_json_obj: Value = serde_json::from_slice(&contents).unwrap();
+    let lookup_json_obj = lookup_json_obj.as_object().unwrap();
+
+    // Convert to Vec and process in parallel
+    let line_lookup: DashMap<String, Vec<usize>> = DashMap::new();
+    lookup_json_obj
+        .into_iter()
+        .collect::<Vec<_>>()
+        .into_par_iter()
+        .for_each(|(k, v)| {
+            let vec: Vec<usize> = v.as_array()
+                .unwrap()
+                .iter()
+                .map(|x| x.as_u64().unwrap() as usize)
+                .collect();       
+            line_lookup.insert(k.to_string(), vec);
+        });
+
+
+    let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
+    let pbar = build_pbar(all_files.len(), "Input paths");
+
+    let global_seen_docs = AtomicUsize::new(0);
+    let global_kept_docs = AtomicUsize::new(0);
+
+    all_files.into_par_iter().for_each(|p| {
+        let ai2path = extract_from_ai2_llm_str(&p).unwrap();
+        let s3_path = "s3://".to_owned() + &ai2path.clone();
+
+        let mut seen_docs = 0;
+        let mut kept_docs = 0;
+        let lines = line_lookup.entry(s3_path).or_default();
+        let line_set : HashSet<usize> = lines.iter().map(|v| v.clone()).collect();
+        let contents = read_pathbuf_to_mem(&p).unwrap();
+        let output_path = get_output_filename(&p, input_dir, output_dir).unwrap();
+        let mut output_bytes : Vec<u8> = Vec::new();
+        for (line_num, line) in contents.lines().enumerate() {
+            seen_docs += 1;
+            let line = line.unwrap().into_bytes();
+            if line_set.contains(&line_num) {
+                kept_docs += 1;
+                output_bytes.extend(line);
+                output_bytes.push(b'\n');
+            }                
+        }        
+        if output_bytes.len() > 0 {
+            write_mem_to_pathbuf(&output_bytes, &output_path).unwrap()
+        }
+        global_seen_docs.fetch_add(seen_docs, Ordering::SeqCst);
+        global_kept_docs.fetch_add(kept_docs, Ordering::SeqCst);
+        pbar.inc(1);
+    });
+
+
+    println!("Filtered {:?}/{:?} docs in {:?} secs", global_kept_docs.into_inner(), global_seen_docs.into_inner(), start_main.elapsed().as_secs());
+    Ok(())
+}
+
+fn extract_from_ai2_llm_str(path: &PathBuf) -> Option<String> {
+    let path_str = path.to_str()?;
+    path_str.find("/ai2-llm/")
+        .map(|idx| path_str[idx + 1..].to_string()) // +1 to skip the leading '/'
+}
+
 /*============================================================
 =                            MAIN                            =
 ============================================================*/
@@ -578,6 +658,10 @@ fn main() {
         Commands::Count {
             input_dir, output_file, count_bytes
         } => count(input_dir, output_file, count_bytes.clone()),
+
+        Commands::LineFilter {
+            input_dir, lookup_json, output_dir
+        } => line_filter(input_dir, lookup_json, output_dir),
         _ => Ok(()),
     };
     result.unwrap();
