@@ -229,6 +229,9 @@ enum Commands {
 
         #[arg(required=true, long)]
         output_dir: PathBuf,
+
+        #[arg(long)]
+        delete_after_read: bool
     },
 
 
@@ -510,7 +513,7 @@ pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<Str
 }
 
 
-pub fn line_filter(input_dir: &PathBuf, lookup_json: &PathBuf, output_dir: &PathBuf) -> Result<(), Error> {
+pub fn line_filter(input_dir: &PathBuf, lookup_json: &PathBuf, output_dir: &PathBuf, delete_after_read: &bool) -> Result<(), Error> {
     let start_main = Instant::now();
 
     // Load json lookup
@@ -562,6 +565,9 @@ pub fn line_filter(input_dir: &PathBuf, lookup_json: &PathBuf, output_dir: &Path
         }        
         if output_bytes.len() > 0 {
             write_mem_to_pathbuf(&output_bytes, &output_path).unwrap()
+        }
+        if *delete_after_read {
+            fs::remove_file(p).unwrap();
         }
         global_seen_docs.fetch_add(seen_docs, Ordering::SeqCst);
         global_kept_docs.fetch_add(kept_docs, Ordering::SeqCst);
@@ -660,8 +666,8 @@ fn main() {
         } => count(input_dir, output_file, count_bytes.clone()),
 
         Commands::LineFilter {
-            input_dir, lookup_json, output_dir
-        } => line_filter(input_dir, lookup_json, output_dir),
+            input_dir, lookup_json, output_dir, delete_after_read
+        } => line_filter(input_dir, lookup_json, output_dir, delete_after_read),
         _ => Ok(()),
     };
     result.unwrap();
