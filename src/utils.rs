@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Error, Result};
-use serde_json::{json, Value};
+use serde_json::{json, Value, Map};
 use url::Url;
 
 /*================================================================================
@@ -76,6 +76,28 @@ pub fn json_get<'a>(data: &'a serde_json::Value, key: &str) -> Option<&'a Value>
 
     Some(current)
 }
+
+
+pub fn json_get_mut<'a>(data: &'a mut Value, key: &str) -> Option<&'a mut Value> {
+    let keys: Vec<&str> = key.split('.').collect();
+    let mut current = data;
+
+    for key in keys {
+        // Ensure current is an object, return None if it's something else
+        if !current.is_object() {
+            return None;
+        }
+        
+        // Get or create the key with an empty object
+        current = current
+            .as_object_mut()?
+            .entry(key.to_string())
+            .or_insert_with(|| Value::Object(Map::new()));
+    }
+
+    Some(current)
+}
+
 
 pub fn json_set(input: &mut Value, key: &String, val: Value) -> Result<(), Error> {
     let parts: Vec<&str> = key.split('.').collect();

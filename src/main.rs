@@ -74,6 +74,7 @@ enum Commands {
 
         #[arg(long)]
         delete_after_read: bool,
+
     },
 
     Reshard {
