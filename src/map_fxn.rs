@@ -88,14 +88,14 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
     });
 
 pub trait AnyDataProcessor: Send + Sync + std::fmt::Debug {
-    fn process(&self, data: &mut Value) -> Result<bool, Error>;
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error>;
 }
 
 impl<T> AnyDataProcessor for T
 where
     T: DataProcessor + Send + Sync + serde::Serialize + std::fmt::Debug,
 {
-    fn process(&self, data: &mut Value) -> Result<bool, Error> {
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error> {
         // Just delegate to the underlying DataProcessor implementation
         DataProcessor::process(self, data)
     }
@@ -103,35 +103,44 @@ where
 
 #[derive(Debug)]
 pub struct PipelineProcessor {
-    pub pipeline: Vec<Box<dyn AnyDataProcessor>>,
+    pub pipeline: Vec<Vec<Box<dyn AnyDataProcessor>>>,
     pub annotate_filter_key: Option<String>,
 }
 
 impl PipelineProcessor {
     // Create an empty pipeline
     pub fn new(config: &Value) -> Result<Self, Error> {
-        let mut pipeline: Vec<Box<dyn AnyDataProcessor>> = Vec::<Box<dyn AnyDataProcessor>>::new();
+        let mut pipeline: Vec<Vec<Box<dyn AnyDataProcessor>>> = Vec::new();
         let text_field = get_default(&config, "text_field", String::from("text"));
-
-
+        let dummy_step = json!("step");
         let pipeline_configs = config.get("pipeline").unwrap().as_array().unwrap();
         for subconfig in pipeline_configs {
-            let subconfig_name = subconfig.get("name").unwrap().as_str().unwrap();
-            let default_json = json!({});
-            let mut subconfig_kwargs: Value = subconfig
-                .get("kwargs")
-                .or(Some(&default_json))
-                .unwrap()
-                .clone();
-            json_set(
-                &mut subconfig_kwargs,
-                &String::from("text_field"),
-                serde_json::Value::String(text_field.clone()),
-            )
-            .unwrap();
-            let constructor = PROCESSOR_CONSTRUCTORS[subconfig_name];
-            pipeline.push(constructor(&subconfig_kwargs).unwrap());
+            let mut pipeline_component: Vec<Box<dyn AnyDataProcessor>> = Vec::new();
 
+            let subconfig_type = subconfig.get("type").unwrap_or(&dummy_step).as_str().unwrap();
+            let subpipeline = if subconfig_type == "group" {
+                subconfig.get("pipeline").unwrap().as_array().unwrap().clone()
+            } else {
+                vec!(subconfig.clone())
+            };
+            for substep in subpipeline {
+                let substep_name = substep.get("name").unwrap().as_str().unwrap();
+                let default_json = json!({});
+                let mut substep_kwargs: Value = substep
+                    .get("kwargs")
+                    .or(Some(&default_json))
+                    .unwrap()
+                    .clone();
+                json_set(
+                    &mut substep_kwargs,
+                    &String::from("text_field"),
+                    serde_json::Value::String(text_field.clone()),
+                )
+                .unwrap();
+                let constructor = PROCESSOR_CONSTRUCTORS[substep_name];
+                pipeline_component.push(constructor(&substep_kwargs).unwrap());                
+            }
+            pipeline.push(pipeline_component)
         }
 
 
@@ -154,14 +163,30 @@ impl PipelineProcessor {
         */
         let mut current_data = data.clone();
         let mut filter_step = 0;
-        for processor in &self.pipeline {
+        for processor_group in &self.pipeline {
             let start_step = Instant::now();
-            let passed = processor.process(&mut current_data)?;
+            let mut passed = true;
+            let mut returned_none = false;
+            for processor in processor_group {
+                let step_passed_opt = processor.process(&mut current_data)?;
+                if let Some(step_passed) = step_passed_opt {
+                    passed = passed && step_passed;
+                    if !passed {
+                        break
+                    }
+                } else {
+                    passed = false;
+                    returned_none = true;
+                    break
+                }
+
+            }
             *_timing_info.entry(filter_step).or_insert(0 as u128) += start_step.elapsed().as_nanos();
             if !passed {
                 *_filter_info.entry(filter_step).or_insert(0 as usize) += 1;                
-                if let Some(anno_key)= &self.annotate_filter_key {
-                    let inner_ref = json_get_mut(&mut current_data, anno_key).unwrap();
+                if self.annotate_filter_key.is_some() && !returned_none {
+                    let anno_key = self.annotate_filter_key.as_ref().unwrap();
+                    let inner_ref = json_get_mut(&mut current_data, &anno_key).unwrap();
                     inner_ref[filter_step.to_string()] = serde_json::Value::Bool(true);                                            
                 } else {
                     return Ok((filter_step, Some(current_data)))
@@ -238,7 +263,7 @@ pub trait DataProcessor {
         Self: Sized;
 
     // Process method that all implementations must provide
-    fn process(&self, data: &mut Value) -> Result<bool, Error>;
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error>;
 }
 
 /*================================================================================
@@ -253,8 +278,12 @@ impl DataProcessor for NonNullFilter {
         Ok(Self { })
     }
 
-    fn process(&self, data: &mut Value) -> Result<bool, Error> {
-        Ok(!data.is_null())
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error> {
+        if data.is_null() {
+            Ok(None)
+        } else {
+            Ok(Some(true))
+        }
     }
 }
 
@@ -278,13 +307,13 @@ impl DataProcessor for TextLenFilter {
         })
     }
 
-    fn process(&self, data: &mut Value) -> Result<bool, Error> {
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error> {
         let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap();
         let text_len = text.len();
         if self.lower_bound <= text_len && text_len <= self.upper_bound {
-            Ok(true)
+            Ok(Some(true))
         } else {
-            Ok(false)
+            Ok(Some(false))
         }
     }
 }
@@ -300,10 +329,10 @@ impl DataProcessor for AddIdModifier {
         Ok(Self { id_key })
     }
 
-    fn process(&self, data: &mut Value) -> Result<bool, Error> {
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error> {
         let id = Uuid::new_v4().to_string();
         json_set(data, &self.id_key, Value::String(id)).unwrap();
-        Ok(true)
+        Ok(Some(true))
     }
 }
 
@@ -319,9 +348,9 @@ impl DataProcessor for SubsampleFilter {
         Ok(Self { subsample_rate })
     }
 
-    fn process(&self, _data: &mut Value) -> Result<bool, Error> {
+    fn process(&self, _data: &mut Value) -> Result<Option<bool>, Error> {
         let random_float = rng().random::<f64>();
-        Ok(random_float <= self.subsample_rate)
+        Ok(Some(random_float <= self.subsample_rate))
     }
 }
 
@@ -390,7 +419,7 @@ impl DataProcessor for UrlSubstringFilter {
         UrlSubstringFilter::construct_w_explicit_banlist(config, banlist)
     }
 
-    fn process(&self, data: &mut Value) -> Result<bool, Error> {
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error> {
         // Process url
 
         let url_val = if let Some(url_val) = json_get(&data, &self.url_key) {
@@ -399,7 +428,7 @@ impl DataProcessor for UrlSubstringFilter {
             if let Some(url_val) = json_get(&data, &self.alt_url_key) {
                 url_val
             } else {
-                return Ok(false);
+                return Ok(Some(false));
             }
         };
         let mut url = url_val.as_str().unwrap().to_string();
@@ -416,7 +445,7 @@ impl DataProcessor for UrlSubstringFilter {
             if let Some(subdomain) = subdomain_match {
                 subdomain
             } else {
-                return Ok(true);
+                return Ok(Some(true));
             }
         } else {
             url
@@ -435,9 +464,9 @@ impl DataProcessor for UrlSubstringFilter {
         // Exact match case
         if self.exact_domain_match || self.exact_subdomain_match || self.exact_url_match {
             if self.banlist.contains(&url) {
-                return Ok(false);
+                return Ok(Some(false));
             } else {
-                return Ok(true);
+                return Ok(Some(true));
             }
         }
 
@@ -446,10 +475,10 @@ impl DataProcessor for UrlSubstringFilter {
             if let Some(ref splitter) = self.part_splitter {
                 for part in splitter.split(&url) {
                     if !part.is_empty() && self.banlist.contains(part) {
-                        return Ok(false)
+                        return Ok(Some(false))
                     }
                 }
-                return Ok(true);
+                return Ok(Some(true));
             }
         }
 
@@ -459,9 +488,9 @@ impl DataProcessor for UrlSubstringFilter {
         if self.match_substrings {
             let match_count = ac_banlist.find_iter(&url).collect::<Vec<_>>().len();
             if match_count < self.num_banned_substrs {
-                Ok(true)
+                Ok(Some(true))
             } else {
-                Ok(false)
+                Ok(Some(false))
             }
         } else {
             let matches: Vec<_> = ac_banlist.find_iter(&url).collect();
@@ -483,9 +512,9 @@ impl DataProcessor for UrlSubstringFilter {
                 .collect::<Vec<_>>();
 
             if valid_matches.len() < self.num_banned_substrs {
-                Ok(true)
+                Ok(Some(true))
             } else {
-                Ok(false)
+                Ok(Some(false))
             }
         }
     }
@@ -558,7 +587,7 @@ impl DataProcessor for NewlineRemovalModifier {
         })
     }
 
-    fn process(&self, data: &mut Value) -> Result<bool, Error> {
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error> {
         let text = json_get(&data, &self.text_field)
             .unwrap()
             .as_str()
@@ -573,7 +602,7 @@ impl DataProcessor for NewlineRemovalModifier {
             serde_json::Value::String(new_text),
         )
         .unwrap();
-        Ok(true)
+        Ok(Some(true))
     }
 }
 
@@ -613,7 +642,7 @@ impl DataProcessor for FastTextAnnotator {
         })
     }
 
-    fn process(&self, data: &mut Value) -> Result<bool, anyhow::Error> {
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, anyhow::Error> {
         let mut text = json_get(&data, &self.text_field)
             .unwrap()
             .as_str()
@@ -626,7 +655,7 @@ impl DataProcessor for FastTextAnnotator {
 			Ok(preds) => preds,
 			Err(_e) => {
 				// If prediction fails, drop this document by returning None, this can happen for some bad utf bytes etc that happen very rarely
-				return Ok(false);
+				return Ok(Some(false));
 			}
 		};
 
@@ -636,7 +665,7 @@ impl DataProcessor for FastTextAnnotator {
         }
         let pred_json = Value::Object(map);
         json_set(data, &self.output_field, pred_json).unwrap();
-        Ok(true)
+        Ok(Some(true))
     }
 }
 
@@ -672,7 +701,7 @@ impl DataProcessor for FloatFilter {
         })
     }
 
-    fn process(&self, data: &mut Value) -> Result<bool, Error> {
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error> {
         let val = if let Some(json_val) = json_get(&data, &self.float_field) {
             json_val.as_f64().ok_or(anyhow!(
                 "Float field {:?} | {:?} is not a number?",
@@ -686,7 +715,7 @@ impl DataProcessor for FloatFilter {
         if self.negate {
             passes = !passes
         }
-        Ok(passes)
+        Ok(Some(passes))
 
     }
 }
@@ -719,13 +748,13 @@ impl DataProcessor for StringEqFilter {
         Ok(Self {str_field, eq, keep_matches})
     }
 
-    fn process(&self, data: &mut Value) -> Result<bool, Error> {
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error> {
         let val = json_get(&data, &self.str_field).unwrap().as_str().unwrap().to_string();
 
         if (&val == &self.eq) == self.keep_matches {
-            return Ok(true);
+            return Ok(Some(true));
         }
-        Ok(false)
+        Ok(Some(false))
     }
 }
 
@@ -790,16 +819,16 @@ impl DataProcessor for PageLenFilter {
         })
     }
 
-    fn process(&self, data: &mut Value) -> Result<bool, Error> {
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error> {
         let text = json_get(&data, &self.text_field)
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Text field '{}' not found or not a string", self.text_field))?;
 
         let len = self.calculate_length(text)?;
         if self.lower_bound <= len && len <= self.upper_bound {
-            Ok(true)
+            Ok(Some(true))
         } else {
-            Ok(false)
+            Ok(Some(false))
         }
     }
 }
@@ -904,7 +933,7 @@ impl DataProcessor for WordLenFilter {
         })
     }
 
-    fn process(&self, data: &mut Value) -> Result<bool, Error> {
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error> {
         let text = json_get(&data, &self.text_field)
             .unwrap()
             .as_str()
@@ -915,9 +944,9 @@ impl DataProcessor for WordLenFilter {
         let avg_word_len = word_lens.iter().sum::<usize>() as f32 / word_lens.len() as f32;
 
         if self.lower_bound <= avg_word_len && avg_word_len <= self.upper_bound {
-            Ok(true)
+            Ok(Some(true))
         } else {
-            Ok(false)
+            Ok(Some(false))
         }
     }
 }
@@ -940,7 +969,7 @@ impl DataProcessor for SymbolRatioFilter {
         })
     }
 
-    fn process(&self, data: &mut Value) -> Result<bool, Error> {
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error> {
         let text = json_get(&data, &self.text_field)
             .unwrap()
             .as_str()
@@ -960,9 +989,9 @@ impl DataProcessor for SymbolRatioFilter {
         let symbol_to_word_ratio = num_symbols as f32 / std::cmp::max(num_words, 1) as f32;
 
         if symbol_to_word_ratio <= self.max_symbol_to_word_ratio {
-            Ok(true)
+            Ok(Some(true))
         } else {
-            Ok(false)
+            Ok(Some(false))
         }
     }
 }
@@ -984,7 +1013,7 @@ impl DataProcessor for BulletFilter {
         })
     }
 
-    fn process(&self, data: &mut Value) -> Result<bool, Error> {
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error> {
         let text = json_get(&data, &self.text_field)
             .unwrap()
             .as_str()
@@ -1001,9 +1030,9 @@ impl DataProcessor for BulletFilter {
             })
             .count();
         if bullet_count as f32 / lines.len() as f32 > self.max_bullet_ratio {
-            Ok(false)
+            Ok(Some(false))
         } else {
-            Ok(true)
+            Ok(Some(true))
         }
     }
 }
@@ -1025,7 +1054,7 @@ impl DataProcessor for EllipsisLineRatioFilter {
         })
     }
 
-    fn process(&self, data: &mut Value) -> Result<bool, Error> {
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error> {
         let text = json_get(&data, &self.text_field)
             .unwrap()
             .as_str()
@@ -1042,9 +1071,9 @@ impl DataProcessor for EllipsisLineRatioFilter {
 
         let ratio = ellipsis_count as f32 / std::cmp::max(lines.len(), 1) as f32;
         if ratio <= self.max_ratio {
-            Ok(true)
+            Ok(Some(true))
         } else {
-            Ok(false)
+            Ok(Some(false))
         }
     }
 }
@@ -1066,7 +1095,7 @@ impl DataProcessor for AlphabeticWordRatioFilter {
         })
     }
 
-    fn process(&self, data: &mut Value) -> Result<bool, Error> {
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error> {
         let text = json_get(&data, &self.text_field)
             .unwrap()
             .as_str()
@@ -1074,7 +1103,7 @@ impl DataProcessor for AlphabeticWordRatioFilter {
             .to_string();
         let words = text.split_whitespace().collect::<Vec<_>>();
         if words.len() == 1 {
-            return Ok(false);
+            return Ok(Some(false));
         }
         let total_words = words.len() as f32;
         let non_alpha_words = words
@@ -1086,9 +1115,9 @@ impl DataProcessor for AlphabeticWordRatioFilter {
         let ratio = non_alpha_words as f32 / total_words;
 
         if ratio <= self.max_ratio {
-            Ok(true)
+            Ok(Some(true))
         } else {
-            Ok(false)
+            Ok(Some(false))
         }
     }
 }
@@ -1123,10 +1152,10 @@ impl DataProcessor for StopWordFilter {
         })
     }
 
-    fn process(&self, data: &mut Value) -> Result<bool, Error> {
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error> {
         // Early return optimization
         if self.min_stop_word == 0 {
-            return Ok(true);
+            return Ok(Some(true));
         }
         let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap();
 
@@ -1135,7 +1164,7 @@ impl DataProcessor for StopWordFilter {
         } else {
             self.has_enough_stop_words(text)
         };
-        Ok(meets_threshold)        
+        Ok(Some(meets_threshold))        
     }
 }
 
@@ -1187,7 +1216,7 @@ impl DataProcessor for MassiveWebRepetitionFilter {
         let text_field = get_default(config, "text_field", String::from("text"));
         Ok(Self { text_field })
     }
-    fn process(&self, data: &mut Value) -> Result<bool, Error> {
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error> {
         let text = json_get(&data, &self.text_field)
             .unwrap()
             .as_str()
@@ -1217,11 +1246,11 @@ impl DataProcessor for MassiveWebRepetitionFilter {
                 MassiveWebRepetitionFilter::_rep_counter_fraction(arglist.0, arglist.1, arglist.2)
                     .unwrap();
             if rep_frac > upper_bound {
-                return Ok(false);
+                return Ok(Some(false));
             }
         }
 
-        Ok(true)
+        Ok(Some(true))
     }
 }
 
@@ -1407,7 +1436,7 @@ impl DataProcessor for WordCountAdder {
         })
     }
 
-    fn process(&self, data: &mut Value) -> Result<bool, Error> {
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error> {
         let text = json_get(&data, &self.text_field)
             .unwrap()
             .as_str()
@@ -1415,7 +1444,7 @@ impl DataProcessor for WordCountAdder {
         let word_count = text.unicode_words().count();
         json_set(data, &self.word_count_field, word_count.into()).unwrap();
 
-        Ok(true)
+        Ok(Some(true))
     }
 }
 
@@ -1451,7 +1480,7 @@ impl DataProcessor for RatioLineModifier {
         })
     }
 
-    fn process(&self, data: &mut Value) -> Result<bool, Error> {
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error> {
         let text = json_get(&data, &self.text_field)
             .unwrap()
             .as_str()
@@ -1489,7 +1518,7 @@ impl DataProcessor for RatioLineModifier {
         )
         .unwrap();
 
-        Ok(true)
+        Ok(Some(true))
     }
 }
 
@@ -1517,7 +1546,7 @@ impl DataProcessor for RegexLineModifier {
         })
     }
 
-    fn process(&self, data: &mut Value) -> Result<bool, Error> {
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error> {
         let text = json_get(&data, &self.text_field)
             .unwrap()
             .as_str()
@@ -1531,7 +1560,7 @@ impl DataProcessor for RegexLineModifier {
             .map(|&l| l)
             .collect();
         if passing_lines.len() == 0 {
-            return Ok(false);
+            return Ok(Some(false));
         }
 
         json_set(
@@ -1541,7 +1570,7 @@ impl DataProcessor for RegexLineModifier {
         )
         .unwrap();
 
-        Ok(true)
+        Ok(Some(true))
     }
 }
 
@@ -1563,7 +1592,7 @@ impl DataProcessor for LineLenModifier {
         })
     }
 
-    fn process(&self, data: &mut Value) -> Result<bool, Error> {
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error> {
         let text = json_get(&data, &self.text_field)
             .unwrap()
             .as_str()
@@ -1577,7 +1606,7 @@ impl DataProcessor for LineLenModifier {
             .map(|&l| l)
             .collect();
         if passing_lines.iter().map(|v| v.len()).sum::<usize>() == 0 {
-            return Ok(false);
+            return Ok(Some(false));
         }
 
         json_set(
@@ -1587,7 +1616,7 @@ impl DataProcessor for LineLenModifier {
         )
         .unwrap();
 
-        Ok(true)
+        Ok(Some(true))
     }
 }
 
@@ -1622,7 +1651,7 @@ impl DataProcessor for SubstringLineModifier {
         })
     }
 
-    fn process(&self, data: &mut Value) -> Result<bool, Error> {
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error> {
         let text = json_get(&data, &self.text_field)
             .unwrap()
             .as_str()
@@ -1685,7 +1714,7 @@ impl DataProcessor for SubstringLineModifier {
             serde_json::Value::String(processed_lines.join("\n")),
         )?;
 
-        Ok(true)
+        Ok(Some(true))
     }
 }
 
@@ -1713,7 +1742,7 @@ impl DataProcessor for WordRemovalRatioFilter {
         })
     }
 
-    fn process(&self, data: &mut Value) -> Result<bool, Error> {
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error> {
         let text = json_get(&data, &self.text_field)
             .unwrap()
             .as_str()
@@ -1727,9 +1756,9 @@ impl DataProcessor for WordRemovalRatioFilter {
 
         let removed_ratio = ((old_word_count - cur_word_count) as f32) / old_word_count as f32;
         if removed_ratio <= self.upper_bound {
-            Ok(true)
+            Ok(Some(true))
         } else {
-            Ok(false)
+            Ok(Some(false))
         }
     }
 }
@@ -1850,7 +1879,7 @@ impl DataProcessor for Madlad400SentenceAnnotator {
         })
     }
 
-    fn process(&self, data: &mut Value) -> Result<bool, Error> {
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error> {
         // Setup for filtering
         let text = json_get(&data, &self.text_field)
             .unwrap()
@@ -1876,7 +1905,7 @@ impl DataProcessor for Madlad400SentenceAnnotator {
 
         if num_sentences < self.sentence_lower_bound {
             json_set(data, &madlad_status, json!("killed:too_short")).unwrap();
-            return Ok(true);
+            return Ok(Some(true));
         }
 
         let doc_lang = json_get(&data, &self.langid_field)
@@ -1944,7 +1973,7 @@ impl DataProcessor for Madlad400SentenceAnnotator {
             json_set(data, &madlad_status, json!("survived")).unwrap();
         }
         json_set(data, &self.annotation_key, tracker_json).unwrap();
-        Ok(true)
+        Ok(Some(true))
 
     }
 }
@@ -2061,14 +2090,14 @@ impl DataProcessor for Madlad400RuleFilter {
         })
     }
 
-    fn process(&self, data: &mut Value) -> Result<bool, Error> {
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error> {
     	let status: String = json_get(&data, &self.status_key).unwrap().as_str().unwrap().to_string();
 
     	if status == "killed:too_short" {
     		if self.remove_too_short {
-    			return Ok(false);
+    			return Ok(Some(false));
     		} else {
-    			return Ok(true);
+    			return Ok(Some(true));
     		}
 
     	}
@@ -2088,12 +2117,12 @@ impl DataProcessor for Madlad400RuleFilter {
                 }
             }
             if sus_sentences.len() as f64 >= sus_threshold {
-                return Ok(false);
+                return Ok(Some(false));
             }
         }
 
 
-        Ok(true)
+        Ok(Some(true))
 
     }
 }
@@ -2121,7 +2150,7 @@ impl DataProcessor for IntervalFilter {
         Ok(Self {text_field, interval_field, fuzzy_merge, merge_fuzziness, output_text_field})
     }
 
-    fn process(&self, data: &mut Value) -> Result<bool, Error> {
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error> {
 
         // Collect things we need frorm the data
         let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
@@ -2131,7 +2160,7 @@ impl DataProcessor for IntervalFilter {
                 (interval[0].as_u64().unwrap() as usize, interval[1].as_u64().unwrap() as usize)
             }).collect::<Vec<(usize, usize)>>()
         } else {
-            return Ok(true);
+            return Ok(Some(true));
         };
 
         // Merge the intervals if that's a thing we need to do
@@ -2156,11 +2185,11 @@ impl DataProcessor for IntervalFilter {
         }
 
         if output.len() == 0 {
-            return Ok(false);
+            return Ok(Some(false));
         }
 
         json_set(data, &self.output_text_field, serde_json::Value::String(output)).unwrap();
-        Ok(true)
+        Ok(Some(true))
     }
 
 }
@@ -2293,7 +2322,7 @@ impl DataProcessor for DDMaxGetter {
     }
 
 
-    fn process(&self, data: &mut Value) -> Result<bool, Error> {
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error> {
         let input_dict = json_get(&data, &self.main_attribute).unwrap();
         // claude: loop over key,val pairs in input_dict
         // and for keys that start with prefix, get their value as a [[f64]] (or just an f64)
@@ -2321,7 +2350,7 @@ impl DataProcessor for DDMaxGetter {
         }
 
         json_set(data, &self.output_attribute, serde_json::Value::String(max_key)).unwrap();
-        Ok(true)
+        Ok(Some(true))
 
     }
 }
@@ -2349,7 +2378,7 @@ impl DataProcessor for MaxExtractor {
         Ok(Self {main_attribute, lower_bound, output_attribute, keep_nulls})
     }
 
-    fn process(&self, data: &mut Value) -> Result<bool, Error> {
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error> {
         let mut max_key = String::from("");
         let mut max_val: f64 = f64::MIN;
         let input_dict = json_get(&data, &self.main_attribute).unwrap();
@@ -2368,10 +2397,10 @@ impl DataProcessor for MaxExtractor {
             json_set(data, &self.output_attribute, serde_json::Value::String(max_key)).unwrap();            
         } else {
             if !&self.keep_nulls {
-                return Ok(false);
+                return Ok(Some(false));
             }
         }
-        Ok(true)
+        Ok(Some(true))
 
     }
 }
@@ -2401,7 +2430,7 @@ impl DataProcessor for HashAnnotator {
         })
     }
 
-    fn process(&self, data: &mut Value) -> Result<bool, Error> {
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error> {
         let text = json_get(&data, &self.hash_source)
             .unwrap()
             .as_str()
@@ -2415,7 +2444,7 @@ impl DataProcessor for HashAnnotator {
         };
 
         json_set(data, &self.hash_destination, hash_val).unwrap();
-        Ok(true)
+        Ok(Some(true))
     }
 }
 
@@ -2435,9 +2464,9 @@ impl DataProcessor for ConstantAnnotator {
         Ok(Self { key, value })
     }
 
-    fn process(&self, data: &mut Value) -> Result<bool, Error> {
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error> {
         json_set(data, &self.key, json!(&self.value)).unwrap();
-        Ok(true)
+        Ok(Some(true))
     }
 }
 
@@ -2457,12 +2486,12 @@ impl DataProcessor for RenameModifier {
         Ok(Self { old_field, new_field })
     }
 
-    fn process(&self, data: &mut Value) -> Result<bool, Error> {
+    fn process(&self, data: &mut Value) -> Result<Option<bool>, Error> {
         let old_val = json_get(&data, &self.old_field).unwrap().clone();
         json_set(data, &self.new_field, old_val).unwrap();
         json_remove(data, &self.old_field).unwrap();
 
-        Ok(true)
+        Ok(Some(true))
     }
 }
 

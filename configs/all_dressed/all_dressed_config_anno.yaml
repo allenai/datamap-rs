@@ -1,9 +1,11 @@
 name: alldressed_v3
 text_field: text
-annotate_filter_key: metadata.anno_filters
+# annotate_filter_key: metadata.filter_anno
 pipeline:
   - name: non_null_filter
+    id: "Non Null Filter"
   - name: url_substring_filter
+    id: "URL 1 | RefinedWeb Domains"
     kwargs:
       url_key: metadata.WARC-Target-URI
       alt_url_key: metadata.warc_url
@@ -11,18 +13,21 @@ pipeline:
       exact_domain_match: true
       ignore_chars: ['www']
   - name: url_substring_filter
+    id: "URL 2 | RefinedWeb Words (Strict)"
     kwargs:
       url_key: metadata.WARC-Target-URI
       alt_url_key: metadata.warc_url      
       banlist_file: banlists/refinedweb_banned_words_strict_reverse_engineered.txt.gz
       ignore_chars: ['-', '.']
   - name: url_substring_filter
+    id: "URL 3 | RefinedWeb Words (Hard)"
     kwargs:
       url_key: metadata.WARC-Target-URI
       alt_url_key: metadata.warc_url      
       banlist_file: banlists/refinedweb_banned_words_hard_reverse_engineered.txt.gz
       match_substrings: false
   - name: url_substring_filter
+    id: "URL 4 | RefinedWeb Words (Soft)"
     kwargs:
       url_key: metadata.WARC-Target-URI
       alt_url_key: metadata.warc_url      
@@ -30,30 +35,28 @@ pipeline:
       num_banned_substrs: 2
       match_substrings: false
   - name: url_substring_filter
+    id: "URL 5 | Fineweb Domains"
     kwargs:
       url_key: metadata.WARC-Target-URI
       alt_url_key: metadata.warc_url      
       banlist_file: banlists/fineweb_url_filters/domains.txt.gz
       exact_domain_match: true
   - name: url_substring_filter
-    kwargs:
-      url_key: metadata.WARC-Target-URI
-      alt_url_key: metadata.warc_url      
-      banlist_file: banlists/fineweb_url_filters/domains.txt.gz
-      exact_subdomain_match: true
-  - name: url_substring_filter
+    id: "URL 6 | Fineweb URLs"
     kwargs:
       url_key: metadata.WARC-Target-URI
       alt_url_key: metadata.warc_url      
       banlist_file: banlists/fineweb_url_filters/urls.txt.gz
       exact_url_match: true
   - name: url_substring_filter
+    id: "URL 7 | Fineweb words"
     kwargs:
       url_key: metadata.WARC-Target-URI
       alt_url_key: metadata.warc_url      
       banlist_file: banlists/fineweb_url_filters/banned_words.txt.gz
       exact_part_match: true      
   - name: url_substring_filter
+    id: "URL 8 | Fineweb words (soft)"
     kwargs:
       url_key: metadata.WARC-Target-URI
       alt_url_key: metadata.warc_url      
@@ -61,113 +64,148 @@ pipeline:
       match_substrings: false
       num_banned_substrs: 2
   - name: url_substring_filter
+    id: "URL 9 | Fineweb subwords"
     kwargs:
       url_key: metadata.WARC-Target-URI
       alt_url_key: metadata.warc_url      
       banlist_file: banlists/fineweb_url_filters/banned_subwords.txt.gz
       match_substrings: true
   - name: page_len_filter
+    id: "Pagelen | Chars"
     kwargs:
       length_type: char
       lower_bound: 150
       ignore_punctuation: false
   - name: page_len_filter
+    id: "Pagelen | words"
     kwargs:
       length_type: word
       lower_bound: 50
       upper_bound: 100000
       ignore_punctuation: true
   - name: word_len_filter
+    id: "Wordlen"
     kwargs:
       lower_bound: 3
       upper_bound: 10
   - name: symbol_ratio_filter
+    id: "Symbol ratio"
     kwargs:
       max_symbol_to_word_ratio: 0.1
   - name: bullet_filter
+    id: "Bullet Filter"
     kwargs:
       max_bullet_ratio: 0.9        
   - name: ellipsis_line_ratio_filter
+    id: "Ellipses"
     kwargs:
       max_ratio: 0.3      
   - name: alphabetic_word_ratio_filter
+    id: "Alphabetic Words"
     kwargs:
       max_ratio: 0.2
   - name: stop_word_filter
+    id: "Stop words"
     kwargs:
       count_unique: false
       min_stop_word: 2      
   - name: newline_removal_modifier
+    id: "Newline Mods"
     kwargs:
       max_consecutive: 2            
   - name: massive_web_repetition_filter
-  - name: word_count_adder
-    kwargs:
-      word_count_field: original_word_count
-  - name: ratio_line_modifier
-    kwargs:
-      upper_bound: 0.5
-      check: uppercase
-  - name: ratio_line_modifier
-    kwargs:
-      upper_bound: 0.999999
-      check: numeric
-  - name: regex_line_modifier
-    kwargs: 
-      regex_string: '^\W*\d(?:,|\.|\d)*(?:K|k|M|m|B|b)?\s+(?:likes|shares|comments|retweets|reposts|quotes|bookmarks|upvotes|downvotes|downloads|views|followers)\W*'
-  - name: line_len_modifier
-    kwargs:
-      lower_bound: 2
-  - name: substring_line_modifier
-    kwargs:
-      banlist: "items in cart"
-      max_length: 10
-      remove_substring_only: true
-  - name: substring_line_modifier
-    kwargs:
-      banlist: "Read more..."
-      max_length: 10
-      remove_substring_only: true
-      location: suffix
-  - name: substring_line_modifier
-    kwargs:
-      banlist: "Sign-in"
-      max_length: 10
-      remove_substring_only: true
-      location: prefix
-  - name: word_removal_ratio_filter
-    kwargs:
-      word_count_field: original_word_count
-      upper_bound: 0.05
-  - name: newline_removal_modifier # doubling up in case any new \n\n\n's showed up
-    kwargs:
-      max_consecutive: 2      
-  - name: fasttext_annotator
-    kwargs:
-      #fast_text_file: examples/dclm/models--cis-lmu--glotlid/snapshots/74cb50b709c9eefe0f790030c6c95c461b4e3b77/model.bin
-      fast_text_file: ft_classifiers/lid176.bin
-      output_field: metadata.lang
-  - name: float_filter
-    kwargs:
-      float_field: metadata.lang.__label__en
-      lower_bound: 0.65
-      default: 0.0            
-  - name: madlad400_sentence_annotator
-    kwargs:
-      fast_text_file: ft_classifiers/lid176.bin
-      langid_field: metadata.lang
-      cursed_regex_file: banlists/madlad400_cursed.txt.gz
-      rules_to_include: [2, 5]
-  - name: madlad400_rule_filter
-    kwargs:
-      remove_too_short: true
-      rules_to_remove: [[2,5]]
+    id: "Repetition"
+  - name: line_mod_group
+    type: group
+    id: "LineModifiers"
+    pipeline:
+    - name: word_count_adder
+      id: "Word Counts"
+      kwargs:
+        word_count_field: original_word_count
+    - name: ratio_line_modifier
+      id: "Uppercase Ratio Modifier"
+      kwargs:
+        upper_bound: 0.5
+        check: uppercase
+    - name: ratio_line_modifier
+      id: "Numeric Ratio Modifier"
+      kwargs:
+        upper_bound: 0.999999
+        check: numeric
+    - name: regex_line_modifier
+      id: "Regex"
+      kwargs: 
+        regex_string: '^\W*\d(?:,|\.|\d)*(?:K|k|M|m|B|b)?\s+(?:likes|shares|comments|retweets|reposts|quotes|bookmarks|upvotes|downvotes|downloads|views|followers)\W*'
+    - name: line_len_modifier
+      id: "Line len modifier"
+      kwargs:
+        lower_bound: 2
+    - name: substring_line_modifier
+      id: "'items in cart'"
+      kwargs:
+        banlist: "items in cart"
+        max_length: 10
+        remove_substring_only: true
+    - name: substring_line_modifier
+      id: "'read more...'"
+      kwargs:
+        banlist: "Read more..."
+        max_length: 10
+        remove_substring_only: true
+        location: suffix
+    - name: substring_line_modifier
+      id: "'Sign-in'"
+      kwargs:
+        banlist: "Sign-in"
+        max_length: 10
+        remove_substring_only: true
+        location: prefix
+    - name: word_removal_ratio_filter
+      id: "Removed Words Filter"
+      kwargs:
+        word_coudnt_field: original_word_count
+        upper_bound: 0.05
+    - name: newline_removal_modifier # doubling up in case any new \n\n\n's showed up
+      id: "Newline Mods (II)"
+      kwargs:
+        max_consecutive: 2   
+  - name: EnglishFilter
+    type: group   
+    id: "EnglishFilter + Madlad"
+    pipeline:         
+    - name: fasttext_annotator
+      id: "LangID"
+      kwargs:
+        #fast_text_file: examples/dclm/models--cis-lmu--glotlid/snapshots/74cb50b709c9eefe0f790030c6c95c461b4e3b77/model.bin
+        fast_text_file: ft_classifiers/lid176.bin
+        output_field: metadata.lang
+    - name: float_filter
+      id: "LangID Filter"
+      kwargs:
+        float_field: metadata.lang.__label__en
+        lower_bound: 0.65
+        default: 0.0     
+    - name: madlad400_sentence_annotator
+      id: "Madlad annotator"
+      kwargs:
+        fast_text_file: ft_classifiers/lid176.bin
+        langid_field: metadata.lang
+        cursed_regex_file: banlists/madlad400_cursed.txt.gz
+        rules_to_include: [2, 5]
+    - name: madlad400_rule_filter
+      id: "Madlad filter"
+      kwargs:
+        remove_too_short: true
+        rules_to_remove: [[2,5]]
   - name: hash_annotator
+    id: "Text hasher"
     kwargs:
       hash_source: text
       hash_destination: metadata.text_hash
       num_bits: 128
   - name: add_id
+    id: "Add ID"
     kwargs:
       id_key: id
 
