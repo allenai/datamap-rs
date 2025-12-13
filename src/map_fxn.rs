@@ -57,6 +57,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "fasttext_annotator", FastTextAnnotator);
         register_processor!(m, "float_filter", FloatFilter);
         register_processor!(m, "string_eq_filter", StringEqFilter);
+        register_processor!(m, "regex_text_filter", RegexTextFilter);
         register_processor!(m, "page_len_filter", PageLenFilter);
         register_processor!(m, "word_len_filter", WordLenFilter);
         register_processor!(m, "symbol_ratio_filter", SymbolRatioFilter);
@@ -187,7 +188,7 @@ impl PipelineProcessor {
         let mut filter_info = FilterInfo::new();
         let mut output_lines: HashMap<usize, Vec<Value>> = HashMap::new();
         let mut err_lines: Vec<String> = Vec::new();
-        for (line_num, line) in lines.into_iter().enumerate() {        
+        for (line_num, line) in lines.into_iter().enumerate() {
             let json_parse_result = serde_json::from_str(&line);
             match json_parse_result {
                 Ok(json_line) => {
@@ -202,7 +203,7 @@ impl PipelineProcessor {
                             }
                         }
                         Err(_e) => err_lines.push(line.clone()),
-                    };                    
+                    };
                 },
                 Err(_e) => {
                     println!("Error parsing json in {:?}:{:?}", filename, line_num);
@@ -739,6 +740,51 @@ impl DataProcessor for StringEqFilter {
     }
 }
 
+
+#[derive(Serialize, Debug)]
+pub struct RegexTextFilter {
+    // Filter lines to only keep lines that match the regex
+    // (or those that don't match the regex if remove_matches is true)
+    pub text_field: String,
+    pub regex_string: String,
+    pub remove_matches: bool,   // defaults to true, which means we remove lines that match the regex
+    #[serde(skip)]
+    pub regex: Regex,
+}
+
+impl DataProcessor for RegexTextFilter {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let text_field = get_default(config, "text_field", String::from("text"));
+        let regex_string = get_default(config, "regex_string", String::from(""));
+        let remove_matches = get_default(config, "remove_matches", true);
+        let regex = Regex::new(&regex_string).unwrap();
+
+        Ok(Self {
+            text_field,
+            regex_string,
+            remove_matches,
+            regex,
+        })
+    }
+
+    fn process(&self, data: Value) -> Result<Option<Value>, Error> {
+        let text = json_get(&data, &self.text_field)
+            .unwrap()
+            .as_str()
+            .unwrap();
+
+        if self.remove_matches {
+            if self.regex.is_match(&text) {
+                return Ok(None);
+            }
+        } else {
+            if !self.regex.is_match(&text) {
+                return Ok(None);
+            }
+        }
+        Ok(Some(data))
+    }
+}
 
 #[derive(Serialize, Debug)]
 pub struct PageLenFilter {
@@ -2375,13 +2421,13 @@ impl DataProcessor for MaxExtractor {
                 if value >= max_val && value >= self.lower_bound {
                     max_key = key.to_string();
                     max_val = value;
-                }                
+                }
             }
         }
 
 
         if max_key.len() > 0 {
-            json_set(&mut data, &self.output_attribute, serde_json::Value::String(max_key)).unwrap();            
+            json_set(&mut data, &self.output_attribute, serde_json::Value::String(max_key)).unwrap();
         } else {
             if !&self.keep_nulls {
                 return Ok(None);
@@ -2440,7 +2486,7 @@ impl DataProcessor for HashAnnotator {
 pub struct ConstantAnnotator {
     // Adds a string into every json in a directory
     pub key: String, // location of where we save the constant
-    pub value: String, // what we save    
+    pub value: String, // what we save
 }
 
 impl DataProcessor for ConstantAnnotator {
@@ -2462,7 +2508,7 @@ impl DataProcessor for ConstantAnnotator {
 pub struct RenameModifier {
     // Renames a field in the json
     pub old_field: String, // old field name
-    pub new_field: String, // new field name  
+    pub new_field: String, // new field name
 }
 
 impl DataProcessor for RenameModifier {
@@ -2481,4 +2527,3 @@ impl DataProcessor for RenameModifier {
         Ok(Some(data))
     }
 }
-

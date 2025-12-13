@@ -78,7 +78,7 @@ Counts the number of documents, file sizes, and optionally the total size of a s
 
 2. **Clone the repository**:
 ```bash
-   git clone 
+   git clone
    cd datamap
 ```
 
@@ -96,9 +96,16 @@ Counts the number of documents, file sizes, and optionally the total size of a s
 5. **(Optional) Install s5cmd for cloud storage**:
 ```bash
    # For Linux systems
-   wget https://github.com/peak/s5cmd/releases/download/v2.2.2/s5cmd_2.2.2_Linux-64bit.tar.gz 
-   tar -xvzf s5cmd_2.2.2_Linux-64bit.tar.gz 
+   wget https://github.com/peak/s5cmd/releases/download/v2.2.2/s5cmd_2.2.2_Linux-64bit.tar.gz
+   tar -xvzf s5cmd_2.2.2_Linux-64bit.tar.gz
    sudo mv s5cmd /usr/local/bin
+```
+
+6. **(Optional) Run tests**
+```bash
+   mkdir -p ft_classifiers
+   wget https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin -O ft_classifiers/lid176.bin
+   cargo test
 ```
 
 ## Performance Notes
