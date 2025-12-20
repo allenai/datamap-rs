@@ -2562,20 +2562,21 @@ impl DataProcessor for SAByteModifier {
             return Ok(Some(data));
         };
         
+        // Get the original text as bytes for processing
+        let og_text = json_get(&data, &self.text_key).unwrap().clone();
+        let text_bytes = og_text.as_str().unwrap().as_bytes();
+        let original_length = text_bytes.len();
+
+
         // Parse intervals as (start, end) tuples
         let sa_intervals: Vec<(usize, usize)> = sa_intervals_val.as_array().unwrap()
             .iter()
-            .map(|v| (v[0].as_u64().unwrap() as usize, v[1].as_u64().unwrap() as usize))
+            .map(|v| (v[0].as_u64().unwrap() as usize,  std::cmp::min(v[1].as_u64().unwrap() as usize, original_length)))
             .collect();
         
         if sa_intervals.is_empty() {
             return Ok(Some(data));
         }
-
-        // Get the original text as bytes for processing
-        let og_text = json_get(&data, &self.text_key).unwrap().clone();
-        let text_bytes = og_text.as_str().unwrap().as_bytes();
-        let original_length = text_bytes.len();
 
         // Initialize tracking metrics for the modification process
         let mut rules = SaRules {
@@ -2593,6 +2594,7 @@ impl DataProcessor for SAByteModifier {
         rules.intervals_after_merge = sa_intervals.len();
 
         // Apply coherence checks to adjust interval boundaries to natural break points
+
         let sa_intervals = if self.check_paragraph || self.check_newline || self.check_sentences {
             self.apply_coherence_checks(text_bytes, sa_intervals, &mut rules)        
         } else {
@@ -2686,11 +2688,10 @@ impl SAByteModifier {
                 let end_after_bytes = &text_bytes[end..check_end_after];
 
                 // Find natural boundaries (paragraphs, sentences, newlines) in each slice
-                let start_before_bounds = self.find_boundaries(start_before_bytes, false, start_before_bytes.len() < self.check_width, false);
-                let start_after_bounds = self.find_boundaries(start_after_bytes, true, false, start_after_bytes.len() < self.check_width);
-                let end_before_bounds = self.find_boundaries(end_before_bytes, false, end_before_bytes.len() < self.check_width, false);
-                let end_after_bounds = self.find_boundaries(end_after_bytes, true, false, end_after_bytes.len() < self.check_width);
-
+                let start_before_bounds = self.find_boundaries(start_before_bytes, true, start_before_bytes.len() < self.check_width, false);
+                let start_after_bounds = self.find_boundaries(start_after_bytes, false, false, start_after_bytes.len() < self.check_width);
+                let end_before_bounds = self.find_boundaries(end_before_bytes, true, end_before_bytes.len() < self.check_width, false);
+                let end_after_bounds = self.find_boundaries(end_after_bytes, false, false, end_after_bytes.len() < self.check_width);
 
                 let new_start = {
                     let before_dist = start_before_bounds.last().map(|&idx| start_before_bytes.len() - idx);
@@ -2709,7 +2710,6 @@ impl SAByteModifier {
                         (None, None) => start
                     }
                 };
-
 
                 let new_end = {
                     let before_dist = end_before_bounds.last().map(|&idx| end_before_bytes.len() - idx);
@@ -2753,7 +2753,7 @@ impl SAByteModifier {
             1
         };
         let mut i = 0;
-        
+
         // Scan through the text looking for boundary markers
         while i < text.len() {
             match text[i] {
@@ -2785,7 +2785,6 @@ impl SAByteModifier {
         if postpend_len {
             results.push(text.len());
         }
-        
         results        
     }
 }
