@@ -84,6 +84,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "max_extractor", MaxExtractor);
         register_processor!(m, "constant_annotator", ConstantAnnotator);
         register_processor!(m, "rename_modifier", RenameModifier);
+        register_processor!(m, "has_key", HasKeyFilter);
         m
     });
 
@@ -2479,6 +2480,30 @@ impl DataProcessor for RenameModifier {
         json_remove(&mut data, &self.old_field).unwrap();
 
         Ok(Some(data))
+    }
+}
+
+
+#[derive(Serialize, Debug)]
+pub struct HasKeyFilter {
+    // Only keeps documents that have this key
+    pub key: String, // new field name  
+}
+
+impl DataProcessor for HasKeyFilter {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let key = json_get(config, "key").unwrap().as_str().unwrap().to_string();
+
+        Ok(Self { key })
+    }
+
+    fn process(&self, data: Value) -> Result<Option<Value>, Error> {
+        let keyval = json_get(&data, &self.key);
+        if let Some(_val) = keyval {
+            Ok(Some(data))            
+        } else {
+            Ok(None)
+        }
     }
 }
 
