@@ -26,6 +26,8 @@ use url::Url;
 use xxhash_rust::xxh3::{xxh3_128, xxh3_64};
 use once_cell::sync::OnceCell;
 use derivative::Derivative;
+use std::panic::catch_unwind;
+
 
 /*================================================================================
 =                            PIPELINE PROCESSING                                 =
@@ -85,6 +87,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "constant_annotator", ConstantAnnotator);
         register_processor!(m, "rename_modifier", RenameModifier);
         register_processor!(m, "has_key_filter", HasKeyFilter);
+        register_processor!(m, "has_key_str_filter", HasKeyStrFilter);
         m
     });
 
@@ -2506,4 +2509,36 @@ impl DataProcessor for HasKeyFilter {
         }
     }
 }
+
+#[derive(Serialize, Debug)]
+pub struct HasKeyStrFilter {
+    // Only keeps documents that have this key when parsed as a string (top level only) <-- one-off thing
+    pub check_key: String, // new field name  
+}
+
+impl DataProcessor for HasKeyStrFilter {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let check_key = json_get(config, "check_key").unwrap().as_str().unwrap().to_string();
+        Ok(Self { check_key })
+    }
+
+    fn process(&self, data: Value) -> Result<Option<Value>, Error> {
+        match data.get(&self.check_key)
+            .and_then(|v| v.as_str())
+        {
+            Some(_) => {
+                // Command succeeded
+                // do thing when it passes
+                return Ok(Some(data));
+            }
+            None => {
+                // Command failed (either key doesn't exist or not a string)
+                // do thing when it errors
+                return Ok(None);
+            }
+        }        
+
+    }
+}
+
 
