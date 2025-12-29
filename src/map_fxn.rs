@@ -84,7 +84,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "max_extractor", MaxExtractor);
         register_processor!(m, "constant_annotator", ConstantAnnotator);
         register_processor!(m, "rename_modifier", RenameModifier);
-        register_processor!(m, "has_key", HasKeyFilter);
+        register_processor!(m, "has_key_filter", HasKeyFilter);
         m
     });
 
