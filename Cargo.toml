@@ -38,6 +38,7 @@ sonic-rs = "0.5.5"
 fastrand = "2.3.0"
 simd-json = "0.15.1"
 gjson = "0.8.1"
+flate2 = "1.1.5"
 
 [[test]]
 name = "tests"

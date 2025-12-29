@@ -1,4 +1,5 @@
 
+use std::io::Write;
 use std::cmp;
 use std::time::Instant;
 use crate::utils::{extract_subdomain, get_default, json_get, json_set, json_remove};
@@ -26,6 +27,8 @@ use url::Url;
 use xxhash_rust::xxh3::{xxh3_128, xxh3_64};
 use once_cell::sync::OnceCell;
 use derivative::Derivative;
+use flate2::write::GzEncoder;
+use flate2::Compression;
 
 /*================================================================================
 =                            PIPELINE PROCESSING                                 =
@@ -84,6 +87,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "max_extractor", MaxExtractor);
         register_processor!(m, "constant_annotator", ConstantAnnotator);
         register_processor!(m, "rename_modifier", RenameModifier);
+        register_processor!(m, "gzip_annotator", GzipAnnotator);
         m
     });
 
@@ -2478,6 +2482,35 @@ impl DataProcessor for RenameModifier {
         json_set(&mut data, &self.new_field, old_val).unwrap();
         json_remove(&mut data, &self.old_field).unwrap();
 
+        Ok(Some(data))
+    }
+}
+
+
+#[derive(Serialize, Debug)]
+pub struct GzipAnnotator {
+    // Renames a field in the json
+    pub text_field: String, // string that we gzip compress
+    pub anno_field: String, // where the gzip annotation goes . Annotates with compressed_length / original length
+}
+
+impl DataProcessor for GzipAnnotator {
+    fn new(config: &Value) -> Result<Self, Error> {
+
+        let text_field = json_get(config, "text_field").unwrap().as_str().unwrap().to_string();
+        let anno_field = json_get(config, "anno_field").unwrap().as_str().unwrap().to_string();
+
+        Ok(Self { text_field, anno_field })
+    }
+
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+        let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(text.as_bytes())?;
+        let compressed = encoder.finish()?;
+        
+        let ratio: f64 = compressed.len() as f64 / text.len() as f64;
+        json_set(&mut data, &self.anno_field, ratio.into()).unwrap();
         Ok(Some(data))
     }
 }
