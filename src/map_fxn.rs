@@ -2487,18 +2487,18 @@ impl DataProcessor for RenameModifier {
 #[derive(Serialize, Debug)]
 pub struct HasKeyFilter {
     // Only keeps documents that have this key
-    pub key: String, // new field name  
+    pub check_key: String, // new field name  
 }
 
 impl DataProcessor for HasKeyFilter {
     fn new(config: &Value) -> Result<Self, Error> {
-        let key = json_get(config, "key").unwrap().as_str().unwrap().to_string();
+        let check_key = json_get(config, "check_key").unwrap().as_str().unwrap().to_string();
 
-        Ok(Self { key })
+        Ok(Self { check_key })
     }
 
     fn process(&self, data: Value) -> Result<Option<Value>, Error> {
-        let keyval = json_get(&data, &self.key);
+        let keyval = json_get(&data, &self.check_key);
         if let Some(_val) = keyval {
             Ok(Some(data))            
         } else {
