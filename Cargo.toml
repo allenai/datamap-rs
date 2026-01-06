@@ -39,7 +39,7 @@ fastrand = "2.3.0"
 simd-json = "0.15.1"
 gjson = "0.8.1"
 flate2 = "1.1.5"
-tokenizers = "0.22.2"
+tokenizers = "0.20"
 
 
 [[test]]

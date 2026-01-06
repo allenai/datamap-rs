@@ -2521,6 +2521,7 @@ impl DataProcessor for GzipAnnotator {
 #[derive(Serialize, Debug)]
 pub struct NgramRepetitionFilter {
     pub text_field: String, // defaults to text
+    pub tokenizer_path: String, // Path to tokenizer 
     pub period_lb: usize, // defaults to 1
     pub period_ub: usize, // defaults to 13
     pub rep_count: usize, // defaults to 32,
@@ -2530,16 +2531,194 @@ pub struct NgramRepetitionFilter {
 impl DataProcessor for NgramRepetitionFilter {
     fn new(config: &Value) -> Result<Self, Error> {
         let text_field = get_default(config, "text_field", String::from("text"));        
+        let tokenizer_path = get_default(config, "tokenizer_path", String::from("tokenizers/allenai_dolma2-tokenizer.json"));
         let period_lb = get_default(config, "period_lb", 1);
         let period_ub = get_default(config, "period_ub", 13);
         let rep_count = get_default(config, "rep_count", 32);
 
-        let tokenizer = Tokenizer::from_pretrained("allenai/dolma2-tokenizer", None).unwrap();
-
-        Ok(Self { text_field, period_lb, period_ub, rep_count, tokenizer})
+        let tokenizer = Tokenizer::from_file(&tokenizer_path).unwrap();
+        Ok(Self { text_field, tokenizer_path, period_lb, period_ub, rep_count, tokenizer})
     }
 
     fn process(&self, data: Value) -> Result<Option<Value>, Error> {
-        Ok(Some(data))
+        let text = json_get(&data, &self.text_field)
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let binding = self.tokenizer.encode(text, true).unwrap();
+        let tokens = binding.get_ids();
+        if NgramRepetitionFilter::exceeds_repetition_threshold(&tokens, self.period_lb, self.period_ub, self.rep_count).unwrap() {
+            Ok(None)
+        } else {
+            Ok(Some(data))            
+        }
     }
+}
+
+fn mod_pow(mut base: u128, mut exp: u128, modulus: u128) -> u128 {
+    if modulus == 1 {
+        return 0;
+    }
+    
+    let mut result = 1u128;
+    base %= modulus;
+    
+    while exp > 0 {
+        if exp & 1 == 1 {
+            result = (result * base) % modulus;
+        }
+        exp >>= 1;
+        base = (base * base) % modulus;
+    }
+    
+    result
+}
+
+
+
+impl NgramRepetitionFilter {
+    /// Check if any K-length pattern (k_lo <= K <= k_hi) repeats at least L times consecutively.
+    ///
+    /// Returns true as soon as any pattern meets the threshold, allowing early termination.
+    pub fn exceeds_repetition_threshold(
+        tokens: &[u32],
+        k_lo: usize,
+        k_hi: usize,
+        min_repetitions: usize,
+    ) -> Result<bool, Error> {
+
+        let n = tokens.len();
+        let num_k = k_hi - k_lo + 1;
+
+        // Early exit if sequence is too short
+        if n < min_repetitions * k_lo {
+            return Ok(false);
+        }
+
+        // Hash parameters
+        const BASE: u128 = 110_017;
+        const MOD: u128 = (1u128 << 61) - 1;
+
+        // Precompute powers of BASE for each K value
+        let mut powers: Vec<Vec<u128>> = Vec::with_capacity(num_k);
+        for k_idx in 0..num_k {
+            let k = k_lo + k_idx;
+            let mut k_powers = Vec::with_capacity(k);
+            let mut power = 1u128;
+            k_powers.push(power);
+            
+            for _ in 1..k {
+                power = (power * BASE) % MOD;
+                k_powers.push(power);
+            }
+            powers.push(k_powers);
+        }
+
+        let base_inv = mod_pow(BASE, MOD - 2, MOD);
+
+        // Initialize current hashes for all K values
+        let mut current_hashes: Vec<Option<u128>> = vec![None; num_k];
+        
+        for k_idx in 0..num_k {
+            let k = k_lo + k_idx;
+            if k <= n {
+                let mut hash_val = 0u128;
+                for j in 0..k {
+                    hash_val = (hash_val + (tokens[j] as u128 * powers[k_idx][j]) % MOD) % MOD;
+                }
+                current_hashes[k_idx] = Some(hash_val);
+            }
+        }
+
+        // For each K, we need a rolling buffer to check last (min_repetitions - 1) * K hashes
+        let mut hash_history: Vec<Vec<Option<u128>>> = Vec::with_capacity(num_k);
+        
+        for k_idx in 0..num_k {
+            let k = k_lo + k_idx;
+            let buffer_size = (min_repetitions - 1) * k + 1;
+            
+            let mut history = vec![None; buffer_size];
+            if let Some(hash) = current_hashes[k_idx] {
+                history[0] = Some(hash);
+            }
+            hash_history.push(history);
+        }
+
+        // Main sliding window loop
+        for i in 1..n {
+            // Update rolling hash for each K value
+            for k_idx in 0..num_k {
+                let k = k_lo + k_idx;
+                
+                // Skip if window would exceed sequence
+                if i + k > n {
+                    continue;
+                }
+
+                if let Some(old_hash) = current_hashes[k_idx] {
+                    let outgoing = tokens[i - 1] as u128;
+                    let incoming = tokens[i + k - 1] as u128;
+                    
+                    // Rolling hash update
+                    let mut new_hash = (old_hash + MOD - outgoing) % MOD;
+                    new_hash = (new_hash * base_inv) % MOD;
+                    let incoming_contribution = (incoming * powers[k_idx][k - 1]) % MOD;
+                    new_hash = (new_hash + incoming_contribution) % MOD;
+                    
+                    current_hashes[k_idx] = Some(new_hash);
+                    
+                    // Store in circular buffer
+                    let buffer_size = (min_repetitions - 1) * k + 1;
+                    let buffer_idx = i % buffer_size;
+                    hash_history[k_idx][buffer_idx] = Some(new_hash);
+                    
+                    // Check for min_repetitions-peat if we have enough history
+                    if i >= (min_repetitions - 1) * k {
+                        // Check if current hash matches hashes at K, 2K, 3K, ... positions ago
+                        let mut all_match = true;
+                        
+                        for rep in 1..min_repetitions {
+                            let idx_back = (i - rep * k) % buffer_size;
+                            if let Some(hash_back) = hash_history[k_idx][idx_back] {
+                                if new_hash != hash_back {
+                                    all_match = false;
+                                    break;
+                                }
+                            } else {
+                                all_match = false;
+                                break;
+                            }
+                        }
+                        
+                        if all_match {
+                            // Potential match! Verify to avoid hash collisions
+                            let start_pos = i - (min_repetitions - 1) * k;
+                            
+                            // Verify all repetitions are actually equal
+                            let pattern = &tokens[start_pos..start_pos + k];
+                            let mut verified = true;
+                            
+                            for rep in 1..min_repetitions {
+                                let rep_start = start_pos + rep * k;
+                                let rep_slice = &tokens[rep_start..rep_start + k];
+                                if pattern != rep_slice {
+                                    verified = false;
+                                    break;
+                                }
+                            }
+                            
+                            if verified {
+                                // Found a pattern with >= min_repetitions!
+                                return Ok(true);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(false)
+    }    
 }
