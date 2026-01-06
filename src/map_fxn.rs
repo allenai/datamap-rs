@@ -29,6 +29,8 @@ use once_cell::sync::OnceCell;
 use derivative::Derivative;
 use flate2::write::GzEncoder;
 use flate2::Compression;
+use tokenizers::Tokenizer;
+
 
 /*================================================================================
 =                            PIPELINE PROCESSING                                 =
@@ -88,6 +90,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "constant_annotator", ConstantAnnotator);
         register_processor!(m, "rename_modifier", RenameModifier);
         register_processor!(m, "gzip_annotator", GzipAnnotator);
+        register_processor!(m, "ngram_repetiiton_filter", NgramRepetitionFilter);
         m
     });
 
@@ -2515,3 +2518,28 @@ impl DataProcessor for GzipAnnotator {
     }
 }
 
+#[derive(Serialize, Debug)]
+pub struct NgramRepetitionFilter {
+    pub text_field: String, // defaults to text
+    pub period_lb: usize, // defaults to 1
+    pub period_ub: usize, // defaults to 13
+    pub rep_count: usize, // defaults to 32,
+    pub tokenizer: Tokenizer, 
+}
+
+impl DataProcessor for NgramRepetitionFilter {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let text_field = get_default(config, "text_field", String::from("text"));        
+        let period_lb = get_default(config, "period_lb", 1);
+        let period_ub = get_default(config, "period_ub", 13);
+        let rep_count = get_default(config, "rep_count", 32);
+
+        let tokenizer = Tokenizer::from_pretrained("allenai/dolma2-tokenizer", None).unwrap();
+
+        Ok(Self { text_field, period_lb, period_ub, rep_count, tokenizer})
+    }
+
+    fn process(&self, data: Value) -> Result<Option<Value>, Error> {
+        Ok(Some(data))
+    }
+}
