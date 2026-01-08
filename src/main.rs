@@ -571,8 +571,9 @@ fn main() {
         Commands::GroupFilter {
             input_dir,
             output_dir,
-            config
-        } => group_filter(input_dir, output_dir, config),
+            config,
+            prev_sorted,
+        } => group_filter(input_dir, output_dir, config, *prev_sorted),
 
         Commands::Shuffle {
             input_dir, output_dir, num_outputs, max_len, delete_after_read
