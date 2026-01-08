@@ -188,7 +188,10 @@ enum Commands {
         output_dir: PathBuf,
 
         #[arg(required = true, long)]
-        config: PathBuf,                
+        config: PathBuf,   
+
+        #[arg(long, default_value_t=false)]             
+        prev_sorted: bool
     },
 
     Shuffle {
