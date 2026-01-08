@@ -345,8 +345,9 @@ fn extract_sortkey(obj: &Value, sort_keys: &[Vec<String>]) -> Result<Vec<String>
             // Find the first available key in this group
             key_group
                 .iter()
-                .find_map(|key| Some(json_get(&obj, &key).expect(&format!("json_get failed for key {:?}", key)).as_str().unwrap().to_string()))
+                .find_map(|key| json_get(&obj, &key))
                 .expect(&format!("No keys from group {:?} found in object", key_group))
+                .as_str().expect(&format!("No key for {:?}", key_group)).to_string()
         })
         .collect())
 }
