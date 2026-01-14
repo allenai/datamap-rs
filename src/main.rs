@@ -216,7 +216,10 @@ enum Commands {
         output_file: PathBuf,
 
         #[arg(long)] // If not None, points to string of key where we count total size
-        count_bytes: Option<String>
+        count_bytes: Option<String>,
+
+        #[arg(long, default_value_t=false)]
+        count_per_doc: bool
     },
 
 
@@ -449,7 +452,7 @@ fn gen_map_single(
 }
 
 
-pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<String>) -> Result<(), Error> {
+pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<String>, count_per_doc: bool) -> Result<(), Error> {
     let start_main = Instant::now();
     let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
 
@@ -462,6 +465,11 @@ pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<Str
         String::from("")
     };
 
+    let count_per_doc_opt: Option<DashMap<PathBuf, usize>> = if count_per_doc {
+        Some(DashMap::new())
+    } else {
+        None
+    };
 
     let pbar = build_pbar(all_files.len(), "files");
 
@@ -484,13 +492,26 @@ pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<Str
         total_doc_count.fetch_add(file_len, Ordering::SeqCst);
         total_file_sizes.fetch_add(file_size, Ordering::SeqCst);
         total_text_bytes.fetch_add(text_bytes, Ordering::SeqCst);
+        if let Some(doc_counts) = &count_per_doc_opt {
+            doc_counts.entry(p).or_insert(text_bytes);
+        }
         pbar.inc(1);
     });
     let total_doc_count = total_doc_count.into_inner();
     let total_file_sizes = total_file_sizes.into_inner();
     let total_text_bytes = total_text_bytes.into_inner();
-    let output_json = json!({"total_docs": total_doc_count, "total_file_size": total_file_sizes, "total_text_bytes": total_text_bytes});
+
+
+    let output_json = if let Some(doc_counts) = count_per_doc_opt {
+        let doc_counts: HashMap<PathBuf, usize> = doc_counts.into_par_iter().map(|(k, v)| (k,v)).collect();
+        json!({"total_docs": total_doc_count, "total_file_size": total_file_sizes, "total_text_bytes": total_text_bytes, "per_file_text_bytes": doc_counts})
+
+    } else {
+        json!({"total_docs": total_doc_count, "total_file_size": total_file_sizes, "total_text_bytes": total_text_bytes})
+    };
     let output_contents = serde_json::to_vec(&output_json).unwrap();
+
+
     write_mem_to_pathbuf(&output_contents, output_file).unwrap();
 
     println!("Saw {:?} docs ({:?} bytes)| {:?} text bytes | in {:?} secs", total_doc_count, total_file_sizes, total_text_bytes, start_main.elapsed().as_secs());
@@ -576,8 +597,8 @@ fn main() {
         } => shuffle(input_dir, output_dir, *num_outputs, *max_len, *delete_after_read),
 
         Commands::Count {
-            input_dir, output_file, count_bytes
-        } => count(input_dir, output_file, count_bytes.clone()),
+            input_dir, output_file, count_bytes, count_per_doc
+        } => count(input_dir, output_file, count_bytes.clone(), *count_per_doc),
         _ => Ok(()),
     };
     result.unwrap();

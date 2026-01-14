@@ -2531,7 +2531,6 @@ impl DataProcessor for RenameModifier {
         Ok(Some(data))
     }
 }
-<<<<<<< HEAD
 
 
 #[derive(Serialize, Debug)]
@@ -2562,5 +2561,3 @@ impl DataProcessor for GzipAnnotator {
     }
 }
 
-=======
->>>>>>> main
