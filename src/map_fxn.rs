@@ -29,6 +29,9 @@ use once_cell::sync::OnceCell;
 use derivative::Derivative;
 use flate2::write::GzEncoder;
 use flate2::Compression;
+use tokenizers::Tokenizer;
+use unicode_normalization::UnicodeNormalization;
+
 
 /*================================================================================
 =                            PIPELINE PROCESSING                                 =
@@ -89,6 +92,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "constant_annotator", ConstantAnnotator);
         register_processor!(m, "rename_modifier", RenameModifier);
         register_processor!(m, "gzip_annotator", GzipAnnotator);
+        register_processor!(m, "ultrafineweb_annotator", UltrafinewebAnnotator);
         m
     });
 
@@ -2531,7 +2535,6 @@ impl DataProcessor for RenameModifier {
         Ok(Some(data))
     }
 }
-<<<<<<< HEAD
 
 
 #[derive(Serialize, Debug)]
@@ -2562,5 +2565,115 @@ impl DataProcessor for GzipAnnotator {
     }
 }
 
-=======
->>>>>>> main
+#[derive(Derivative)]
+#[derivative(Debug)]
+#[derive(Serialize)]
+pub struct UltrafinewebAnnotator {
+    pub text_field: String,
+    pub tokenizer_path: String, 
+    #[derivative(Debug = "ignore")]
+    #[serde(skip)]    
+    pub tokenizer: Tokenizer,
+    #[derivative(Debug = "ignore")]
+    #[serde(skip)]    
+    pub regexes: [Regex;5],
+    pub anno_field: String,
+    pub fast_text_file: String,    
+    #[derivative(Debug = "ignore")]
+    #[serde(skip)]     
+    pub model: FastText
+}
+
+impl DataProcessor for UltrafinewebAnnotator {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let text_field = json_get(config, "text_field").unwrap().as_str().unwrap().to_string();
+        let tokenizer_path = get_default(config, "tokenizer_path", String::from("tokenizers/deepseek_v2.json"));
+        println!("TOKENIZER PATH {:?}", tokenizer_path);
+        let tokenizer = Tokenizer::from_file(&tokenizer_path).unwrap();
+
+        let anno_field = json_get(config, "anno_field").unwrap().as_str().unwrap().to_string();
+        let re_multinewline = Regex::new(r"\n{3,}").unwrap();        
+        let re_newline = Regex::new(r"\n").unwrap();        
+        let re_carriage = Regex::new(r"\r").unwrap();        
+        let re_tab = Regex::new(r"\t").unwrap();        
+        let re_spaces = Regex::new(r" +").unwrap();        
+        let regexes: [Regex; 5] = [re_multinewline, re_newline, re_carriage, re_tab, re_spaces];
+
+        let fast_text_file = get_default(config, "fast_text_file", String::from("ft_classifiers/ultrafineweb.bin"));
+        let mut model = FastText::new();
+        model.load_model(&fast_text_file).unwrap();
+
+        Ok(Self{text_field, tokenizer_path, tokenizer, regexes, anno_field, fast_text_file, model})
+    }
+    
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+        println!("DOCS {:?}", data);
+        let mut text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
+
+        let preproc = self.preprocess(&text).unwrap();
+        text.push_str("\n");
+        println!("NORMtext| {:?}", text);        
+        let predictions = match self.model.predict(&preproc, 10, 0.0) {
+            Ok(preds) => preds,
+            Err(_e) => {
+                // If prediction fails, drop this document by returning None, this can happen for some bad utf bytes etc that happen very rarely
+                return Ok(None);
+            }
+        };
+
+        let mut map = serde_json::Map::new();
+        for pred in predictions {
+            map.insert(pred.label.clone(), json!(pred.prob));
+        }
+        let pred_json = Value::Object(map);
+        json_set(&mut data, &self.anno_field, pred_json).unwrap();
+        Ok(Some(data))        
+    }
+}
+
+impl UltrafinewebAnnotator {
+    fn preprocess(&self, text: &String) -> Result<String, Error> {
+
+        // 1. Remove multiple newlines -> Replace with just two newlines
+        let mut text = self.regexes[0].replace_all(text, "\n\n").to_string();
+
+        // 2. Lowercase everything
+        text = text.to_lowercase();
+
+        // 3. Remove diacritics
+        text = text
+            .nfkd()
+            .filter(|c| {
+                use unicode_general_category::GeneralCategory;
+                let category = unicode_general_category::get_general_category(*c);
+                // Filter out all Mark categories (Mn, Mc, Me)
+                !matches!(
+                    category,
+                    GeneralCategory::NonspacingMark
+                        | GeneralCategory::SpacingMark
+                        | GeneralCategory::EnclosingMark
+                )
+            })
+            .collect::<String>();
+
+
+         // 4. Word segmentation
+         let encoding = self.tokenizer.encode(text, false).unwrap();
+         let token_ids = encoding.get_ids();
+         let single_text_list: Vec<_> = token_ids.into_iter().map(|tok| self.tokenizer.decode(&[*tok], false).unwrap()).collect();
+         text = single_text_list.join(" ");
+
+        // 5. keep escape chars, \n, \t, \r -> \\n, \\t, \\r
+        text = self.regexes[1].replace_all(&text, r"\\n").to_string();
+        
+        text = self.regexes[2].replace_all(&text, r"\\r").to_string();
+        
+        text = self.regexes[3].replace_all(&text, r"\\t").to_string();
+        
+        text = self.regexes[4].replace_all(&text, " ").to_string();
+        
+        Ok(text.trim().to_string())
+
+    }
+}
+
