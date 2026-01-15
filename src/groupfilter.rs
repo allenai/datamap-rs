@@ -343,11 +343,19 @@ fn extract_sortkey(obj: &Value, sort_keys: &[Vec<String>]) -> Result<Vec<String>
         .iter()
         .map(|key_group| {
             // Find the first available key in this group
-            key_group
+            let value = key_group
                 .iter()
                 .find_map(|key| json_get(&obj, &key))
-                .expect(&format!("No keys from group {:?} found in object", key_group))
-                .as_str().expect(&format!("No key for {:?}", key_group)).to_string()
+                .expect(&format!("No keys from group {:?} found in object", key_group));
+            
+            // Convert the value to a string, handling both String and Number types
+            match value {
+                Value::String(s) => s.clone(),
+                Value::Number(n) => n.to_string(),
+                Value::Bool(b) => b.to_string(),
+                Value::Null => "null".to_string(),
+                _ => panic!("Unexpected value type for key group {:?}", key_group),
+            }                        
         })
         .collect())
 }
