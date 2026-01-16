@@ -39,6 +39,11 @@ fastrand = "2.3.0"
 simd-json = "0.15.1"
 gjson = "0.8.1"
 flate2 = "1.1.5"
+tokenizers = "0.20"
+unicode-normalization = "0.1"
+unicode-general-category = "0.6"
+
+
 
 [[test]]
 name = "tests"
