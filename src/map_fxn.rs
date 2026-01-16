@@ -2577,7 +2577,7 @@ pub struct UltrafinewebAnnotator {
     #[derivative(Debug = "ignore")]
     #[serde(skip)]    
     pub regexes: [Regex;5],
-    pub anno_field: String,
+    pub output_field: String,
     pub fast_text_file: String,    
     #[derivative(Debug = "ignore")]
     #[serde(skip)]     
@@ -2591,7 +2591,7 @@ impl DataProcessor for UltrafinewebAnnotator {
         println!("TOKENIZER PATH {:?}", tokenizer_path);
         let tokenizer = Tokenizer::from_file(&tokenizer_path).unwrap();
 
-        let anno_field = json_get(config, "anno_field").unwrap().as_str().unwrap().to_string();
+        let output_field = json_get(config, "output_field").unwrap().as_str().unwrap().to_string();
         let re_multinewline = Regex::new(r"\n{3,}").unwrap();        
         let re_newline = Regex::new(r"\n").unwrap();        
         let re_carriage = Regex::new(r"\r").unwrap();        
@@ -2603,7 +2603,7 @@ impl DataProcessor for UltrafinewebAnnotator {
         let mut model = FastText::new();
         model.load_model(&fast_text_file).unwrap();
 
-        Ok(Self{text_field, tokenizer_path, tokenizer, regexes, anno_field, fast_text_file, model})
+        Ok(Self{text_field, tokenizer_path, tokenizer, regexes, output_field, fast_text_file, model})
     }
     
     fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
@@ -2612,7 +2612,6 @@ impl DataProcessor for UltrafinewebAnnotator {
 
         let preproc = self.preprocess(&text).unwrap();
         text.push_str("\n");
-        println!("NORMtext| {:?}", text);        
         let predictions = match self.model.predict(&preproc, 10, 0.0) {
             Ok(preds) => preds,
             Err(_e) => {
@@ -2626,7 +2625,7 @@ impl DataProcessor for UltrafinewebAnnotator {
             map.insert(pred.label.clone(), json!(pred.prob));
         }
         let pred_json = Value::Object(map);
-        json_set(&mut data, &self.anno_field, pred_json).unwrap();
+        json_set(&mut data, &self.output_field, pred_json).unwrap();
         Ok(Some(data))        
     }
 }
