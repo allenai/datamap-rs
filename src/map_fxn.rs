@@ -2607,7 +2607,6 @@ impl DataProcessor for UltrafinewebAnnotator {
     }
     
     fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
-        println!("DOCS {:?}", data);
         let mut text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
 
         let preproc = self.preprocess(&text).unwrap();
