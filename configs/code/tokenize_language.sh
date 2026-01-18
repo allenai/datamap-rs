@@ -4,8 +4,8 @@ set -ex
 
 BASE_DIR="/mnt/raid0"
 TOKENIZER_NAME="allenai/dolma2-tokenizer"
-INPUT_DIR="${BASE_DIR}/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated_reshard_qc_tagged_filtered"
-OUTPUT_DIR="${BASE_DIR}/preprocessed/the-stack-v2/spring2code_v2/minhash_v2_annotated_reshard_qc_tagged_filtered"
+INPUT_DIR="${BASE_DIR}/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated_reshard_qc_tagged_filtered"
+OUTPUT_DIR="${BASE_DIR}/ai2-llm/preprocessed/the-stack-v2/spring2code_v2/minhash_v2_annotated_reshard_qc_tagged_filtered"
 PROGRAMMING_LANGUAGE=$1
 
 if [ -z "${PROGRAMMING_LANGUAGE}" ]; then
@@ -19,15 +19,12 @@ if [ ! -d ".venv" ]; then
 fi
 
 # installing dolma
-uv pip install dolma
+uv pip install dolma backports-zstd backports-weakref
 
 # downloading dolma2-tokenizer
 uv run --with=huggingface-hub \
     hf download ${TOKENIZER_NAME} \
     --local-dir ${BASE_DIR}/huggingface/${TOKENIZER_NAME}
-
-# run dolma once to make sure ntlk is downloaded
-uv run dolma
 
 # tokenizing the language
 uv run dolma tokens \
@@ -36,6 +33,7 @@ uv run dolma tokens \
     --tokenizer.name_or_path ${TOKENIZER_NAME} \
     --tokenizer.eos_token_id 100257 \
     --tokenizer.pad_token_id 100277 \
+    --fields.id_field_name blob_id \
     --no-tokenizer.segment_before_tokenization \
     --tokenizer.encode_special_tokens \
     --processes $(python3 -c "import multiprocessing; print(multiprocessing.cpu_count())") \
