@@ -602,6 +602,7 @@ pub struct FastTextAnnotator {
     pub threshold: f32,
     #[serde(skip)]
     pub model: FastText,
+    pub max_text_length: usize,
 }
 
 impl DataProcessor for FastTextAnnotator {
@@ -618,6 +619,7 @@ impl DataProcessor for FastTextAnnotator {
         let threshold = get_default(config, "threshold", 0.0) as f32;
         let mut model = FastText::new();
         model.load_model(&fast_text_file).unwrap();
+        let max_text_length: usize = get_default(config, "max_text_length", 0);
         Ok(Self {
             fast_text_file,
             text_field,
@@ -625,6 +627,7 @@ impl DataProcessor for FastTextAnnotator {
             k,
             threshold,
             model,
+            max_text_length,
         })
     }
 
@@ -636,6 +639,15 @@ impl DataProcessor for FastTextAnnotator {
             .to_string()
             .replace("\n", " ");
         text.push_str("\n");
+
+        // Trim text if max_text_length is set, avoiding cutting on multi-byte characters
+        if self.max_text_length > 0 && text.len() > self.max_text_length {
+            let mut end = self.max_text_length;
+            while end > 0 && !text.is_char_boundary(end) {
+                end -= 1;
+            }
+            text.truncate(end);
+        }
 
         let predictions = match self.model.predict(&text, self.k, self.threshold) {
 			Ok(preds) => preds,
@@ -2570,18 +2582,19 @@ impl DataProcessor for GzipAnnotator {
 #[derive(Serialize)]
 pub struct UltrafinewebAnnotator {
     pub text_field: String,
-    pub tokenizer_path: String, 
+    pub tokenizer_path: String,
     #[derivative(Debug = "ignore")]
-    #[serde(skip)]    
+    #[serde(skip)]
     pub tokenizer: Tokenizer,
     #[derivative(Debug = "ignore")]
-    #[serde(skip)]    
+    #[serde(skip)]
     pub regexes: [Regex;5],
     pub output_field: String,
-    pub fast_text_file: String,    
+    pub fast_text_file: String,
     #[derivative(Debug = "ignore")]
-    #[serde(skip)]     
-    pub model: FastText
+    #[serde(skip)]
+    pub model: FastText,
+    pub max_text_length: usize,
 }
 
 impl DataProcessor for UltrafinewebAnnotator {
@@ -2603,14 +2616,25 @@ impl DataProcessor for UltrafinewebAnnotator {
         let mut model = FastText::new();
         model.load_model(&fast_text_file).unwrap();
 
-        Ok(Self{text_field, tokenizer_path, tokenizer, regexes, output_field, fast_text_file, model})
+        let max_text_length: usize = get_default(config, "max_text_length", 0);
+
+        Ok(Self{text_field, tokenizer_path, tokenizer, regexes, output_field, fast_text_file, model, max_text_length})
     }
     
     fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
-        let mut text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
+        let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
 
-        let preproc = self.preprocess(&text).unwrap();
-        text.push_str("\n");
+        let mut preproc = self.preprocess(&text).unwrap();
+
+        // Trim text if max_text_length is set, avoiding cutting on multi-byte characters
+        if self.max_text_length > 0 && preproc.len() > self.max_text_length {
+            let mut end = self.max_text_length;
+            while end > 0 && !preproc.is_char_boundary(end) {
+                end -= 1;
+            }
+            preproc.truncate(end);
+        }
+
         let predictions = match self.model.predict(&preproc, 10, 0.0) {
             Ok(preds) => preds,
             Err(_e) => {
