@@ -5,5 +5,4 @@ pipeline:
     kwargs:
       text_field: text
       output_field: metadata.code_quality
-      max_text_length: 10000
-      fast_text_file: /mnt/raid0/ai2-llm/classifiers/code-quality/trained_models/fasttext/the-stack-v2_spring2code_v2_minhash_v2_annotated_sample_1GB_countup_criteria_v2_gpt-5-mini_10k_trimmed_fasttext_ultrafine-plus-code_thr13/Python/model.bin
+      fast_text_file: /mnt/raid0/ai2-llm/classifiers/code-quality/trained_models/fasttext/the-stack-v2_spring2code_v2_minhash_v2_annotated_sample_1GB_countup_criteria_v2_gpt-5-mini_10k_trimmed_fasttext_ultrafine-plus-code_thr13/Python/model.bin 
