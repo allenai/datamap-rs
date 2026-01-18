@@ -1,0 +1,9 @@
+name: code_classifier
+text_field: text
+pipeline:
+  - name: ultrafineweb_annotator
+    kwargs:
+      text_field: text
+      output_field: metadata.code_quality
+      max_text_length: 10000
+      fast_text_file: /mnt/raid0/ai2-llm/classifiers/code-quality/trained_models/fasttext/the-stack-v2_spring2code_v2_minhash_v2_annotated_sample_1GB__gpt-5-mini_10k_trimmed_fasttext_ultrafine_thr14_Ruby/Ruby/model.bin
