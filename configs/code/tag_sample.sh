@@ -25,7 +25,10 @@ LANGUAGES=(
 
 for language in "${LANGUAGES[@]}"; do
     echo "Tagging ${language}..."
-    cargo run --release map --input-dir ${INPUT_DIR}/${language}/ --output-dir ${OUTPUT_DIR}/${language}/ --config configs/code/classifiers/${language}.yaml
+    cargo run --release map \
+        --input-dir ${INPUT_DIR}/${language}/ \
+        --output-dir ${OUTPUT_DIR}/${language}/ \
+        --config configs/code/classifiers/$(echo ${language} | tr '[:upper:]' '[:lower:]').yaml
 done
 
 for language in "${LANGUAGES[@]}"; do
@@ -37,3 +40,21 @@ for language in "${LANGUAGES[@]}"; do
     --text-key text \
     --token-weighted
 done
+
+# THRESHOLDS=(
+#    "10.9"
+#    "38.5"
+#    "10.8"
+#    "17.7"
+#    "30.6"
+#    "16.8"
+#    "38.6"
+#    "16.0"
+#    "36.9"
+#    "21.6"
+#    "40.7"
+#    "61.9"
+#    "51.6"
+#    "32.3"
+#    "20.7"
+# )
