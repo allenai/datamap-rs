@@ -221,13 +221,9 @@ fn token_weighted_thread_res(
         for line in contents.lines() {
             let line = line.unwrap();
             let json_line: Value = serde_json::from_str(&line).unwrap();
-            // let value = json_get(&json_line, score_key).unwrap().as_f64().unwrap();
             let value = match json_get(&json_line, score_key) {
-                Some(value) => value.as_f64().unwrap(),
-                None => {
-                    println!("Score key not found in JSON line: {}", line);
-                    0.0
-                }
+                Some(value) => value.as_f64().unwrap_or(0.0),
+                None => 0.0,
             };
             let text = json_get(&json_line, text_key).unwrap().clone();
             let text = text.as_str().unwrap();
