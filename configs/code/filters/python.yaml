@@ -9,4 +9,4 @@ pipeline:
     - name: float_filter
       kwargs:
           float_field: metadata.code_quality.__label__pos
-          lower_bound: 0.120016
+          lower_bound: 0.20668604969978333
