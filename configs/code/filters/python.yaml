@@ -1,12 +1,12 @@
 name: code_filter
 text_field: text
 pipeline:
-  - name: text_len_filter
-    kwargs:
-      text_field: text
-      lower_bound: 32         # 2 ** 5
-      upper_bound: 262,144    # 2 ** 18
-  - name: float_filter
-    kwargs:
-      float_field: metadata.code_quality.__label__pos
-      lower_bound: 0.120016
+    - name: text_len_filter
+      kwargs:
+          text_field: text
+          lower_bound: 32 # 2 ** 5
+          upper_bound: 262,144 # 2 ** 18
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality.__label__pos
+          lower_bound: 0.120016

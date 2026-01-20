@@ -1,8 +1,4 @@
-
-use std::io::Write;
-use std::cmp;
-use std::time::Instant;
-use crate::utils::{extract_subdomain, get_default, json_get, json_set, json_remove};
+use crate::utils::{extract_subdomain, get_default, json_get, json_remove, json_set};
 use aho_corasick::AhoCorasick;
 use anyhow::{anyhow, ensure, Error, Result};
 use once_cell::sync::Lazy;
@@ -11,27 +7,29 @@ use rand::Rng;
 use serde::Serialize;
 use serde_json;
 use serde_json::{json, Value};
+use std::cmp;
 use std::collections::VecDeque;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::io::BufRead;
+use std::io::Write;
 use std::path::PathBuf;
+use std::time::Instant;
 use uuid::Uuid;
 
+use derivative::Derivative;
 use fasttext::FastText;
-use fxhash::{FxHasher, FxHashMap};
+use flate2::write::GzEncoder;
+use flate2::Compression;
+use fxhash::{FxHashMap, FxHasher};
 use mj_io::read_pathbuf_to_mem;
+use once_cell::sync::OnceCell;
 use regex::Regex;
+use tokenizers::Tokenizer;
+use unicode_normalization::UnicodeNormalization;
 use unicode_segmentation::UnicodeSegmentation;
 use url::Url;
 use xxhash_rust::xxh3::{xxh3_128, xxh3_64};
-use once_cell::sync::OnceCell;
-use derivative::Derivative;
-use flate2::write::GzEncoder;
-use flate2::Compression;
-use tokenizers::Tokenizer;
-use unicode_normalization::UnicodeNormalization;
-
 
 /*================================================================================
 =                            PIPELINE PROCESSING                                 =
@@ -82,7 +80,11 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "line_len_modifier", LineLenModifier);
         register_processor!(m, "substring_line_modifier", SubstringLineModifier);
         register_processor!(m, "word_removal_ratio_filter", WordRemovalRatioFilter);
-        register_processor!(m, "madlad400_sentence_annotator", Madlad400SentenceAnnotator);
+        register_processor!(
+            m,
+            "madlad400_sentence_annotator",
+            Madlad400SentenceAnnotator
+        );
         register_processor!(m, "madlad400_rule_filter", Madlad400RuleFilter);
         // Add more processor types as needed
         register_processor!(m, "interval_filter", IntervalFilter);
@@ -138,7 +140,6 @@ impl PipelineProcessor {
             .unwrap();
             let constructor = PROCESSOR_CONSTRUCTORS[subconfig_name];
             pipeline.push(constructor(&subconfig_kwargs).unwrap());
-
         }
         Ok(Self { pipeline })
     }
@@ -163,7 +164,8 @@ impl PipelineProcessor {
         for processor in &self.pipeline {
             let start_step = Instant::now();
             let proc_result = processor.process(current_data)?;
-            *_timing_info.entry(filter_step).or_insert(0 as u128) += start_step.elapsed().as_nanos();
+            *_timing_info.entry(filter_step).or_insert(0 as u128) +=
+                start_step.elapsed().as_nanos();
 
             match proc_result {
                 Some(data_value) => current_data = data_value,
@@ -212,7 +214,7 @@ impl PipelineProcessor {
                         }
                         Err(_e) => err_lines.push(line.clone()),
                     };
-                },
+                }
                 Err(_e) => {
                     println!("Error parsing json in {:?}:{:?}", filename, line_num);
                     err_lines.push(line.clone())
@@ -250,24 +252,20 @@ pub trait DataProcessor {
 =                            DATA PROCESSOR VARIANTS                             =
 ================================================================================*/
 #[derive(Serialize, Debug)]
-pub struct NonNullFilter {
-
-}
+pub struct NonNullFilter {}
 impl DataProcessor for NonNullFilter {
     fn new(_config: &Value) -> Result<Self, Error> {
-        Ok(Self { })
+        Ok(Self {})
     }
 
     fn process(&self, data: Value) -> Result<Option<Value>, Error> {
         if data.is_null() {
             Ok(None)
-        }
-        else {
+        } else {
             Ok(Some(data))
         }
     }
 }
-
 
 #[derive(Serialize, Debug)]
 pub struct TextLenFilter {
@@ -316,7 +314,6 @@ impl DataProcessor for AddIdModifier {
         Ok(Some(data))
     }
 }
-
 
 #[derive(Serialize, Debug)]
 struct SubsampleFilter {
@@ -377,7 +374,6 @@ pub struct UrlSubstringFilter {
     #[derivative(Debug = "ignore")]
     #[serde(skip)]
     pub ac_banlist: Option<AhoCorasick>,
-
 
     #[derivative(Debug = "ignore")]
     #[serde(skip)]
@@ -460,7 +456,7 @@ impl DataProcessor for UrlSubstringFilter {
             if let Some(ref splitter) = self.part_splitter {
                 for part in splitter.split(&url) {
                     if !part.is_empty() && self.banlist.contains(part) {
-                        return Ok(None)
+                        return Ok(None);
                     }
                 }
                 return Ok(Some(data));
@@ -551,7 +547,7 @@ impl UrlSubstringFilter {
             num_banned_substrs,
             banlist,
             ac_banlist,
-            part_splitter
+            part_splitter,
         })
     }
 }
@@ -638,7 +634,6 @@ impl DataProcessor for FastTextAnnotator {
             .unwrap()
             .to_string()
             .replace("\n", " ");
-        text.push_str("\n");
 
         // Trim text if max_text_length is set, avoiding cutting on multi-byte characters
         if self.max_text_length > 0 && text.len() > self.max_text_length {
@@ -649,13 +644,15 @@ impl DataProcessor for FastTextAnnotator {
             text.truncate(end);
         }
 
+        text.push_str("\n");
+
         let predictions = match self.model.predict(&text, self.k, self.threshold) {
-			Ok(preds) => preds,
-			Err(_e) => {
-				// If prediction fails, drop this document by returning None, this can happen for some bad utf bytes etc that happen very rarely
-				return Ok(None);
-			}
-		};
+            Ok(preds) => preds,
+            Err(_e) => {
+                // If prediction fails, drop this document by returning None, this can happen for some bad utf bytes etc that happen very rarely
+                return Ok(None);
+            }
+        };
 
         let mut map = serde_json::Map::new();
         for pred in predictions {
@@ -722,13 +719,12 @@ impl DataProcessor for FloatFilter {
     }
 }
 
-
 #[derive(Serialize, Debug)]
 pub struct StringEqFilter {
     // Filters based on string equality
     pub str_field: String,
     pub eq: String,
-    pub keep_matches: bool  // defaults to true, which means we keep docs that have this trait; o/w docs that don't
+    pub keep_matches: bool, // defaults to true, which means we keep docs that have this trait; o/w docs that don't
 }
 
 impl DataProcessor for StringEqFilter {
@@ -739,19 +735,22 @@ impl DataProcessor for StringEqFilter {
             .as_str()
             .unwrap()
             .to_string();
-        let eq = config
-            .get("eq")
+        let eq = config.get("eq").unwrap().as_str().unwrap().to_string();
+        let keep_matches = get_default(config, "keep_matches", true);
+
+        Ok(Self {
+            str_field,
+            eq,
+            keep_matches,
+        })
+    }
+
+    fn process(&self, data: Value) -> Result<Option<Value>, Error> {
+        let val = json_get(&data, &self.str_field)
             .unwrap()
             .as_str()
             .unwrap()
             .to_string();
-        let keep_matches = get_default(config, "keep_matches", true);
-
-        Ok(Self {str_field, eq, keep_matches})
-    }
-
-    fn process(&self, data: Value) -> Result<Option<Value>, Error> {
-        let val = json_get(&data, &self.str_field).unwrap().as_str().unwrap().to_string();
 
         if (&val == &self.eq) == self.keep_matches {
             return Ok(Some(data));
@@ -760,14 +759,13 @@ impl DataProcessor for StringEqFilter {
     }
 }
 
-
 #[derive(Serialize, Debug)]
 pub struct RegexTextFilter {
     // Filter lines to only keep lines that match the regex
     // (or those that don't match the regex if remove_matches is true)
     pub text_field: String,
     pub regex_string: String,
-    pub remove_matches: bool,   // defaults to true, which means we remove lines that match the regex
+    pub remove_matches: bool, // defaults to true, which means we remove lines that match the regex
     #[serde(skip)]
     pub regex: Regex,
 }
@@ -788,10 +786,7 @@ impl DataProcessor for RegexTextFilter {
     }
 
     fn process(&self, data: Value) -> Result<Option<Value>, Error> {
-        let text = json_get(&data, &self.text_field)
-            .unwrap()
-            .as_str()
-            .unwrap();
+        let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap();
 
         if self.remove_matches {
             if self.regex.is_match(&text) {
@@ -932,8 +927,6 @@ impl PageLenFilter {
         count
     }
 
-
-
     fn count_words_uni(&self, text: &str) -> usize {
         if self.ignore_punctuation {
             text.unicode_words().count()
@@ -958,7 +951,6 @@ impl PageLenFilter {
             .max(1) // At least 1 paragraph if text is non-empty
     }
 }
-
 
 #[derive(Serialize, Debug)]
 pub struct WordLenFilter {
@@ -1169,7 +1161,6 @@ impl DataProcessor for AlphabeticWordRatioFilter {
     }
 }
 
-
 #[derive(Serialize, Debug)]
 pub struct StopWordFilter {
     pub text_field: String,
@@ -1188,8 +1179,8 @@ impl DataProcessor for StopWordFilter {
         // Use &'static str to avoid String allocations
         let stop_words: HashSet<&'static str> =
             ["the", "be", "to", "of", "and", "that", "have", "with"]
-            .into_iter()
-            .collect();
+                .into_iter()
+                .collect();
 
         Ok(Self {
             text_field,
@@ -1256,8 +1247,6 @@ impl StopWordFilter {
     }
 }
 
-
-
 #[derive(Serialize, Debug)]
 pub struct MassiveWebRepetitionFilter {
     // Fancy repetition thing from Gopher
@@ -1318,7 +1307,6 @@ impl MassiveWebRepetitionFilter {
         let total_elements = elements.len();
         let mut total_ngrams = 0;
         let total_charlen = elements.iter().map(|v| v.len()).sum::<usize>();
-
 
         for (idx, &element) in elements.iter().enumerate() {
             rolling_hash.roll(element);
@@ -1465,9 +1453,6 @@ impl<'a> CompatibleRollingHash<'a> {
     }
 }
 
-
-
-
 #[derive(Serialize, Debug)]
 pub struct WordCountAdder {
     // Adds a field which is the count of how many words are in the text_field
@@ -1490,10 +1475,7 @@ impl DataProcessor for WordCountAdder {
     }
 
     fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
-        let text = json_get(&data, &self.text_field)
-            .unwrap()
-            .as_str()
-            .unwrap();
+        let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap();
         let word_count = text.unicode_words().count();
         json_set(&mut data, &self.word_count_field, word_count.into()).unwrap();
 
@@ -1655,7 +1637,10 @@ impl DataProcessor for LineLenModifier {
 
         let passing_lines: Vec<_> = lines
             .iter()
-            .filter(|line| line.unicode_words().collect::<Vec<_>>().len() >= self.lower_bound || line.len() == 0)
+            .filter(|line| {
+                line.unicode_words().collect::<Vec<_>>().len() >= self.lower_bound
+                    || line.len() == 0
+            })
             .map(|&l| l)
             .collect();
         if passing_lines.iter().map(|v| v.len()).sum::<usize>() == 0 {
@@ -1682,8 +1667,7 @@ pub struct SubstringLineModifier {
     pub remove_substring_only: bool,
     pub location: String,
     #[serde(skip)]
-    regex: OnceCell<Regex>
-
+    regex: OnceCell<Regex>,
 }
 
 impl DataProcessor for SubstringLineModifier {
@@ -1705,10 +1689,7 @@ impl DataProcessor for SubstringLineModifier {
     }
 
     fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
-        let text = json_get(&data, &self.text_field)
-            .unwrap()
-            .as_str()
-            .unwrap();
+        let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap();
 
         // Get or compile regex once
         let regex = self.regex.get_or_try_init(|| {
@@ -1825,7 +1806,7 @@ pub struct Madlad400SentenceAnnotator {
     pub text_field: String,
     pub sentence_lower_bound: usize,        // defaults to 5
     pub sentence_question_upper_bound: f32, // defaults to 20%
-    pub annotation_key: String, // defaults to metadata.madlad
+    pub annotation_key: String,             // defaults to metadata.madlad
     pub rules_to_include: Vec<usize>, // If empty, includes ALL rules. Otherwise just counts the rules here
 
     // document consistency
@@ -1867,7 +1848,9 @@ impl DataProcessor for Madlad400SentenceAnnotator {
 
         let annotation_key = get_default(config, "annotation_key", String::from("metadata.madlad"));
         let rules_to_include: Vec<usize> = get_default(config, "rules_to_include", vec![])
-            .into_iter().map(|v| v.as_u64().unwrap() as usize).collect::<Vec<usize>>();
+            .into_iter()
+            .map(|v| v.as_u64().unwrap() as usize)
+            .collect::<Vec<usize>>();
         let fast_text_file = config
             .get("fast_text_file")
             .unwrap()
@@ -1942,7 +1925,7 @@ impl DataProcessor for Madlad400SentenceAnnotator {
         let sentence_splitter = Regex::new(r"[.!?]+\s+").unwrap();
 
         let rules_to_include: HashSet<usize> = if self.rules_to_include.len() == 0 {
-            vec![1,2,3,4,5].into_iter().map(|v| v).collect()
+            vec![1, 2, 3, 4, 5].into_iter().map(|v| v).collect()
         } else {
             self.rules_to_include.iter().map(|v| *v).collect()
         };
@@ -1954,7 +1937,10 @@ impl DataProcessor for Madlad400SentenceAnnotator {
         let num_sentences = sentences.len();
         let madlad_status = self.annotation_key.clone() + "_status";
         let mut tracker: FxHashMap<&str, Vec<usize>> = FxHashMap::default();
-        tracker.entry("num_sentences").or_default().push(num_sentences);
+        tracker
+            .entry("num_sentences")
+            .or_default()
+            .push(num_sentences);
 
         if num_sentences < self.sentence_lower_bound {
             json_set(&mut data, &madlad_status, json!("killed:too_short")).unwrap();
@@ -1980,10 +1966,11 @@ impl DataProcessor for Madlad400SentenceAnnotator {
         let sentence_threshold = num_sentences as f32 * self.sentence_question_upper_bound;
         // Loop through sentences
 
-
         for (sentence_num, sentence) in sentences.into_iter().enumerate() {
             // And finally langid
-            if rules_to_include.contains(&1) && self.document_consistency(sentence, doc_lang).unwrap() {
+            if rules_to_include.contains(&1)
+                && self.document_consistency(sentence, doc_lang).unwrap()
+            {
                 tracker.entry("rule.1").or_default().push(sentence_num);
                 sus_sentences.insert(sentence_num);
             }
@@ -1992,42 +1979,40 @@ impl DataProcessor for Madlad400SentenceAnnotator {
             if rules_to_include.contains(&2) && self.list_case(sentence).unwrap() {
                 tracker.entry("rule.2").or_default().push(sentence_num);
                 sus_sentences.insert(sentence_num);
-
             }
 
             // Check abnormal len sentences
             if rules_to_include.contains(&3) && self.abnormal_len_sentence(sentence).unwrap() {
                 tracker.entry("rule.3").or_default().push(sentence_num);
                 sus_sentences.insert(sentence_num);
-
             }
-
 
             // Then check technical character counts
             if rules_to_include.contains(&4) && self.technical_characters(sentence).unwrap() {
                 tracker.entry("rule.4").or_default().push(sentence_num);
                 sus_sentences.insert(sentence_num);
-
             }
-
 
             // Then do cursed regex stuff
             if rules_to_include.contains(&5) && self.check_cursed_regexes(sentence).unwrap() {
                 tracker.entry("rule.5").or_default().push(sentence_num);
                 sus_sentences.insert(sentence_num);
-
             }
         }
 
         let tracker_json: Value = json!(tracker);
         if sus_sentences.len() as f32 > sentence_threshold {
-            json_set(&mut data, &madlad_status, json!("killed:too_many_sus_sentences")).unwrap();
+            json_set(
+                &mut data,
+                &madlad_status,
+                json!("killed:too_many_sus_sentences"),
+            )
+            .unwrap();
         } else {
             json_set(&mut data, &madlad_status, json!("survived")).unwrap();
         }
         json_set(&mut data, &self.annotation_key, tracker_json).unwrap();
         Ok(Some(data))
-
     }
 }
 
@@ -2104,8 +2089,6 @@ impl Madlad400SentenceAnnotator {
     }
 }
 
-
-
 #[derive(Derivative)]
 #[derivative(Debug)]
 #[derive(Serialize)]
@@ -2113,7 +2096,7 @@ pub struct Madlad400RuleFilter {
     // Filters based on the madlad rules
     // Removes if too_short OR if any of the rule filters applies
     pub annotation_key: String, // defaults to metadata.madlad
-    pub status_key: String, // defaults to metadata.madlad_status
+    pub status_key: String,     // defaults to metadata.madlad_status
     pub remove_too_short: bool, // remove if status is too short, defaults to false
     pub rules_to_remove: Vec<Vec<usize>>,
     pub threshold: f64, // defaults to 0.2
@@ -2121,7 +2104,6 @@ pub struct Madlad400RuleFilter {
 
 impl DataProcessor for Madlad400RuleFilter {
     fn new(config: &Value) -> Result<Self, Error> {
-
         let annotation_key = get_default(config, "annotation_key", String::from("metadata.madlad"));
         let status_key = get_default(config, "status_key", String::from("metadata.madlad_status"));
         let remove_too_short = get_default(config, "remove_too_short", false);
@@ -2129,7 +2111,16 @@ impl DataProcessor for Madlad400RuleFilter {
         let rules_to_remove: Vec<Vec<usize>> = if rules_to_remove.len() == 0 {
             Vec::new()
         } else {
-            rules_to_remove.into_iter().map(|v| v.as_array().unwrap().into_iter().map(|k| k.clone().as_u64().unwrap() as usize).collect::<Vec<usize>>()).collect::<Vec<Vec<usize>>>()
+            rules_to_remove
+                .into_iter()
+                .map(|v| {
+                    v.as_array()
+                        .unwrap()
+                        .into_iter()
+                        .map(|k| k.clone().as_u64().unwrap() as usize)
+                        .collect::<Vec<usize>>()
+                })
+                .collect::<Vec<Vec<usize>>>()
         };
 
         let threshold = get_default(config, "threshold", 0.2);
@@ -2139,24 +2130,27 @@ impl DataProcessor for Madlad400RuleFilter {
             status_key,
             remove_too_short,
             rules_to_remove,
-            threshold
+            threshold,
         })
     }
 
     fn process(&self, data: Value) -> Result<Option<Value>, Error> {
-    	let status: String = json_get(&data, &self.status_key).unwrap().as_str().unwrap().to_string();
+        let status: String = json_get(&data, &self.status_key)
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
 
-    	if status == "killed:too_short" {
-    		if self.remove_too_short {
-    			return Ok(None);
-    		} else {
-    			return Ok(Some(data));
-    		}
+        if status == "killed:too_short" {
+            if self.remove_too_short {
+                return Ok(None);
+            } else {
+                return Ok(Some(data));
+            }
+        }
 
-    	}
-
-
-        let annotation_data: HashMap<String, Vec<usize>> = serde_json::from_value(json_get(&data, &self.annotation_key).unwrap().clone()).unwrap();
+        let annotation_data: HashMap<String, Vec<usize>> =
+            serde_json::from_value(json_get(&data, &self.annotation_key).unwrap().clone()).unwrap();
         let num_sentences = annotation_data.get("num_sentences").unwrap()[0];
         let sus_threshold = num_sentences as f64 * &self.threshold;
         for rule in &self.rules_to_remove {
@@ -2174,47 +2168,66 @@ impl DataProcessor for Madlad400RuleFilter {
             }
         }
 
-
         Ok(Some(data))
-
     }
 }
-
 
 #[derive(Derivative)]
 #[derivative(Debug)]
 #[derive(Serialize)]
 pub struct IntervalFilter {
-    pub text_field: String, // defaults to global text field, or "text"
+    pub text_field: String,     // defaults to global text field, or "text"
     pub interval_field: String, // Required! If intervals don't exist, doc is left as is
-    pub fuzzy_merge: bool, // defaults to false
+    pub fuzzy_merge: bool,      // defaults to false
 
-    pub merge_fuzziness: f64, // only necessary if fuzzy_merge is true
+    pub merge_fuzziness: f64,      // only necessary if fuzzy_merge is true
     pub output_text_field: String, // defaults to text field if not present
 }
 
 impl DataProcessor for IntervalFilter {
     fn new(config: &Value) -> Result<Self, Error> {
         let text_field = get_default(config, "text_field", String::from("text_field"));
-        let interval_field = json_get(config, "interval_field").unwrap().as_str().unwrap().to_string();
+        let interval_field = json_get(config, "interval_field")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
         let fuzzy_merge = get_default(config, "fuzzy_merge", false);
         let merge_fuzziness = get_default(config, "merge_fuzziness", 1.0 as f64);
         let output_text_field = get_default(config, "output_text_field", text_field.clone());
-        Ok(Self {text_field, interval_field, fuzzy_merge, merge_fuzziness, output_text_field})
+        Ok(Self {
+            text_field,
+            interval_field,
+            fuzzy_merge,
+            merge_fuzziness,
+            output_text_field,
+        })
     }
 
     fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
-
         // Collect things we need frorm the data
-        let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
-        let intervals: Vec<(usize, usize)> = if let Some(base_intervals) = json_get(&data, &self.interval_field) {
-            base_intervals.as_array().unwrap().iter().map(|interval| {
-                let interval = interval.as_array().unwrap();
-                (interval[0].as_u64().unwrap() as usize, interval[1].as_u64().unwrap() as usize)
-            }).collect::<Vec<(usize, usize)>>()
-        } else {
-            return Ok(Some(data));
-        };
+        let text = json_get(&data, &self.text_field)
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+        let intervals: Vec<(usize, usize)> =
+            if let Some(base_intervals) = json_get(&data, &self.interval_field) {
+                base_intervals
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|interval| {
+                        let interval = interval.as_array().unwrap();
+                        (
+                            interval[0].as_u64().unwrap() as usize,
+                            interval[1].as_u64().unwrap() as usize,
+                        )
+                    })
+                    .collect::<Vec<(usize, usize)>>()
+            } else {
+                return Ok(Some(data));
+            };
 
         // Merge the intervals if that's a thing we need to do
         let intervals = if self.fuzzy_merge {
@@ -2222,7 +2235,6 @@ impl DataProcessor for IntervalFilter {
         } else {
             intervals
         };
-
 
         // Scrub out the interval data from the text
         let mut output = String::with_capacity(text.len());
@@ -2241,20 +2253,26 @@ impl DataProcessor for IntervalFilter {
             return Ok(None);
         }
 
-        json_set(&mut data, &self.output_text_field, serde_json::Value::String(output)).unwrap();
+        json_set(
+            &mut data,
+            &self.output_text_field,
+            serde_json::Value::String(output),
+        )
+        .unwrap();
         Ok(Some(data))
     }
-
 }
 
-fn fuzzy_interval_merge(intervals: Vec<(usize, usize)>, merge_fuzziness: f64) -> Vec<(usize, usize)> {
+fn fuzzy_interval_merge(
+    intervals: Vec<(usize, usize)>,
+    merge_fuzziness: f64,
+) -> Vec<(usize, usize)> {
     let forward = fuzzy_sandwich_intervals(&intervals, true, merge_fuzziness);
     let backward = fuzzy_sandwich_intervals(&intervals, false, merge_fuzziness);
     merge_sorted_interval_pair(forward, backward)
 }
 
-
-fn merge_intervals(mut v: Vec<(usize, usize)>, already_sorted: bool) -> Vec<(usize, usize)>{
+fn merge_intervals(mut v: Vec<(usize, usize)>, already_sorted: bool) -> Vec<(usize, usize)> {
     if !already_sorted {
         v.sort_by_key(|(key, _)| key.clone());
     }
@@ -2272,15 +2290,18 @@ fn merge_intervals(mut v: Vec<(usize, usize)>, already_sorted: bool) -> Vec<(usi
     merged
 }
 
-fn merge_sorted_interval_pair(u: Vec<(usize, usize)>, w: Vec<(usize, usize)>) -> Vec<(usize, usize)> {
+fn merge_sorted_interval_pair(
+    u: Vec<(usize, usize)>,
+    w: Vec<(usize, usize)>,
+) -> Vec<(usize, usize)> {
     // Given two sorted lists of intervals, does a merge of the pairs, and then unions all intervals
-    let mut v : Vec<(usize, usize)> = Vec::new();
+    let mut v: Vec<(usize, usize)> = Vec::new();
     let mut ui = 0;
     let mut wi = 0;
     while ui < u.len() && wi < w.len() {
         let (us, ue) = u[ui];
         let (ws, we) = w[wi];
-        if us < ws || (us == ws && ue <= we){
+        if us < ws || (us == ws && ue <= we) {
             v.push((us, ue));
             ui += 1;
         } else {
@@ -2301,8 +2322,11 @@ fn merge_sorted_interval_pair(u: Vec<(usize, usize)>, w: Vec<(usize, usize)>) ->
     merge_intervals(v, true)
 }
 
-
-fn fuzzy_sandwich_intervals(v: &Vec<(usize, usize)>, foward: bool, threshold: f64) -> Vec<(usize, usize)> {
+fn fuzzy_sandwich_intervals(
+    v: &Vec<(usize, usize)>,
+    foward: bool,
+    threshold: f64,
+) -> Vec<(usize, usize)> {
     // Given SORTED list of DISJOINT intervals, scans in the forward/!forward direction
     // And collects all intervals that:
     // 1. Start and end at an interval
@@ -2310,15 +2334,13 @@ fn fuzzy_sandwich_intervals(v: &Vec<(usize, usize)>, foward: bool, threshold: f6
     // e.g. [(0,9), (10, 20)] -> [(0,20)] (when the threshold is <=0.95)
 
     let n = v.len();
-    let iter_range : Vec<_> = if foward {
+    let iter_range: Vec<_> = if foward {
         (0..n).collect()
     } else {
         (0..n).rev().collect()
     };
-    let mut output : Vec<(i32, i32, i32)> = Vec::new();
+    let mut output: Vec<(i32, i32, i32)> = Vec::new();
     for idx in iter_range {
-
-
         let (next_s, next_e) = v[idx];
         let next_s = next_s as i32;
         let next_e = next_e as i32;
@@ -2328,9 +2350,11 @@ fn fuzzy_sandwich_intervals(v: &Vec<(usize, usize)>, foward: bool, threshold: f6
             continue;
         }
         let (cur_s, cur_e, cur_w) = output.last().unwrap();
-        let new_interval = (cmp::min(next_s, *cur_s as i32),
-                            cmp::max(next_e, *cur_e as i32),
-                            *cur_w  as i32 + next_e - next_s);
+        let new_interval = (
+            cmp::min(next_s, *cur_s as i32),
+            cmp::max(next_e, *cur_e as i32),
+            *cur_w as i32 + next_e - next_s,
+        );
         if new_interval.2 as f64 >= (new_interval.1 - new_interval.0) as f64 * threshold {
             output.pop().unwrap();
             output.push(new_interval);
@@ -2341,12 +2365,9 @@ fn fuzzy_sandwich_intervals(v: &Vec<(usize, usize)>, foward: bool, threshold: f6
 
     output
         .iter()
-        .map(|(a,b, _)| (*a as usize, *b as usize))
+        .map(|(a, b, _)| (*a as usize, *b as usize))
         .collect()
 }
-
-
-
 
 #[derive(Serialize, Debug)]
 pub struct DDMaxGetter {
@@ -2357,23 +2378,29 @@ pub struct DDMaxGetter {
     */
     pub main_attribute: String, // default to "attributes"
     pub prefix: String,
-    pub output_attribute: String,  // where the max KEY goes
+    pub output_attribute: String, // where the max KEY goes
 }
 
 impl DataProcessor for DDMaxGetter {
     fn new(config: &Value) -> Result<Self, Error> {
         let main_attribute = get_default(config, "main_attribute", String::from("attributes"));
 
-        let prefix = json_get(config, "prefix").unwrap().as_str().unwrap().to_string();
-        let output_attribute = json_get(config, "output_attribute").unwrap().as_str().unwrap().to_string();
+        let prefix = json_get(config, "prefix")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+        let output_attribute = json_get(config, "output_attribute")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
         Ok(Self {
             main_attribute,
             prefix,
-            output_attribute
+            output_attribute,
         })
-
     }
-
 
     fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
         let input_dict = json_get(&data, &self.main_attribute).unwrap();
@@ -2386,13 +2413,12 @@ impl DataProcessor for DDMaxGetter {
         if let Value::Object(map) = input_dict {
             for (key, value) in map {
                 if key.starts_with(&self.prefix) {
-
-					// if the value is an array, get the first element of the first element (jake format)
-					// if it is a siple float, just get the value; otherwise throw an error
+                    // if the value is an array, get the first element of the first element (jake format)
+                    // if it is a siple float, just get the value; otherwise throw an error
                     let parsed_val = match value {
                         Value::Array(outer) => &outer[0][0].as_f64().unwrap(),
-						Value::Number(num) => &num.as_f64().unwrap(),
-						_ => panic!("Invalid value type: {:?}", value),
+                        Value::Number(num) => &num.as_f64().unwrap(),
+                        _ => panic!("Invalid value type: {:?}", value),
                     };
                     if *parsed_val > max_val {
                         max_key = key.clone();
@@ -2402,9 +2428,13 @@ impl DataProcessor for DDMaxGetter {
             }
         }
 
-        json_set(&mut data, &self.output_attribute, serde_json::Value::String(max_key)).unwrap();
+        json_set(
+            &mut data,
+            &self.output_attribute,
+            serde_json::Value::String(max_key),
+        )
+        .unwrap();
         Ok(Some(data))
-
     }
 }
 
@@ -2414,21 +2444,32 @@ pub struct MaxExtractor {
     - main_attribute points to a dict with str->key floats
     - if the max value is >= lower bound (defaults to 0.0), sets the key to be the value of output_attribute
     */
-
     pub main_attribute: String,
     pub lower_bound: f64, // defaults to 0.0
     pub output_attribute: String,
     pub keep_nulls: bool, // defaults to true
 }
 
-
 impl DataProcessor for MaxExtractor {
     fn new(config: &Value) -> Result<Self, Error> {
-        let main_attribute = json_get(config, "main_attribute").unwrap().as_str().unwrap().to_string();
+        let main_attribute = json_get(config, "main_attribute")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
         let lower_bound: f64 = get_default(config, "lower_bound", 0.0);
-        let output_attribute = json_get(config, "output_attribute").unwrap().as_str().unwrap().to_string();
+        let output_attribute = json_get(config, "output_attribute")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
         let keep_nulls = get_default(config, "keep_nulls", true);
-        Ok(Self {main_attribute, lower_bound, output_attribute, keep_nulls})
+        Ok(Self {
+            main_attribute,
+            lower_bound,
+            output_attribute,
+            keep_nulls,
+        })
     }
 
     fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
@@ -2445,33 +2486,38 @@ impl DataProcessor for MaxExtractor {
             }
         }
 
-
         if max_key.len() > 0 {
-            json_set(&mut data, &self.output_attribute, serde_json::Value::String(max_key)).unwrap();
+            json_set(
+                &mut data,
+                &self.output_attribute,
+                serde_json::Value::String(max_key),
+            )
+            .unwrap();
         } else {
             if !&self.keep_nulls {
                 return Ok(None);
             }
         }
         Ok(Some(data))
-
     }
 }
-
-
 
 #[derive(Serialize, Debug)]
 pub struct HashAnnotator {
     // Adds a hash id to
-    pub hash_source: String, // field that gets hashed
+    pub hash_source: String,      // field that gets hashed
     pub hash_destination: String, // where the target gets hashed and save
-    pub num_bits: usize // defaults to 128
+    pub num_bits: usize,          // defaults to 128
 }
 
 impl DataProcessor for HashAnnotator {
     fn new(config: &Value) -> Result<Self, Error> {
         let hash_source = get_default(config, "hash_source", String::from("text"));
-        let hash_destination = get_default(config, "hash_destination", String::from("metadata.text_hash"));
+        let hash_destination = get_default(
+            config,
+            "hash_destination",
+            String::from("metadata.text_hash"),
+        );
         let num_bits = get_default(config, "num_bits", 128);
 
         assert!(num_bits == 64 || num_bits == 128);
@@ -2479,7 +2525,7 @@ impl DataProcessor for HashAnnotator {
         Ok(Self {
             hash_source,
             hash_destination,
-            num_bits
+            num_bits,
         })
     }
 
@@ -2501,18 +2547,25 @@ impl DataProcessor for HashAnnotator {
     }
 }
 
-
 #[derive(Serialize, Debug)]
 pub struct ConstantAnnotator {
     // Adds a string into every json in a directory
-    pub key: String, // location of where we save the constant
+    pub key: String,   // location of where we save the constant
     pub value: String, // what we save
 }
 
 impl DataProcessor for ConstantAnnotator {
     fn new(config: &Value) -> Result<Self, Error> {
-        let key = json_get(config, "key").unwrap().as_str().unwrap().to_string();
-        let value = json_get(config, "value").unwrap().as_str().unwrap().to_string();
+        let key = json_get(config, "key")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+        let value = json_get(config, "value")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
 
         Ok(Self { key, value })
     }
@@ -2523,7 +2576,6 @@ impl DataProcessor for ConstantAnnotator {
     }
 }
 
-
 #[derive(Serialize, Debug)]
 pub struct RenameModifier {
     // Renames a field in the json
@@ -2533,10 +2585,21 @@ pub struct RenameModifier {
 
 impl DataProcessor for RenameModifier {
     fn new(config: &Value) -> Result<Self, Error> {
-        let old_field = json_get(config, "old_field").unwrap().as_str().unwrap().to_string();
-        let new_field = json_get(config, "new_field").unwrap().as_str().unwrap().to_string();
+        let old_field = json_get(config, "old_field")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+        let new_field = json_get(config, "new_field")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
 
-        Ok(Self { old_field, new_field })
+        Ok(Self {
+            old_field,
+            new_field,
+        })
     }
 
     fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
@@ -2548,7 +2611,6 @@ impl DataProcessor for RenameModifier {
     }
 }
 
-
 #[derive(Serialize, Debug)]
 pub struct GzipAnnotator {
     // Renames a field in the json
@@ -2558,19 +2620,33 @@ pub struct GzipAnnotator {
 
 impl DataProcessor for GzipAnnotator {
     fn new(config: &Value) -> Result<Self, Error> {
+        let text_field = json_get(config, "text_field")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+        let anno_field = json_get(config, "anno_field")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
 
-        let text_field = json_get(config, "text_field").unwrap().as_str().unwrap().to_string();
-        let anno_field = json_get(config, "anno_field").unwrap().as_str().unwrap().to_string();
-
-        Ok(Self { text_field, anno_field })
+        Ok(Self {
+            text_field,
+            anno_field,
+        })
     }
 
     fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
-        let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
+        let text = json_get(&data, &self.text_field)
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(text.as_bytes())?;
         let compressed = encoder.finish()?;
-        
+
         let ratio: f64 = compressed.len() as f64 / text.len() as f64;
         json_set(&mut data, &self.anno_field, ratio.into()).unwrap();
         Ok(Some(data))
@@ -2588,7 +2664,7 @@ pub struct UltrafinewebAnnotator {
     pub tokenizer: Tokenizer,
     #[derivative(Debug = "ignore")]
     #[serde(skip)]
-    pub regexes: [Regex;5],
+    pub regexes: [Regex; 5],
     pub output_field: String,
     pub fast_text_file: String,
     #[derivative(Debug = "ignore")]
@@ -2599,41 +2675,70 @@ pub struct UltrafinewebAnnotator {
 
 impl DataProcessor for UltrafinewebAnnotator {
     fn new(config: &Value) -> Result<Self, Error> {
-        let text_field = json_get(config, "text_field").unwrap().as_str().unwrap().to_string();
-        let tokenizer_path = get_default(config, "tokenizer_path", String::from("tokenizers/deepseek_v2.json"));
+        let text_field = json_get(config, "text_field")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+        let tokenizer_path = get_default(
+            config,
+            "tokenizer_path",
+            String::from("tokenizers/deepseek_v2.json"),
+        );
         println!("TOKENIZER PATH {:?}", tokenizer_path);
         let tokenizer = Tokenizer::from_file(&tokenizer_path).unwrap();
 
-        let output_field = json_get(config, "output_field").unwrap().as_str().unwrap().to_string();
-        let re_multinewline = Regex::new(r"\n{3,}").unwrap();        
-        let re_newline = Regex::new(r"\n").unwrap();        
-        let re_carriage = Regex::new(r"\r").unwrap();        
-        let re_tab = Regex::new(r"\t").unwrap();        
-        let re_spaces = Regex::new(r" +").unwrap();        
+        let output_field = json_get(config, "output_field")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+        let re_multinewline = Regex::new(r"\n{3,}").unwrap();
+        let re_newline = Regex::new(r"\n").unwrap();
+        let re_carriage = Regex::new(r"\r").unwrap();
+        let re_tab = Regex::new(r"\t").unwrap();
+        let re_spaces = Regex::new(r" +").unwrap();
         let regexes: [Regex; 5] = [re_multinewline, re_newline, re_carriage, re_tab, re_spaces];
 
-        let fast_text_file = get_default(config, "fast_text_file", String::from("ft_classifiers/ultrafineweb.bin"));
+        let fast_text_file = get_default(
+            config,
+            "fast_text_file",
+            String::from("ft_classifiers/ultrafineweb.bin"),
+        );
         let mut model = FastText::new();
         model.load_model(&fast_text_file).unwrap();
 
         let max_text_length: usize = get_default(config, "max_text_length", 0);
 
-        Ok(Self{text_field, tokenizer_path, tokenizer, regexes, output_field, fast_text_file, model, max_text_length})
+        Ok(Self {
+            text_field,
+            tokenizer_path,
+            tokenizer,
+            regexes,
+            output_field,
+            fast_text_file,
+            model,
+            max_text_length,
+        })
     }
-    
-    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
-        let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
 
-        let mut preproc = self.preprocess(&text).unwrap();
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+        let mut text = json_get(&data, &self.text_field)
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
 
         // Trim text if max_text_length is set, avoiding cutting on multi-byte characters
-        if self.max_text_length > 0 && preproc.len() > self.max_text_length {
+        if self.max_text_length > 0 && text.len() > self.max_text_length {
             let mut end = self.max_text_length;
-            while end > 0 && !preproc.is_char_boundary(end) {
+            while end > 0 && !text.is_char_boundary(end) {
                 end -= 1;
             }
-            preproc.truncate(end);
+            text.truncate(end);
         }
+
+        let preproc = self.preprocess(&text).unwrap();
 
         let predictions = match self.model.predict(&preproc, 10, 0.0) {
             Ok(preds) => preds,
@@ -2649,13 +2754,12 @@ impl DataProcessor for UltrafinewebAnnotator {
         }
         let pred_json = Value::Object(map);
         json_set(&mut data, &self.output_field, pred_json).unwrap();
-        Ok(Some(data))        
+        Ok(Some(data))
     }
 }
 
 impl UltrafinewebAnnotator {
     fn preprocess(&self, text: &String) -> Result<String, Error> {
-
         // 1. Remove multiple newlines -> Replace with just two newlines
         let mut text = self.regexes[0].replace_all(text, "\n\n").to_string();
 
@@ -2678,24 +2782,24 @@ impl UltrafinewebAnnotator {
             })
             .collect::<String>();
 
-
-         // 4. Word segmentation
-         let encoding = self.tokenizer.encode(text, false).unwrap();
-         let token_ids = encoding.get_ids();
-         let single_text_list: Vec<_> = token_ids.into_iter().map(|tok| self.tokenizer.decode(&[*tok], false).unwrap()).collect();
-         text = single_text_list.join(" ");
+        // 4. Word segmentation
+        let encoding = self.tokenizer.encode(text, false).unwrap();
+        let token_ids = encoding.get_ids();
+        let single_text_list: Vec<_> = token_ids
+            .into_iter()
+            .map(|tok| self.tokenizer.decode(&[*tok], false).unwrap())
+            .collect();
+        text = single_text_list.join(" ");
 
         // 5. keep escape chars, \n, \t, \r -> \\n, \\t, \\r
         text = self.regexes[1].replace_all(&text, r"\\n").to_string();
-        
-        text = self.regexes[2].replace_all(&text, r"\\r").to_string();
-        
-        text = self.regexes[3].replace_all(&text, r"\\t").to_string();
-        
-        text = self.regexes[4].replace_all(&text, " ").to_string();
-        
-        Ok(text.trim().to_string())
 
+        text = self.regexes[2].replace_all(&text, r"\\r").to_string();
+
+        text = self.regexes[3].replace_all(&text, r"\\t").to_string();
+
+        text = self.regexes[4].replace_all(&text, " ").to_string();
+
+        Ok(text.trim().to_string())
     }
 }
-
