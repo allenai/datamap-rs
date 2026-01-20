@@ -6,6 +6,7 @@ OUTPUT_DIR="${BASE_DIR}/ai2-llm/pretraining-data/sources/the-stack-v2/spring2cod
 
 
 LANGUAGES=(
+    "Python"
     "C"
     "C++"
     "C-Sharp"
@@ -14,7 +15,6 @@ LANGUAGES=(
     "JavaScript"
     "Markdown"
     "PHP"
-    "Python"
     "Ruby"
     "Rust"
     "Shell"
