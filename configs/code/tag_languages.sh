@@ -36,7 +36,7 @@ for language in "${LANGUAGES[@]}"; do
     input_dir="${INPUT_DIR}/${language}/step_final/"
     output_dir="${OUTPUT_DIR}/${language}/"
 
-    if [-d "${output_dir}"]; then
+    if [ -d "${output_dir}" ]; then
         echo "Output directory ${output_dir} already exists"
         continue
     fi
