@@ -638,7 +638,6 @@ impl DataProcessor for FastTextAnnotator {
             .unwrap()
             .to_string()
             .replace("\n", " ");
-        text.push_str("\n");
 
         // Trim text if max_text_length is set, avoiding cutting on multi-byte characters
         if self.max_text_length > 0 && text.len() > self.max_text_length {
@@ -649,13 +648,15 @@ impl DataProcessor for FastTextAnnotator {
             text.truncate(end);
         }
 
+        text.push_str("\n");
+
         let predictions = match self.model.predict(&text, self.k, self.threshold) {
-			Ok(preds) => preds,
-			Err(_e) => {
-				// If prediction fails, drop this document by returning None, this can happen for some bad utf bytes etc that happen very rarely
-				return Ok(None);
-			}
-		};
+            Ok(preds) => preds,
+            Err(_e) => {
+                // If prediction fails, drop this document by returning None, this can happen for some bad utf bytes etc that happen very rarely
+                return Ok(None);
+            }
+        };
 
         let mut map = serde_json::Map::new();
         for pred in predictions {
@@ -2570,7 +2571,7 @@ impl DataProcessor for GzipAnnotator {
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(text.as_bytes())?;
         let compressed = encoder.finish()?;
-        
+
         let ratio: f64 = compressed.len() as f64 / text.len() as f64;
         json_set(&mut data, &self.anno_field, ratio.into()).unwrap();
         Ok(Some(data))
@@ -2588,7 +2589,7 @@ pub struct UltrafinewebAnnotator {
     pub tokenizer: Tokenizer,
     #[derivative(Debug = "ignore")]
     #[serde(skip)]
-    pub regexes: [Regex;5],
+    pub regexes: [Regex; 5],
     pub output_field: String,
     pub fast_text_file: String,
     #[derivative(Debug = "ignore")]
@@ -2599,41 +2600,74 @@ pub struct UltrafinewebAnnotator {
 
 impl DataProcessor for UltrafinewebAnnotator {
     fn new(config: &Value) -> Result<Self, Error> {
-        let text_field = json_get(config, "text_field").unwrap().as_str().unwrap().to_string();
-        let tokenizer_path = get_default(config, "tokenizer_path", String::from("tokenizers/deepseek_v2.json"));
+        let text_field = json_get(config, "text_field")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+        let tokenizer_path = get_default(
+            config,
+            "tokenizer_path",
+            String::from("tokenizers/deepseek_v2.json"),
+        );
         println!("TOKENIZER PATH {:?}", tokenizer_path);
         let tokenizer = Tokenizer::from_file(&tokenizer_path).unwrap();
 
-        let output_field = json_get(config, "output_field").unwrap().as_str().unwrap().to_string();
-        let re_multinewline = Regex::new(r"\n{3,}").unwrap();        
-        let re_newline = Regex::new(r"\n").unwrap();        
-        let re_carriage = Regex::new(r"\r").unwrap();        
-        let re_tab = Regex::new(r"\t").unwrap();        
-        let re_spaces = Regex::new(r" +").unwrap();        
+        let output_field = json_get(config, "output_field")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+        let re_multinewline = Regex::new(r"\n{3,}").unwrap();
+        let re_newline = Regex::new(r"\n").unwrap();
+        let re_carriage = Regex::new(r"\r").unwrap();
+        let re_tab = Regex::new(r"\t").unwrap();
+        let re_spaces = Regex::new(r" +").unwrap();
         let regexes: [Regex; 5] = [re_multinewline, re_newline, re_carriage, re_tab, re_spaces];
 
-        let fast_text_file = get_default(config, "fast_text_file", String::from("ft_classifiers/ultrafineweb.bin"));
+        let fast_text_file = get_default(
+            config,
+            "fast_text_file",
+            String::from("ft_classifiers/ultrafineweb.bin"),
+        );
         let mut model = FastText::new();
         model.load_model(&fast_text_file).unwrap();
 
         let max_text_length: usize = get_default(config, "max_text_length", 0);
 
-        Ok(Self{text_field, tokenizer_path, tokenizer, regexes, output_field, fast_text_file, model, max_text_length})
+        Ok(Self {
+            text_field,
+            tokenizer_path,
+            tokenizer,
+            regexes,
+            output_field,
+            fast_text_file,
+            model,
+            max_text_length,
+        })
     }
-    
-    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
-        let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
 
-        let mut preproc = self.preprocess(&text).unwrap();
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+        let mut text = json_get(&data, &self.text_field)
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
 
         // Trim text if max_text_length is set, avoiding cutting on multi-byte characters
-        if self.max_text_length > 0 && preproc.len() > self.max_text_length {
+        if self.max_text_length > 0 && text.len() > self.max_text_length {
             let mut end = self.max_text_length;
-            while end > 0 && !preproc.is_char_boundary(end) {
+            while end > 0 && !text.is_char_boundary(end) {
                 end -= 1;
             }
-            preproc.truncate(end);
+            text.truncate(end);
         }
+
+        // apply preprocessing
+        let mut preproc = self.preprocess(&text).unwrap();
+
+        // you need to push newline character at the end to match fasttext binaries/python bindings
+        preproc.push_str("\n");
 
         let predictions = match self.model.predict(&preproc, 10, 0.0) {
             Ok(preds) => preds,
@@ -2649,13 +2683,12 @@ impl DataProcessor for UltrafinewebAnnotator {
         }
         let pred_json = Value::Object(map);
         json_set(&mut data, &self.output_field, pred_json).unwrap();
-        Ok(Some(data))        
+        Ok(Some(data))
     }
 }
 
 impl UltrafinewebAnnotator {
     fn preprocess(&self, text: &String) -> Result<String, Error> {
-
         // 1. Remove multiple newlines -> Replace with just two newlines
         let mut text = self.regexes[0].replace_all(text, "\n\n").to_string();
 
@@ -2678,24 +2711,24 @@ impl UltrafinewebAnnotator {
             })
             .collect::<String>();
 
-
-         // 4. Word segmentation
-         let encoding = self.tokenizer.encode(text, false).unwrap();
-         let token_ids = encoding.get_ids();
-         let single_text_list: Vec<_> = token_ids.into_iter().map(|tok| self.tokenizer.decode(&[*tok], false).unwrap()).collect();
-         text = single_text_list.join(" ");
+        // 4. Word segmentation
+        let encoding = self.tokenizer.encode(text, false).unwrap();
+        let token_ids = encoding.get_ids();
+        let single_text_list: Vec<_> = token_ids
+            .into_iter()
+            .map(|tok| self.tokenizer.decode(&[*tok], false).unwrap())
+            .collect();
+        text = single_text_list.join(" ");
 
         // 5. keep escape chars, \n, \t, \r -> \\n, \\t, \\r
-        text = self.regexes[1].replace_all(&text, r"\\n").to_string();
-        
-        text = self.regexes[2].replace_all(&text, r"\\r").to_string();
-        
-        text = self.regexes[3].replace_all(&text, r"\\t").to_string();
-        
-        text = self.regexes[4].replace_all(&text, " ").to_string();
-        
-        Ok(text.trim().to_string())
+        text = self.regexes[1].replace_all(&text, r"\n").to_string();
 
+        text = self.regexes[2].replace_all(&text, r"\r").to_string();
+
+        text = self.regexes[3].replace_all(&text, r"\t").to_string();
+
+        text = self.regexes[4].replace_all(&text, " ").to_string();
+
+        Ok(text.trim().to_string())
     }
 }
-
