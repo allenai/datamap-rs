@@ -2738,7 +2738,11 @@ impl DataProcessor for UltrafinewebAnnotator {
             text.truncate(end);
         }
 
-        let preproc = self.preprocess(&text).unwrap();
+        // apply preprocessing
+        let mut preproc = self.preprocess(&text).unwrap();
+
+        // you need to push newline character at the end to match fasttext binaries/python bindings
+        preproc.push_str("\n");
 
         let predictions = match self.model.predict(&preproc, 10, 0.0) {
             Ok(preds) => preds,
@@ -2792,11 +2796,11 @@ impl UltrafinewebAnnotator {
         text = single_text_list.join(" ");
 
         // 5. keep escape chars, \n, \t, \r -> \\n, \\t, \\r
-        text = self.regexes[1].replace_all(&text, r"\\n").to_string();
+        text = self.regexes[1].replace_all(&text, r"\n").to_string();
 
-        text = self.regexes[2].replace_all(&text, r"\\r").to_string();
+        text = self.regexes[2].replace_all(&text, r"\r").to_string();
 
-        text = self.regexes[3].replace_all(&text, r"\\t").to_string();
+        text = self.regexes[3].replace_all(&text, r"\t").to_string();
 
         text = self.regexes[4].replace_all(&text, " ").to_string();
 
