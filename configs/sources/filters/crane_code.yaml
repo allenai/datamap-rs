@@ -1,0 +1,27 @@
+name: crane_code_tagger
+text_field: text
+pipeline:
+    - name: gzip_annotator
+      kwargs:
+          text_field: text
+          anno_field: metadata.gzip_ratio
+
+    - name: ngram_repetition_filter
+      kwargs:
+          text_field: text
+          tokenizer_path: tokenizers/deepseek_v2.json
+          period_lb: 1
+          period_ub: 13
+          rep_count: 32
+
+    - name: text_len_filter
+      kwargs:
+          text_field: text
+          lower_bound: 32 # 2 ** 5
+          upper_bound: 262,144 # 2 ** 18
+
+    - name: float_filter
+      kwargs:
+          float_field: metadata.gzip_ratio
+          lower_bound: 0.05
+          upper_bound: 0.95
