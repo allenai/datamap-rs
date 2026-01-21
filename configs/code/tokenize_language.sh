@@ -4,8 +4,8 @@ set -ex
 
 BASE_DIR="/mnt/raid0"
 TOKENIZER_NAME="allenai/dolma2-tokenizer"
-INPUT_DIR="${BASE_DIR}/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated_reshard_qc_tagged_filtered"
-OUTPUT_DIR="${BASE_DIR}/ai2-llm/preprocessed/the-stack-v2/spring2code_v2/minhash_v2_annotated_reshard_qc_tagged_filtered"
+INPUT_DIR="${BASE_DIR}/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated_reshard_qc_tagged_filtered_fixed"
+OUTPUT_DIR="${BASE_DIR}/ai2-llm/preprocessed/the-stack-v2/spring2code_v2/minhash_v2_annotated_reshard_qc_tagged_filtered_fixed"
 PROGRAMMING_LANGUAGE=$1
 
 if [ -z "${PROGRAMMING_LANGUAGE}" ]; then
