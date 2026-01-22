@@ -4,7 +4,7 @@
 # dependencies = [
 #     "jq",
 #     "msgspec",
-#     "smart-open[zst,gz]",
+#     "smart-open[zst]",
 #     "tqdm",
 #     "numpy",
 #     "click",
@@ -282,7 +282,7 @@ def calculate_unweighted_percentiles(
     "--percentiles",
     type=float,
     multiple=True,
-    default=(1, 5, 10, 25, 50, 75, 90, 95, 99),
+    default=(5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95),
     show_default=True,
     help="Percentiles to calculate (can specify multiple times)",
 )
