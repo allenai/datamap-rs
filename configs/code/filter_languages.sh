@@ -8,7 +8,7 @@ INPUT_DIR="pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annot
 OUTPUT_DIR="pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated_reshard_qc_tagged_auto5_filtered"
 
 
-for language in $(ls --color=never ${INPUT_DIR}); do
+for language in $(ls --color=never "${LOCAL_DIR}/${INPUT_DIR}"); do
     echo "Filtering ${language}..."
     cargo run --release map \
         --input-dir "${LOCAL_DIR}/${INPUT_DIR}/${language}/step_final/" \
