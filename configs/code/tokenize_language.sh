@@ -2,11 +2,14 @@
 
 set -ex
 
+PROGRAMMING_LANGUAGE=${1:-Python}
+INPUT_DIR=${2:-${BASE_DIR}/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated_reshard_qc_tagged_auto5_filtered}
+
 BASE_DIR="/mnt/raid0"
 TOKENIZER_NAME="allenai/dolma2-tokenizer"
 INPUT_DIR="${BASE_DIR}/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated_reshard_qc_tagged_auto5_filtered"
 OUTPUT_DIR=$(echo $INPUT_DIR | sed -e 's|pretraining-data/sources|preprocessed|g')
-PROGRAMMING_LANGUAGE=$1
+
 
 if [ -z "${PROGRAMMING_LANGUAGE}" ]; then
     echo "Programming language is required"
