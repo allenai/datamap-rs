@@ -90,17 +90,18 @@ for language in "${LANGUAGES[@]}"; do
         continue
     fi
 
-    local_input_dir="${LOCAL_DIR}/${INPUT_DIR}/${language}/"
-    local_output_dir="${LOCAL_DIR}/${OUTPUT_DIR}/${language}/"
+    local_input_dir="${LOCAL_DIR}/${INPUT_DIR}/${language}"
+    local_output_dir="${LOCAL_DIR}/${OUTPUT_DIR}/${language}"
 
     if [ -d "${local_output_dir}" ]; then
         echo "Output directory ${output_dir} already exists"
         continue
     fi
 
-    if [ -d "${local_input_dir}" ]; then
-        remote_input_dir="${REMOTE_DIR}/${INPUT_DIR}/${language}/"
-        local_output_dir="${REMOTE_DIR}/${OUTPUT_DIR}/${language}/"
+    if [ ! -d "${local_input_dir}" ]; then
+        remote_input_dir="${REMOTE_DIR}/${INPUT_DIR}/${language}"
+
+        s5cmd cp -sp "${remote_input_dir}/step_final/*" "${local_input_dir}/step_final/"
     fi
 
     echo "Tagging ${language} with config ${config_file}..."
