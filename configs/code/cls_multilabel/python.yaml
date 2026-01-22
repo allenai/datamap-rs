@@ -1,0 +1,88 @@
+# Fitting calibration model...
+
+# ╭─ Model Fit Metrics ─╮
+# │ R-squared: 0.6075   │
+# │ RMSE: 0.087005      │
+# │ MAE: 0.065017       │
+# │ MSE: 0.007570       │
+# │                     │
+# │ Bias: -0.392607     │
+# ╰─────────────────────╯
+
+# Learned Weights:
+# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃ Component                           ┃   Weight ┃ Contribution         ┃
+# ┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━┩
+# │ __label__has_executable_logic       │ 0.147948 │ ++++++++++++++++++++ │
+# │ __label__good_logical_flow          │ 0.121580 │ ++++++++++++++++     │
+# │ __label__not_procedurally_generated │ 0.103143 │ +++++++++++++        │
+# │ __label__not_mostly_empty           │ 0.094510 │ ++++++++++++         │
+# │ __label__no_hardcoded_secrets       │ 0.085706 │ +++++++++++          │
+# │ __label__is_modular                 │ 0.082377 │ +++++++++++          │
+# │ __label__minimal_side_effects       │ 0.074748 │ ++++++++++           │
+# │ __label__has_error_handling         │ 0.070080 │ +++++++++            │
+# │ __label__no_vulnerabilities         │ 0.068462 │ +++++++++            │
+# │ __label__no_binary_data             │ 0.068047 │ +++++++++            │
+# │ __label__no_placeholder_text        │ 0.066433 │ ++++++++             │
+# │ __label__good_grammar               │ 0.061834 │ ++++++++             │
+# │ __label__has_comments               │ 0.049194 │ ++++++               │
+# │ __label__no_debug_artifacts         │ 0.040157 │ +++++                │
+# │ __label__has_type_hints             │ 0.038248 │ +++++                │
+# │ __label__no_boilerplate             │ 0.037613 │ +++++                │
+# │ __label__has_docstrings             │ 0.037246 │ +++++                │
+# │ __label__no_hardcoded_inputs        │ 0.029711 │ ++++                 │
+# │ __label__no_commented_out_code      │ 0.025555 │ +++                  │
+# └─────────────────────────────────────┴──────────┴──────────────────────┘
+
+name: code_classifier
+text_field: text
+pipeline:
+    - name: ultrafineweb_annotator
+      kwargs:
+          text_field: text
+          output_field: metadata.code_quality_multilabel
+          max_text_length: 10000
+          fast_text_file: /mnt/raid0/ai2-llm/classifiers/code-quality/trained_models/fasttext/the-stack-v2_spring2code_v2_minhash_v2_annotated_sample_1GB_countup_criteria_v2_gpt-5-mini_10k_trimmed_fasttext_ultrafine_multilabel/Python/model.bin
+    - name: linear_transform_annotator
+      kwargs:
+          features:
+              - field: metadata.code_quality_multilabel.__label__has_executable_logic
+                weight: 0.147948
+              - field: metadata.code_quality_multilabel.__label__good_logical_flow
+                weight: 0.121580
+              - field: metadata.code_quality_multilabel.__label__not_procedurally_generated
+                weight: 0.103143
+              - field: metadata.code_quality_multilabel.__label__not_mostly_empty
+                weight: 0.094510
+              - field: metadata.code_quality_multilabel.__label__no_hardcoded_secrets
+                weight: 0.085706
+              - field: metadata.code_quality_multilabel.__label__is_modular
+                weight: 0.082377
+              - field: metadata.code_quality_multilabel.__label__minimal_side_effects
+                weight: 0.074748
+              - field: metadata.code_quality_multilabel.__label__has_error_handling
+                weight: 0.070080
+              - field: metadata.code_quality_multilabel.__label__no_vulnerabilities
+                weight: 0.068462
+              - field: metadata.code_quality_multilabel.__label__no_binary_data
+                weight: 0.068047
+              - field: metadata.code_quality_multilabel.__label__no_placeholder_text
+                weight: 0.066433
+              - field: metadata.code_quality_multilabel.__label__good_grammar
+                weight: 0.061834
+              - field: metadata.code_quality_multilabel.__label__has_comments
+                weight: 0.049194
+              - field: metadata.code_quality_multilabel.__label__no_debug_artifacts
+                weight: 0.040157
+              - field: metadata.code_quality_multilabel.__label__has_type_hints
+                weight: 0.038248
+              - field: metadata.code_quality_multilabel.__label__no_boilerplate
+                weight: 0.037613
+              - field: metadata.code_quality_multilabel.__label__has_docstrings
+                weight: 0.037246
+              - field: metadata.code_quality_multilabel.__label__no_hardcoded_inputs
+                weight: 0.029711
+              - field: metadata.code_quality_multilabel.__label__no_commented_out_code
+                weight: 0.025555
+          bias: -0.392607
+          output_field: metadata.code_quality_multilabel_combined
