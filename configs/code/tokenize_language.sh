@@ -26,17 +26,21 @@ uv run --with=huggingface-hub \
     hf download ${TOKENIZER_NAME} \
     --local-dir ${BASE_DIR}/huggingface/${TOKENIZER_NAME}
 
-# tokenizing the language
-uv run dolma tokens \
-    --documents "${INPUT_DIR}/${PROGRAMMING_LANGUAGE}/step_final/*" \
-    --destination "${OUTPUT_DIR}/${PROGRAMMING_LANGUAGE}/${TOKENIZER_NAME}" \
-    --tokenizer.name_or_path ${TOKENIZER_NAME} \
-    --tokenizer.eos_token_id 100257 \
-    --tokenizer.pad_token_id 100277 \
-    --fields.id_field_name blob_id \
-    --no-tokenizer.segment_before_tokenization \
-    --tokenizer.encode_special_tokens \
-    --processes $(python3 -c "import multiprocessing; print(multiprocessing.cpu_count())") \
-    --max_size 4_000_000_000 \
-    --sample_ring_prop \
-    --dtype uint32
+
+for step_dir in $(ls --color=never "${INPUT_DIR}/${PROGRAMMING_LANGUAGE}")
+do
+    # tokenizing the language
+    uv run dolma tokens \
+        --documents "${INPUT_DIR}/${PROGRAMMING_LANGUAGE}/${step_dir}/" \
+        --destination "${OUTPUT_DIR}/${PROGRAMMING_LANGUAGE}/${step_dir}/${TOKENIZER_NAME}" \
+        --tokenizer.name_or_path ${TOKENIZER_NAME} \
+        --tokenizer.eos_token_id 100257 \
+        --tokenizer.pad_token_id 100277 \
+        --fields.id_field_name blob_id \
+        --no-tokenizer.segment_before_tokenization \
+        --tokenizer.encode_special_tokens \
+        --processes $(python3 -c "import multiprocessing; print(multiprocessing.cpu_count())") \
+        --max_size 4_000_000_000 \
+        --sample_ring_prop \
+        --dtype uint32
+done
