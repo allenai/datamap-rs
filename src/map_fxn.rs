@@ -2607,12 +2607,12 @@ impl DataProcessor for UltrafinewebAnnotator {
     }
     
     fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
-        println!("DOCS {:?}", data);
-        let mut text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
+        let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
 
-        let preproc = self.preprocess(&text).unwrap();
-        text.push_str("\n");
-        println!("NORMtext| {:?}", text);        
+        let mut preproc = self.preprocess(&text).unwrap();
+        preproc.push_str("\n");
+
+
         let predictions = match self.model.predict(&preproc, 10, 0.0) {
             Ok(preds) => preds,
             Err(_e) => {
@@ -2646,13 +2646,7 @@ impl UltrafinewebAnnotator {
             .filter(|c| {
                 use unicode_general_category::GeneralCategory;
                 let category = unicode_general_category::get_general_category(*c);
-                // Filter out all Mark categories (Mn, Mc, Me)
-                !matches!(
-                    category,
-                    GeneralCategory::NonspacingMark
-                        | GeneralCategory::SpacingMark
-                        | GeneralCategory::EnclosingMark
-                )
+                category != GeneralCategory::NonspacingMark
             })
             .collect::<String>();
 
@@ -2664,11 +2658,11 @@ impl UltrafinewebAnnotator {
          text = single_text_list.join(" ");
 
         // 5. keep escape chars, \n, \t, \r -> \\n, \\t, \\r
-        text = self.regexes[1].replace_all(&text, r"\\n").to_string();
+        text = self.regexes[1].replace_all(&text, r"\n").to_string();
         
-        text = self.regexes[2].replace_all(&text, r"\\r").to_string();
+        text = self.regexes[2].replace_all(&text, r"\r").to_string();
         
-        text = self.regexes[3].replace_all(&text, r"\\t").to_string();
+        text = self.regexes[3].replace_all(&text, r"\t").to_string();
         
         text = self.regexes[4].replace_all(&text, " ").to_string();
         
