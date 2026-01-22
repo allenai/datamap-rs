@@ -6,7 +6,7 @@ REMOTE_DIR="s3://ai2-llm"
 LOCAL_DIR="/mnt/raid0/ai2-llm"
 INPUT_DIR="pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated_reshard"
 OUTPUT_DIR="pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated_reshard_qc_tagged_auto5"
-CONFIGS_DIR="configs/code/cls_linear"
+CONFIGS_DIR="configs/code/cls_auto5"
 
 # ============================================================================
 # Get instance rank and world size from EC2 metadata
@@ -69,6 +69,9 @@ for i in "${!ALL_LANGUAGES[@]}"; do
 done
 
 echo "This instance (rank ${RANK}/${WORLD_SIZE}) will process: ${LANGUAGES[*]}"
+
+# download classifiers and tokenizer
+bash $(dirname $0)/download_classifiers.sh
 
 # ============================================================================
 # Process languages: tagging
