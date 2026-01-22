@@ -96,6 +96,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "gzip_annotator", GzipAnnotator);
         register_processor!(m, "ultrafineweb_annotator", UltrafinewebAnnotator);
         register_processor!(m, "ngram_repetition_filter", NgramRepetitionFilter);
+        register_processor!(m, "linear_transform_annotator", LinearTransformAnnotator);
         m
     });
 
@@ -3026,5 +3027,79 @@ impl NgramRepetitionFilter {
         }
 
         Ok(false)
+    }
+}
+
+/*================================================================================
+=                         LINEAR TRANSFORM ANNOTATOR                             =
+================================================================================*/
+
+/// A feature specification for the linear transform
+#[derive(Debug, Clone, Serialize)]
+pub struct FeatureSpec {
+    pub field: String,
+    pub weight: f64,
+}
+
+/// Applies a linear transform over arbitrary set of values in input.
+/// The transform is: output = bias + sum(feature.weight * value(feature.field))
+/// If a field is not found, defaults to 0.
+#[derive(Serialize, Debug)]
+pub struct LinearTransformAnnotator {
+    pub features: Vec<FeatureSpec>,
+    pub bias: f64,
+    pub output_field: String,
+}
+
+impl DataProcessor for LinearTransformAnnotator {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let features_raw = json_get(config, "features")
+            .ok_or_else(|| anyhow!("features is required"))?
+            .as_array()
+            .ok_or_else(|| anyhow!("features must be an array"))?;
+
+        let mut features = Vec::new();
+        for feature in features_raw {
+            let field = feature
+                .get("field")
+                .ok_or_else(|| anyhow!("each feature must have a 'field'"))?
+                .as_str()
+                .ok_or_else(|| anyhow!("field must be a string"))?
+                .to_string();
+            let weight = feature
+                .get("weight")
+                .ok_or_else(|| anyhow!("each feature must have a 'weight'"))?
+                .as_f64()
+                .ok_or_else(|| anyhow!("weight must be a number"))?;
+            features.push(FeatureSpec { field, weight });
+        }
+
+        let bias = get_default(config, "bias", 0.0);
+        let output_field = json_get(config, "output_field")
+            .ok_or_else(|| anyhow!("output_field is required"))?
+            .as_str()
+            .ok_or_else(|| anyhow!("output_field must be a string"))?
+            .to_string();
+
+        Ok(Self {
+            features,
+            bias,
+            output_field,
+        })
+    }
+
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+        let mut result = self.bias;
+
+        for feature in &self.features {
+            let value = match json_get(&data, &feature.field) {
+                Some(v) => v.as_f64().unwrap_or(0.0),
+                None => 0.0,
+            };
+            result += feature.weight * value;
+        }
+
+        json_set(&mut data, &self.output_field, json!(result))?;
+        Ok(Some(data))
     }
 }

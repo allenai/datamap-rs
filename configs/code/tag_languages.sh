@@ -2,10 +2,11 @@
 
 set -euo pipefail
 
-BASE_DIR="/mnt/raid0"
-INPUT_DIR="${BASE_DIR}/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated_reshard"
-OUTPUT_DIR="${BASE_DIR}/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated_reshard_qc_tagged_fixed"
-S3_OUTPUT_DIR="s3://ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated_reshard_qc_tagged_fixed"
+REMOTE_DIR="s3://ai2-llm"
+LOCAL_DIR="/mnt/raid0/ai2-llm"
+INPUT_DIR="pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated_reshard"
+OUTPUT_DIR="pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated_reshard_qc_tagged_fixed"
+CONFIGS_DIR="configs/code/cls_linear"
 
 # ============================================================================
 # Get instance rank and world size from EC2 metadata
@@ -75,23 +76,38 @@ echo "This instance (rank ${RANK}/${WORLD_SIZE}) will process: ${LANGUAGES[*]}"
 
 for language in "${LANGUAGES[@]}"; do
     if [ "${language}" == "C++" ]; then
-        config_file="configs/code/classifiers/cpp.yaml"
+        config_name="cpp.yaml"
     elif [ "${language}" == "C-Sharp" ]; then
-        config_file="configs/code/classifiers/csharp.yaml"
+        config_name="csharp.yaml"
     else
-        config_file="configs/code/classifiers/$(echo ${language} | tr '[:upper:]' '[:lower:]').yaml"
+        config_name="$(echo ${language} | tr '[:upper:]' '[:lower:]').yaml"
     fi
 
-    input_dir="${INPUT_DIR}/${language}/step_final/"
-    output_dir="${OUTPUT_DIR}/${language}/"
+    config_file="${CONFIGS_DIR}/${config_name}"
 
-    if [ -d "${output_dir}" ]; then
+    if [ ! -f "${config_file}" ]; then
+        echo "Config file ${config_file} not found... Skipping ${language}"
+        continue
+    fi
+
+    local_input_dir="${LOCAL_DIR}/${INPUT_DIR}/${language}/"
+    local_output_dir="${LOCAL_DIR}/${OUTPUT_DIR}/${language}/"
+
+    if [ -d "${local_output_dir}" ]; then
         echo "Output directory ${output_dir} already exists"
         continue
     fi
 
+    if [ -d "${local_input_dir}" ]; then
+        remote_input_dir="${REMOTE_DIR}/${INPUT_DIR}/${language}/"
+        local_output_dir="${REMOTE_DIR}/${OUTPUT_DIR}/${language}/"
+    fi
+
     echo "Tagging ${language} with config ${config_file}..."
-    cargo run --release map --input-dir ${input_dir} --output-dir ${output_dir} --config ${config_file}
+    cargo run --release map \
+        --input-dir "${local_input_dir}/step_final/" \
+        --output-dir "${local_output_dir}" \
+        --config "${config_file}"
 done
 
 # ============================================================================
@@ -99,8 +115,8 @@ done
 # ============================================================================
 
 for language in "${LANGUAGES[@]}"; do
-    input_dir="${OUTPUT_DIR}/${language}/step_final/"
-    output_file="${OUTPUT_DIR}/${language}/code_quality_report.json"
+    input_dir="${LOCAL_DIR}/${OUTPUT_DIR}/${language}/step_final/"
+    output_file="${LOCAL_DIR}/${OUTPUT_DIR}/${language}/code_quality_report.json"
 
     if [ -f "${output_file}" ]; then
         echo "Output file ${output_file} already exists"
@@ -118,8 +134,8 @@ done
 
 echo "Uploading results to S3..."
 for language in "${LANGUAGES[@]}"; do
-    local_dir="${OUTPUT_DIR}/${language}"
-    s3_dir="${S3_OUTPUT_DIR}/${language}"
+    local_dir="${LOCAL_DIR}/${OUTPUT_DIR}/${language}"
+    s3_dir="${REMOTE_DIR}${OUTPUT_DIR}/${language}"
 
     if [ -d "${local_dir}" ]; then
         echo "Uploading ${language} to ${s3_dir}..."
