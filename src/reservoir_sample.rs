@@ -141,18 +141,32 @@ fn token_weighted_reservoir(
 ) -> Result<(), Error> {
     let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
     let num_files = all_files.len();
-    let chunks_targets = get_chunks_targets(all_files, reservoir_size).unwrap();
+
+    // Distribute files across threads, but give each thread the full reservoir size
+    // so weighted sampling works correctly across the entire dataset
+    let num_threads = current_num_threads();
+    let mut chunks: Vec<Vec<PathBuf>> = (0..num_threads).map(|_| Vec::new()).collect();
+    all_files.into_iter().enumerate().for_each(|(i, p)| {
+        chunks[i % num_threads].push(p);
+    });
+    let chunks: Vec<Vec<PathBuf>> = chunks.into_iter().filter(|v| !v.is_empty()).collect();
 
     let pbar = build_pbar(num_files, "Paths");
-    let full_res: Vec<Vec<WeightedItem>> = chunks_targets
+    let full_res: Vec<Vec<WeightedItem>> = chunks
         .into_par_iter()
-        .map(|(pvec, res_size)| {
-            token_weighted_thread_res(&pvec, score_key, text_key, res_size, &pbar).unwrap()
+        .map(|pvec| {
+            // Each thread maintains a full-size reservoir
+            token_weighted_thread_res(&pvec, score_key, text_key, reservoir_size, &pbar).unwrap()
         })
         .collect();
 
-    let mut full_res: Vec<WeightedItem> = full_res.into_iter().flat_map(|k| k).collect();
-    full_res.par_sort_by(|a, b| a.value.partial_cmp(&b.value).unwrap());
+    // Merge all thread reservoirs and keep top items by log_key (higher = better)
+    let mut full_res: Vec<WeightedItem> = full_res.into_iter().flatten().collect();
+    full_res.par_sort_by(|a, b| b.log_key.partial_cmp(&a.log_key).unwrap_or(Ordering::Equal));
+    full_res.truncate(reservoir_size);
+
+    // Now sort by value for percentile calculation
+    full_res.par_sort_by(|a, b| a.value.partial_cmp(&b.value).unwrap_or(Ordering::Equal));
     let total_weight: usize = full_res.par_iter().map(|w| w.weight).sum();
     let mut cum_weight = 0;
     let mut percentiles: Vec<Value> = Vec::new();
