@@ -9,4 +9,76 @@ pipeline:
     - name: float_filter
       kwargs:
           float_field: metadata.code_quality_auto5_combined
-          lower_bound: 0.5218883240841106
+          lower_bound: 0.423817
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_auto5_combined
+          lower_bound: 0.465947
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_auto5_combined
+          lower_bound: 0.489821
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_auto5_combined
+          lower_bound: 0.508646
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_auto5_combined
+          lower_bound: 0.524412
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_auto5_combined
+          lower_bound: 0.539065
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_auto5_combined
+          lower_bound: 0.552946
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_auto5_combined
+          lower_bound: 0.566679
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_auto5_combined
+          lower_bound: 0.580503
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_auto5_combined
+          lower_bound: 0.595303
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_auto5_combined
+          lower_bound: 0.610160
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_auto5_combined
+          lower_bound: 0.625684
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_auto5_combined
+          lower_bound: 0.642048
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_auto5_combined
+          lower_bound: 0.659401
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_auto5_combined
+          lower_bound: 0.676898
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_auto5_combined
+          lower_bound: 0.693820
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_auto5_combined
+          lower_bound: 0.710225
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_auto5_combined
+          lower_bound: 0.725342
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_auto5_combined
+          lower_bound: 0.740895
