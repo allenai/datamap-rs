@@ -4,4 +4,5 @@ Cargo.lock
 .DS_Store
 tmp/
 .venv
+tokenizers/*
 ft_classifiers/*
