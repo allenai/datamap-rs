@@ -2,15 +2,15 @@
 
 set -ex
 
-BASE_DIR="/mnt/raid0"
-TOKENIZER_NAME="allenai/dolma2-tokenizer"
-PROGRAMMING_LANGUAGE=${1:-Python}
-INPUT_DIR=${2:-${BASE_DIR}/ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated_reshard_qc_tagged_auto5_filtered}
+
+INPUT_DIR=$1
+FIELD_ID=${2:-id}
 OUTPUT_DIR=$(echo $INPUT_DIR | sed -e 's|pretraining-data/sources|preprocessed|g')
+TOKENIZER_NAME="allenai/dolma2-tokenizer"
 
 
-if [ -z "${PROGRAMMING_LANGUAGE}" ]; then
-    echo "Programming language is required"
+if [ -d "${INPUT_DIR}" ]; then
+    echo "Valid input directory is required"
     exit 1
 fi
 
@@ -28,16 +28,16 @@ uv run --with=huggingface-hub \
     --local-dir ${BASE_DIR}/huggingface/${TOKENIZER_NAME}
 
 
-for step_dir in $(ls --color=never "${INPUT_DIR}/${PROGRAMMING_LANGUAGE}")
+for step_dir in $(ls --color=never "${INPUT_DIR}")
 do
     # tokenizing the language
     uv run dolma tokens \
-        --documents "${INPUT_DIR}/${PROGRAMMING_LANGUAGE}/${step_dir}/" \
-        --destination "${OUTPUT_DIR}/${PROGRAMMING_LANGUAGE}/${step_dir}/${TOKENIZER_NAME}" \
+        --documents "${INPUT_DIR}/${step_dir}/" \
+        --destination "${OUTPUT_DIR}/${step_dir}/${TOKENIZER_NAME}" \
         --tokenizer.name_or_path ${TOKENIZER_NAME} \
         --tokenizer.eos_token_id 100257 \
         --tokenizer.pad_token_id 100277 \
-        --fields.id_field_name blob_id \
+        --fields.id_field_name ${FIELD_ID} \
         --no-tokenizer.segment_before_tokenization \
         --tokenizer.encode_special_tokens \
         --processes $(python3 -c "import multiprocessing; print(multiprocessing.cpu_count())") \
