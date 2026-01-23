@@ -5,11 +5,12 @@ set -ex
 
 INPUT_DIR=$1
 FIELD_ID=${2:-id}
-TOKENIZER_NAME=${3:-allenai/dolma2-tokenizer}
+EXTENSION=${3:-*}
+TOKENIZER_NAME=${4:-allenai/dolma2-tokenizer}
 OUTPUT_DIR=$(echo $INPUT_DIR | sed -e 's|pretraining-data/sources|preprocessed|g')
+BASE_DIR=${5:-/mnt/raid0}
 
-
-if [ -d "${INPUT_DIR}" ]; then
+if [ ! -d "${INPUT_DIR}" ]; then
     echo "Valid input directory is required"
     exit 1
 fi
@@ -32,7 +33,7 @@ for step_dir in $(ls --color=never "${INPUT_DIR}")
 do
     # tokenizing the language
     uv run dolma tokens \
-        --documents "${INPUT_DIR}/${step_dir}/" \
+        --documents "${INPUT_DIR}/${step_dir}/${EXTENSION}" \
         --destination "${OUTPUT_DIR}/${step_dir}/${TOKENIZER_NAME}" \
         --tokenizer.name_or_path ${TOKENIZER_NAME} \
         --tokenizer.eos_token_id 100257 \
