@@ -5,8 +5,8 @@ set -ex
 
 INPUT_DIR=$1
 FIELD_ID=${2:-id}
+TOKENIZER_NAME=${3:-allenai/dolma2-tokenizer}
 OUTPUT_DIR=$(echo $INPUT_DIR | sed -e 's|pretraining-data/sources|preprocessed|g')
-TOKENIZER_NAME="allenai/dolma2-tokenizer"
 
 
 if [ -d "${INPUT_DIR}" ]; then
