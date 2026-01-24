@@ -2813,32 +2813,29 @@ impl UltrafinewebAnnotator {
     }
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Derivative)]
+#[derivative(Debug)]
+#[derive(Serialize)]
 pub struct NgramRepetitionFilter {
-    pub text_field: String,     // defaults to text
-    pub tokenizer_path: String, // Path to tokenizer
-    pub period_lb: usize,       // defaults to 1
-    pub period_ub: usize,       // defaults to 13
-    pub rep_count: usize,       // defaults to 32,
-    pub tokenizer: Tokenizer,
+    pub text_field: String, // defaults to text
+    pub period_lb: usize,   // defaults to 1
+    pub period_ub: usize,   // defaults to 13
+    pub rep_count: usize,   // defaults to 32,
+    #[derivative(Debug = "ignore")]
+    #[serde(skip)]
+    pub tokenizer: tiktoken_rs::CoreBPE,
 }
 
 impl DataProcessor for NgramRepetitionFilter {
     fn new(config: &Value) -> Result<Self, Error> {
         let text_field = get_default(config, "text_field", String::from("text"));
-        let tokenizer_path = get_default(
-            config,
-            "tokenizer_path",
-            String::from("tokenizers/allenai_dolma2-tokenizer.json"),
-        );
         let period_lb = get_default(config, "period_lb", 1);
         let period_ub = get_default(config, "period_ub", 13);
         let rep_count = get_default(config, "rep_count", 32);
 
-        let tokenizer = Tokenizer::from_file(&tokenizer_path).unwrap();
+        let tokenizer = cl100k_base().map_err(|e| anyhow!("Failed to load cl100k_base tokenizer: {}", e))?;
         Ok(Self {
             text_field,
-            tokenizer_path,
             period_lb,
             period_ub,
             rep_count,
@@ -2850,11 +2847,10 @@ impl DataProcessor for NgramRepetitionFilter {
         let text = json_get(&data, &self.text_field)
             .unwrap()
             .as_str()
-            .unwrap()
-            .to_string();
+            .unwrap();
 
-        let binding = self.tokenizer.encode(text, true).unwrap();
-        let tokens = binding.get_ids();
+        let token_ids = self.tokenizer.encode_with_special_tokens(text);
+        let tokens: Vec<u32> = token_ids.iter().map(|&t| t as u32).collect();
         if NgramRepetitionFilter::exceeds_repetition_threshold(
             &tokens,
             self.period_lb,
