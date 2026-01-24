@@ -25,6 +25,7 @@ use fxhash::{FxHashMap, FxHasher};
 use mj_io::read_pathbuf_to_mem;
 use once_cell::sync::OnceCell;
 use regex::Regex;
+use tiktoken_rs::cl100k_base;
 use tokenizers::Tokenizer;
 use unicode_normalization::UnicodeNormalization;
 use unicode_segmentation::UnicodeSegmentation;
@@ -97,6 +98,8 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "ultrafineweb_annotator", UltrafinewebAnnotator);
         register_processor!(m, "ngram_repetition_filter", NgramRepetitionFilter);
         register_processor!(m, "linear_transform_annotator", LinearTransformAnnotator);
+        register_processor!(m, "hyperfine_annotator", HyperfineAnnotator);
+        register_processor!(m, "hyperfine_code_annotator", HyperfineCodeAnnotator);
         m
     });
 
@@ -3101,5 +3104,413 @@ impl DataProcessor for LinearTransformAnnotator {
 
         json_set(&mut data, &self.output_field, json!(result))?;
         Ok(Some(data))
+    }
+}
+
+/*================================================================================
+=                         HYPERFINE ANNOTATOR                                    =
+================================================================================*/
+
+/// Detects the indentation multiplier (e.g., 2, 4) for space-indented text.
+pub fn detect_indentation(text: &str) -> Option<usize> {
+    fn gcd(mut a: usize, mut b: usize) -> usize {
+        while b != 0 {
+            let t = b;
+            b = a % b;
+            a = t;
+        }
+        a
+    }
+
+    let mut result_gcd: usize = 0;
+
+    for line in text.split('\n') {
+        let stripped = line.trim_start_matches(' ');
+        if !stripped.is_empty() && !stripped.starts_with('\t') {
+            let leading_spaces = line.len() - stripped.len();
+            if leading_spaces > 0 {
+                result_gcd = gcd(result_gcd, leading_spaces);
+                if result_gcd == 1 {
+                    return Some(1);
+                }
+            }
+        }
+    }
+
+    if result_gcd > 0 {
+        Some(result_gcd)
+    } else {
+        None
+    }
+}
+
+/// Converts space indentation to tabs.
+pub fn convert_spaces_to_tabs(text: &str, indent_size: Option<usize>) -> String {
+    let indent_size = match indent_size {
+        Some(size) => size,
+        None => match detect_indentation(text) {
+            Some(size) => size,
+            None => return text.to_string(),
+        },
+    };
+
+    let mut result = Vec::new();
+
+    for line in text.split('\n') {
+        if line.is_empty() || !line.starts_with(' ') {
+            result.push(line.to_string());
+            continue;
+        }
+
+        let stripped = line.trim_start_matches(' ');
+        let leading_spaces = line.len() - stripped.len();
+
+        let num_tabs = leading_spaces / indent_size;
+        let remainder = leading_spaces % indent_size;
+        result.push(format!(
+            "{}{}{}",
+            "\t".repeat(num_tabs),
+            " ".repeat(remainder),
+            stripped
+        ));
+    }
+
+    result.join("\n")
+}
+
+#[derive(Derivative)]
+#[derivative(Debug)]
+#[derive(Serialize)]
+pub struct HyperfineAnnotator {
+    pub text_field: String,
+    pub output_field: String,
+    pub fast_text_file: String,
+    #[derivative(Debug = "ignore")]
+    #[serde(skip)]
+    pub model: FastText,
+    pub max_text_length: usize,
+    #[derivative(Debug = "ignore")]
+    #[serde(skip)]
+    pub tokenizer: tiktoken_rs::CoreBPE,
+    #[derivative(Debug = "ignore")]
+    #[serde(skip)]
+    pub remove_extra_newlines_re: Regex,
+    #[derivative(Debug = "ignore")]
+    #[serde(skip)]
+    pub segment_symbols_re: Regex,
+    #[derivative(Debug = "ignore")]
+    #[serde(skip)]
+    pub replace_spaces_re: Regex,
+}
+
+impl DataProcessor for HyperfineAnnotator {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let text_field = get_default(config, "text_field", String::from("text"));
+        let output_field = get_default(config, "output_field", String::from("metadata.hyperfine"));
+
+        let fast_text_file = get_default(
+            config,
+            "fast_text_file",
+            String::from("ft_classifiers/hyperfine.bin"),
+        );
+        let mut model = FastText::new();
+        model
+            .load_model(&fast_text_file)
+            .map_err(|e| anyhow!("Failed to load FastText model: {}", e))?;
+
+        let max_text_length: usize = get_default(config, "max_text_length", 0);
+
+        let tokenizer =
+            cl100k_base().map_err(|e| anyhow!("Failed to load cl100k_base tokenizer: {}", e))?;
+
+        let remove_extra_newlines_re = Regex::new(r"\n{3,}").unwrap();
+        let segment_symbols_re = Regex::new(r"([\t\r\n]+)").unwrap();
+        let replace_spaces_re = Regex::new(r"\s+").unwrap();
+
+        Ok(Self {
+            text_field,
+            output_field,
+            fast_text_file,
+            model,
+            max_text_length,
+            tokenizer,
+            remove_extra_newlines_re,
+            segment_symbols_re,
+            replace_spaces_re,
+        })
+    }
+
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+        let mut text = json_get(&data, &self.text_field)
+            .ok_or_else(|| anyhow!("Text field '{}' not found", self.text_field))?
+            .as_str()
+            .ok_or_else(|| anyhow!("Text field '{}' is not a string", self.text_field))?
+            .to_string();
+
+        // Trim text if max_text_length is set, avoiding cutting on multi-byte characters
+        if self.max_text_length > 0 && text.len() > self.max_text_length {
+            let mut end = self.max_text_length;
+            while end > 0 && !text.is_char_boundary(end) {
+                end -= 1;
+            }
+            text.truncate(end);
+        }
+
+        let mut preproc = self.preprocess(&text)?;
+
+        // Add newline at the end to match fasttext binaries/python bindings
+        preproc.push('\n');
+
+        let predictions = match self.model.predict(&preproc, 10, 0.0) {
+            Ok(preds) => preds,
+            Err(_e) => {
+                return Ok(None);
+            }
+        };
+
+        let mut map = serde_json::Map::new();
+        for pred in predictions {
+            map.insert(pred.label.clone(), json!(pred.prob));
+        }
+        let pred_json = Value::Object(map);
+        json_set(&mut data, &self.output_field, pred_json)?;
+        Ok(Some(data))
+    }
+}
+
+impl HyperfineAnnotator {
+    fn preprocess(&self, text: &str) -> Result<String, Error> {
+        // 1. Remove multiple newlines -> Replace with just two newlines
+        let text = self.remove_extra_newlines_re.replace_all(text, "\n\n");
+
+        // 2. Lowercase everything
+        let text = text.to_lowercase();
+
+        // 3. Remove diacritics
+        let text: String = text
+            .nfkd()
+            .filter(|c| {
+                use unicode_general_category::GeneralCategory;
+                let category = unicode_general_category::get_general_category(*c);
+                !matches!(
+                    category,
+                    GeneralCategory::NonspacingMark
+                        | GeneralCategory::SpacingMark
+                        | GeneralCategory::EnclosingMark
+                )
+            })
+            .collect();
+
+        // 4. Split into segments by \t\r\n
+        let parts: Vec<&str> = self.segment_symbols_re.split(&text).collect();
+        let separators: Vec<&str> = self
+            .segment_symbols_re
+            .find_iter(&text)
+            .map(|m| m.as_str())
+            .collect();
+
+        // 5. Process each segment: replace multiple spaces with single space and trim
+        let mut result_parts: Vec<String> = Vec::new();
+        for (i, segment) in parts.iter().enumerate() {
+            // Replace multiple whitespace with single space and trim
+            let cleaned = self.replace_spaces_re.replace_all(segment, " ");
+            let cleaned = cleaned.trim();
+
+            // Tokenize the segment
+            let tokens = self.tokenizer.encode_with_special_tokens(cleaned);
+            let token_strs: Vec<String> = tokens
+                .iter()
+                .filter_map(|&tok| self.tokenizer.decode(vec![tok]).ok())
+                .collect();
+            let tokenized = token_strs.join(" ");
+
+            result_parts.push(tokenized);
+
+            // Add escaped separator if exists
+            if i < separators.len() {
+                // Escape \n, \t, \r to their literal string representations with spaces
+                let escaped: String = separators[i]
+                    .chars()
+                    .map(|c| match c {
+                        '\n' => "\\n".to_string(),
+                        '\t' => "\\t".to_string(),
+                        '\r' => "\\r".to_string(),
+                        _ => c.to_string(),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                result_parts.push(escaped);
+            }
+        }
+
+        Ok(result_parts.join(" ").trim().to_string())
+    }
+}
+
+/*================================================================================
+=                         HYPERFINE CODE ANNOTATOR                               =
+================================================================================*/
+
+#[derive(Derivative)]
+#[derivative(Debug)]
+#[derive(Serialize)]
+pub struct HyperfineCodeAnnotator {
+    pub text_field: String,
+    pub output_field: String,
+    pub fast_text_file: String,
+    #[derivative(Debug = "ignore")]
+    #[serde(skip)]
+    pub model: FastText,
+    pub max_text_length: usize,
+    #[derivative(Debug = "ignore")]
+    #[serde(skip)]
+    pub tokenizer: tiktoken_rs::CoreBPE,
+    #[derivative(Debug = "ignore")]
+    #[serde(skip)]
+    pub remove_extra_newlines_re: Regex,
+    #[derivative(Debug = "ignore")]
+    #[serde(skip)]
+    pub segment_symbols_re: Regex,
+}
+
+impl DataProcessor for HyperfineCodeAnnotator {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let text_field = get_default(config, "text_field", String::from("text"));
+        let output_field = get_default(
+            config,
+            "output_field",
+            String::from("metadata.hyperfine_code"),
+        );
+
+        let fast_text_file = get_default(
+            config,
+            "fast_text_file",
+            String::from("ft_classifiers/hyperfine_code.bin"),
+        );
+        let mut model = FastText::new();
+        model
+            .load_model(&fast_text_file)
+            .map_err(|e| anyhow!("Failed to load FastText model: {}", e))?;
+
+        let max_text_length: usize = get_default(config, "max_text_length", 0);
+
+        let tokenizer =
+            cl100k_base().map_err(|e| anyhow!("Failed to load cl100k_base tokenizer: {}", e))?;
+
+        let remove_extra_newlines_re = Regex::new(r"\n{3,}").unwrap();
+        let segment_symbols_re = Regex::new(r"([\t\r\n]+)").unwrap();
+
+        Ok(Self {
+            text_field,
+            output_field,
+            fast_text_file,
+            model,
+            max_text_length,
+            tokenizer,
+            remove_extra_newlines_re,
+            segment_symbols_re,
+        })
+    }
+
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+        let mut text = json_get(&data, &self.text_field)
+            .ok_or_else(|| anyhow!("Text field '{}' not found", self.text_field))?
+            .as_str()
+            .ok_or_else(|| anyhow!("Text field '{}' is not a string", self.text_field))?
+            .to_string();
+
+        // Trim text if max_text_length is set, avoiding cutting on multi-byte characters
+        if self.max_text_length > 0 && text.len() > self.max_text_length {
+            let mut end = self.max_text_length;
+            while end > 0 && !text.is_char_boundary(end) {
+                end -= 1;
+            }
+            text.truncate(end);
+        }
+
+        let mut preproc = self.preprocess(&text)?;
+
+        // Add newline at the end to match fasttext binaries/python bindings
+        preproc.push('\n');
+
+        let predictions = match self.model.predict(&preproc, 10, 0.0) {
+            Ok(preds) => preds,
+            Err(_e) => {
+                return Ok(None);
+            }
+        };
+
+        let mut map = serde_json::Map::new();
+        for pred in predictions {
+            map.insert(pred.label.clone(), json!(pred.prob));
+        }
+        let pred_json = Value::Object(map);
+        json_set(&mut data, &self.output_field, pred_json)?;
+        Ok(Some(data))
+    }
+}
+
+impl HyperfineCodeAnnotator {
+    fn preprocess(&self, text: &str) -> Result<String, Error> {
+        // 1. Remove multiple newlines -> Replace with just two newlines
+        let text = self.remove_extra_newlines_re.replace_all(text, "\n\n");
+
+        // 2. Remove diacritics (no lowercasing for code)
+        let text: String = text
+            .nfkd()
+            .filter(|c| {
+                use unicode_general_category::GeneralCategory;
+                let category = unicode_general_category::get_general_category(*c);
+                !matches!(
+                    category,
+                    GeneralCategory::NonspacingMark
+                        | GeneralCategory::SpacingMark
+                        | GeneralCategory::EnclosingMark
+                )
+            })
+            .collect();
+
+        // 3. Convert space indentation to tabs
+        let text = convert_spaces_to_tabs(&text, None);
+
+        // 4. Split into segments by \t\r\n
+        let parts: Vec<&str> = self.segment_symbols_re.split(&text).collect();
+        let separators: Vec<&str> = self
+            .segment_symbols_re
+            .find_iter(&text)
+            .map(|m| m.as_str())
+            .collect();
+
+        // 5. Tokenize each segment directly (no space normalization for code)
+        let mut result_parts: Vec<String> = Vec::new();
+        for (i, segment) in parts.iter().enumerate() {
+            // Tokenize the segment directly
+            let tokens = self.tokenizer.encode_with_special_tokens(segment);
+            let token_strs: Vec<String> = tokens
+                .iter()
+                .filter_map(|&tok| self.tokenizer.decode(vec![tok]).ok())
+                .collect();
+            let tokenized = token_strs.join(" ");
+
+            result_parts.push(tokenized);
+
+            // Add escaped separator if exists
+            if i < separators.len() {
+                // Escape \n, \t, \r to their literal string representations with spaces
+                let escaped: String = separators[i]
+                    .chars()
+                    .map(|c| match c {
+                        '\n' => "\\n".to_string(),
+                        '\t' => "\\t".to_string(),
+                        '\r' => "\\r".to_string(),
+                        _ => c.to_string(),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                result_parts.push(escaped);
+            }
+        }
+
+        Ok(result_parts.join(" ").trim().to_string())
     }
 }

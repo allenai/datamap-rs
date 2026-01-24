@@ -20,3 +20,4 @@ pub mod substring_line_modifier_test;
 pub mod word_removal_ratio_filter_test;
 pub mod massive_repetition_filter_test;
 pub mod regex_text_filter_test;
+pub mod indentation_test;
