@@ -1,0 +1,84 @@
+name: code_filter
+text_field: text
+pipeline:
+    - name: text_len_filter
+      kwargs:
+          text_field: text
+          lower_bound: 32 # 2 ** 5
+          upper_bound: 262144 # 2 ** 18
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_stack_edu_bin5_combined
+          lower_bound: 0.268079
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_stack_edu_bin5_combined
+          lower_bound: 0.291847
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_stack_edu_bin5_combined
+          lower_bound: 0.322456
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_stack_edu_bin5_combined
+          lower_bound: 0.353239
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_stack_edu_bin5_combined
+          lower_bound: 0.381650
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_stack_edu_bin5_combined
+          lower_bound: 0.406995
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_stack_edu_bin5_combined
+          lower_bound: 0.429416
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_stack_edu_bin5_combined
+          lower_bound: 0.448969
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_stack_edu_bin5_combined
+          lower_bound: 0.466003
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_stack_edu_bin5_combined
+          lower_bound: 0.481164
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_stack_edu_bin5_combined
+          lower_bound: 0.495133
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_stack_edu_bin5_combined
+          lower_bound: 0.509675
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_stack_edu_bin5_combined
+          lower_bound: 0.525981
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_stack_edu_bin5_combined
+          lower_bound: 0.544631
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_stack_edu_bin5_combined
+          lower_bound: 0.566179
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_stack_edu_bin5_combined
+          lower_bound: 0.591354
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_stack_edu_bin5_combined
+          lower_bound: 0.620499
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_stack_edu_bin5_combined
+          lower_bound: 0.653366
+    - name: float_filter
+      kwargs:
+          float_field: metadata.code_quality_stack_edu_bin5_combined
+          lower_bound: 0.688402
