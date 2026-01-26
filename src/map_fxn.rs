@@ -100,6 +100,11 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "linear_transform_annotator", LinearTransformAnnotator);
         register_processor!(m, "hyperfine_annotator", HyperfineAnnotator);
         register_processor!(m, "hyperfine_code_annotator", HyperfineCodeAnnotator);
+        register_processor!(
+            m,
+            "notebook_linearizer_annotator",
+            NotebookLinearizerAnnotator
+        );
         m
     });
 
@@ -2833,7 +2838,8 @@ impl DataProcessor for NgramRepetitionFilter {
         let period_ub = get_default(config, "period_ub", 13);
         let rep_count = get_default(config, "rep_count", 32);
 
-        let tokenizer = cl100k_base().map_err(|e| anyhow!("Failed to load cl100k_base tokenizer: {}", e))?;
+        let tokenizer =
+            cl100k_base().map_err(|e| anyhow!("Failed to load cl100k_base tokenizer: {}", e))?;
         Ok(Self {
             text_field,
             period_lb,
@@ -2844,10 +2850,7 @@ impl DataProcessor for NgramRepetitionFilter {
     }
 
     fn process(&self, data: Value) -> Result<Option<Value>, Error> {
-        let text = json_get(&data, &self.text_field)
-            .unwrap()
-            .as_str()
-            .unwrap();
+        let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap();
 
         let token_ids = self.tokenizer.encode_with_special_tokens(text);
         let tokens: Vec<u32> = token_ids.iter().map(|&t| t as u32).collect();
@@ -3508,5 +3511,221 @@ impl HyperfineCodeAnnotator {
         }
 
         Ok(result_parts.join(" ").trim().to_string())
+    }
+}
+
+/*================================================================================
+=                         NOTEBOOK LINEARIZER                                    =
+================================================================================*/
+
+/// Linearizes Jupyter notebook JSON content to markdown format.
+/// - Markdown cells are output as-is
+/// - Code cells are wrapped in ```python fencing
+/// - Outputs are wrapped in ```output fencing (with truncation)
+#[derive(Serialize, Debug)]
+pub struct NotebookLinearizerAnnotator {
+    pub text_field: String,   // defaults to "text"
+    pub output_field: String, // defaults to "text" (overwrites input)
+    pub max_lines: usize,     // defaults to 20 (0 to disable)
+    pub max_chars: usize,     // defaults to 120 (0 to disable)
+}
+
+impl DataProcessor for NotebookLinearizerAnnotator {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let text_field = get_default(config, "text_field", String::from("text"));
+        let output_field = get_default(config, "output_field", text_field.clone());
+        let max_lines = get_default(config, "max_lines", 20_usize);
+        let max_chars = get_default(config, "max_chars", 120_usize);
+
+        Ok(Self {
+            text_field,
+            output_field,
+            max_lines,
+            max_chars,
+        })
+    }
+
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+        let notebook_json = json_get(&data, &self.text_field)
+            .ok_or_else(|| anyhow!("Text field '{}' not found", self.text_field))?
+            .as_str()
+            .ok_or_else(|| anyhow!("Text field '{}' is not a string", self.text_field))?;
+
+        // Parse the notebook JSON
+        let notebook: Value = serde_json::from_str(notebook_json)
+            .map_err(|e| anyhow!("Failed to parse notebook JSON: {}", e))?;
+
+        let linearized = self.linearize_notebook(&notebook)?;
+
+        json_set(&mut data, &self.output_field, Value::String(linearized))?;
+        Ok(Some(data))
+    }
+}
+
+impl NotebookLinearizerAnnotator {
+    /// Truncate a line to max_chars, adding "..." if truncated.
+    fn truncate_line(&self, line: &str) -> String {
+        if self.max_chars == 0 || line.len() <= self.max_chars {
+            return line.to_string();
+        }
+        // Find a valid char boundary for truncation
+        let mut end = self.max_chars.saturating_sub(3);
+        while end > 0 && !line.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}...", &line[..end])
+    }
+
+    /// Truncate lines to max_lines, keeping first K/2 and last K/2.
+    fn truncate_lines(&self, lines: Vec<String>) -> Vec<String> {
+        if self.max_lines == 0 || lines.len() <= self.max_lines {
+            return lines;
+        }
+
+        let keep_top = self.max_lines / 2;
+        let keep_bottom = self.max_lines - keep_top;
+        let truncated_count = lines.len() - self.max_lines;
+
+        let mut result: Vec<String> = lines.iter().take(keep_top).cloned().collect();
+        result.push(format!("[additional {} lines truncated]", truncated_count));
+        result.extend(lines.iter().skip(lines.len() - keep_bottom).cloned());
+        result
+    }
+
+    /// Join source lines, handling both list and string formats.
+    fn join_source(&self, source: &Value) -> String {
+        match source {
+            Value::Array(arr) => arr
+                .iter()
+                .filter_map(|v| v.as_str())
+                .collect::<Vec<_>>()
+                .join(""),
+            Value::String(s) => s.clone(),
+            _ => String::new(),
+        }
+    }
+
+    /// Format cell outputs as markdown with truncation.
+    fn format_outputs(&self, outputs: &[Value]) -> String {
+        if outputs.is_empty() {
+            return String::new();
+        }
+
+        let mut parts: Vec<String> = Vec::new();
+
+        for output in outputs {
+            let output_type = output
+                .get("output_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            match output_type {
+                "stream" => {
+                    // stdout/stderr text output
+                    if let Some(text) = output.get("text") {
+                        let text_content = self.join_source(text);
+                        let trimmed = text_content.trim_end_matches('\n');
+                        if !trimmed.trim().is_empty() {
+                            parts.push(trimmed.to_string());
+                        }
+                    }
+                }
+                "execute_result" | "display_data" => {
+                    // Result from executing a cell or display output
+                    if let Some(data) = output.get("data") {
+                        if let Some(text_plain) = data.get("text/plain") {
+                            let text_content = self.join_source(text_plain);
+                            let trimmed = text_content.trim_end_matches('\n');
+                            if !trimmed.trim().is_empty() {
+                                parts.push(trimmed.to_string());
+                            }
+                        }
+                    }
+                }
+                "error" => {
+                    // Error traceback
+                    if let Some(traceback) = output.get("traceback").and_then(|v| v.as_array()) {
+                        let ansi_re = Regex::new(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])").unwrap();
+                        let text_content: String = traceback
+                            .iter()
+                            .filter_map(|v| v.as_str())
+                            .map(|line| ansi_re.replace_all(line, "").to_string())
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        let trimmed = text_content.trim_end_matches('\n');
+                        if !trimmed.trim().is_empty() {
+                            parts.push(trimmed.to_string());
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if parts.is_empty() {
+            return String::new();
+        }
+
+        let output_text = parts.join("\n\n");
+
+        // Apply truncation
+        let lines: Vec<String> = output_text
+            .split('\n')
+            .map(|line| self.truncate_line(line))
+            .collect();
+        let lines = self.truncate_lines(lines);
+        let output_text = lines.join("\n");
+
+        format!("\n\n```output\n{}\n```", output_text)
+    }
+
+    /// Convert a Jupyter notebook to markdown format.
+    fn linearize_notebook(&self, notebook: &Value) -> Result<String, Error> {
+        let cells = notebook
+            .get("cells")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| anyhow!("Notebook has no cells array"))?;
+
+        let mut parts: Vec<String> = Vec::new();
+
+        for cell in cells {
+            let cell_type = cell.get("cell_type").and_then(|v| v.as_str()).unwrap_or("");
+
+            let source = cell
+                .get("source")
+                .map(|s| self.join_source(s))
+                .unwrap_or_default();
+
+            match cell_type {
+                "markdown" => {
+                    let trimmed = source.trim_end_matches('\n');
+                    if !trimmed.trim().is_empty() {
+                        parts.push(trimmed.to_string());
+                    }
+                }
+                "code" => {
+                    let trimmed = source.trim_end();
+                    if !trimmed.trim().is_empty() {
+                        let code_block = format!("```python\n{}\n```", trimmed);
+                        let outputs = cell
+                            .get("outputs")
+                            .and_then(|v| v.as_array())
+                            .map(|arr| arr.as_slice())
+                            .unwrap_or(&[]);
+                        let output_block = self.format_outputs(outputs);
+                        parts.push(format!("{}{}", code_block, output_block));
+                    }
+                }
+                "raw" => {
+                    let trimmed = source.trim_end();
+                    if !trimmed.trim().is_empty() {
+                        parts.push(format!("```\n{}\n```", trimmed));
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        Ok(parts.join("\n\n"))
     }
 }
