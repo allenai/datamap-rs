@@ -1,0 +1,33 @@
+name: jupyter_notebook
+text_field: text
+pipeline:
+    - name: notebook_linearizer_annotator
+      kwargs:
+          text_field: text
+          output_field: text
+    - name: gzip_annotator
+      kwargs:
+          text_field: text
+          anno_field: gzip
+
+    - name: ultrafineweb_annotator
+      kwargs:
+          text_field: text
+          output_field: metadata.qc_stack_edu_python
+          max_text_length: 10000
+          fast_text_file: /mnt/raid0/ai2-llm/classifiers/code-quality/trained_models/fasttext/the-stack-v2_spring2code_v2_minhash_v2_annotated_sample_1GB_stack_edu_python_gpt-5-mini_10k_trimmed_fasttext_ultrafine_bin5L/Python/model.bin
+    - name: linear_transform_annotator
+      kwargs:
+          features:
+              - field: metadata.qc_stack_edu_python.__label__bin1
+                weight: -0.371592
+              - field: metadata.qc_stack_edu_python.__label__bin2
+                weight: -0.125690
+              - field: metadata.qc_stack_edu_python.__label__bin3
+                weight: 0.099918
+              - field: metadata.qc_stack_edu_python.__label__bin4
+                weight: 0.347447
+              - field: metadata.qc_stack_edu_python.__label__bin5
+                weight: 0.050993
+          bias: 0.392923
+          output_field: metadata.qc_stack_edu_python_combined
