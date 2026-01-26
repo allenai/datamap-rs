@@ -1,0 +1,6 @@
+name: add_id
+text_field: text
+pipeline:
+    - name: add_id
+      kwargs:
+          id_field: id
