@@ -1,0 +1,10 @@
+python
+javascript
+typescript
+rust
+go
+java
+c++
+c
+ruby
+swift

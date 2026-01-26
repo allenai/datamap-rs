@@ -1,0 +1,7 @@
+spam
+adult
+gambling
+phishing
+malware
+violence
+illegal
