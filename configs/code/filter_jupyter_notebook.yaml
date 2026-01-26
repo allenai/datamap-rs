@@ -1,0 +1,79 @@
+name: jupyter_notebook
+text_field: text
+pipeline:
+    - name: float_filter
+      kwargs:
+          float_field: metadata.qc_stack_edu_python_combined
+          lower_bound: 0.337890
+    - name: float_filter
+      kwargs:
+          float_field: metadata.qc_stack_edu_python_combined
+          lower_bound: 0.390112
+    - name: float_filter
+      kwargs:
+          float_field: metadata.qc_stack_edu_python_combined
+          lower_bound: 0.422308
+    - name: float_filter
+      kwargs:
+          float_field: metadata.qc_stack_edu_python_combined
+          lower_bound: 0.446730
+    - name: float_filter
+      kwargs:
+          float_field: metadata.qc_stack_edu_python_combined
+          lower_bound: 0.467231
+    - name: float_filter
+      kwargs:
+          float_field: metadata.qc_stack_edu_python_combined
+          lower_bound: 0.485709
+    - name: float_filter
+      kwargs:
+          float_field: metadata.qc_stack_edu_python_combined
+          lower_bound: 0.502981
+    - name: float_filter
+      kwargs:
+          float_field: metadata.qc_stack_edu_python_combined
+          lower_bound: 0.519691
+    - name: float_filter
+      kwargs:
+          float_field: metadata.qc_stack_edu_python_combined
+          lower_bound: 0.536310
+    - name: float_filter
+      kwargs:
+          float_field: metadata.qc_stack_edu_python_combined
+          lower_bound: 0.552904
+    - name: float_filter
+      kwargs:
+          float_field: metadata.qc_stack_edu_python_combined
+          lower_bound: 0.569589
+    - name: float_filter
+      kwargs:
+          float_field: metadata.qc_stack_edu_python_combined
+          lower_bound: 0.586205
+    - name: float_filter
+      kwargs:
+          float_field: metadata.qc_stack_edu_python_combined
+          lower_bound: 0.602807
+    - name: float_filter
+      kwargs:
+          float_field: metadata.qc_stack_edu_python_combined
+          lower_bound: 0.619296
+    - name: float_filter
+      kwargs:
+          float_field: metadata.qc_stack_edu_python_combined
+          lower_bound: 0.635593
+    - name: float_filter
+      kwargs:
+          float_field: metadata.qc_stack_edu_python_combined
+          lower_bound: 0.651623
+    - name: float_filter
+      kwargs:
+          float_field: metadata.qc_stack_edu_python_combined
+          lower_bound: 0.666956
+    - name: float_filter
+      kwargs:
+          float_field: metadata.qc_stack_edu_python_combined
+          lower_bound: 0.682501
+    - name: float_filter
+      kwargs:
+          float_field: metadata.qc_stack_edu_python_combined
+          lower_bound: 0.700265
