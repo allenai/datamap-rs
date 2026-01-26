@@ -65,7 +65,7 @@ def find_jsonl_files(directory: Path, recursive: bool = True) -> list[Path]:
         for root, _, filenames in os.walk(directory):
             for filename in filenames:
                 file_path = Path(root) / filename
-                if "".join(file_path.suffixes) in FILE_SUFFIXES:
+                if "".join(file_path.suffixes[-2:]) in FILE_SUFFIXES:
                     files.append(file_path)
     else:
         for file_path in directory.iterdir():
