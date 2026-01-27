@@ -18,6 +18,7 @@ use std::time::Instant;
 use uuid::Uuid;
 
 use derivative::Derivative;
+use dom_smoothie::Readability;
 use fasttext::FastText;
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -25,7 +26,7 @@ use fxhash::{FxHashMap, FxHasher};
 use html_to_markdown_rs::convert as html_to_markdown;
 use mj_io::read_pathbuf_to_mem;
 use once_cell::sync::OnceCell;
-use readability_rust::Readability;
+
 use regex::Regex;
 use tiktoken_rs::cl100k_base;
 use tokenizers::Tokenizer;
@@ -3751,6 +3752,7 @@ impl DataProcessor for ReadabilityAnnotator {
     fn new(config: &Value) -> Result<Self, Error> {
         let text_field = get_default(config, "text_field", String::from("text"));
         let output_field = get_default(config, "output_field", String::from("readability"));
+
         Ok(Self {
             text_field,
             output_field,
@@ -3762,37 +3764,18 @@ impl DataProcessor for ReadabilityAnnotator {
             .ok_or_else(|| anyhow!("Text field '{}' not found", self.text_field))?
             .as_str()
             .unwrap_or("");
+        let mut readability = Readability::new(raw_html, None, None)?;
 
-        // instantiate a parser with the HTML content
-        // Use catch_unwind because readability-rust can panic on malformed CSS
-        // Suppress panic output by temporarily installing a silent panic hook
-        let prev_hook = std::panic::take_hook();
-        std::panic::set_hook(Box::new(|_| {}));
+        // let article: Article = readability.parse()?;
+        //
 
-        let raw_html_owned = raw_html.to_string();
-        let text = std::panic::catch_unwind(|| {
-            match Readability::new(&raw_html_owned, None) {
-                Ok(mut parser) => match parser.parse() {
-                    Some(article) => {
-                        let mut article_content = match article.content {
-                            Some(content) => {
-                                html_to_markdown(&content, None).unwrap_or(String::new())
-                            }
-                            None => String::new(),
-                        };
-                        if let Some(title) = article.title {
-                            article_content.insert_str(0, &format!("# {}\n\n", title));
-                        }
-                        article_content
-                    }
-                    None => String::new(),
-                },
+        let text = match readability.parse() {
+            Ok(article) => match html_to_markdown(&article.content.to_string(), None) {
+                Ok(markdown) => markdown,
                 Err(_) => String::new(),
-            }
-        })
-        .unwrap_or_default();
-
-        std::panic::set_hook(prev_hook);
+            },
+            Err(_) => String::new(),
+        };
 
         let frac = if raw_html.len() > 0 {
             text.len() as f64 / raw_html.len() as f64

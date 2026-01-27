@@ -42,8 +42,8 @@ flate2 = "1.1.5"
 tokenizers = "0.20"
 unicode-normalization = "0.1"
 unicode-general-category = "0.6"
-readability-rust = "0.1.0"
 html-to-markdown-rs = "2.23.4"
+dom_smoothie = "0.15.0"
 
 
 
