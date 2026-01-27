@@ -3764,24 +3764,35 @@ impl DataProcessor for ReadabilityAnnotator {
             .unwrap_or("");
 
         // instantiate a parser with the HTML content
-        let text = match Readability::new(raw_html, None) {
-            Ok(mut parser) => match parser.parse() {
-                Some(article) => {
-                    let mut article_content = match article.content {
-                        Some(content) => {
-                            html_to_markdown(&content, None).unwrap_or(String::new())
+        // Use catch_unwind because readability-rust can panic on malformed CSS
+        // Suppress panic output by temporarily installing a silent panic hook
+        let prev_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+
+        let raw_html_owned = raw_html.to_string();
+        let text = std::panic::catch_unwind(|| {
+            match Readability::new(&raw_html_owned, None) {
+                Ok(mut parser) => match parser.parse() {
+                    Some(article) => {
+                        let mut article_content = match article.content {
+                            Some(content) => {
+                                html_to_markdown(&content, None).unwrap_or(String::new())
+                            }
+                            None => String::new(),
+                        };
+                        if let Some(title) = article.title {
+                            article_content.insert_str(0, &format!("# {}\n\n", title));
                         }
-                        None => String::new(),
-                    };
-                    if let Some(title) = article.title {
-                        article_content.insert_str(0, &format!("# {}\n\n", title));
+                        article_content
                     }
-                    article_content
-                }
-                None => String::new(),
-            },
-            Err(_) => String::new(),
-        };
+                    None => String::new(),
+                },
+                Err(_) => String::new(),
+            }
+        })
+        .unwrap_or_default();
+
+        std::panic::set_hook(prev_hook);
 
         let frac = if raw_html.len() > 0 {
             text.len() as f64 / raw_html.len() as f64
