@@ -22,8 +22,10 @@ use fasttext::FastText;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use fxhash::{FxHashMap, FxHasher};
+use html_to_markdown_rs::convert as html_to_markdown;
 use mj_io::read_pathbuf_to_mem;
 use once_cell::sync::OnceCell;
+use readability_rust::Readability;
 use regex::Regex;
 use tiktoken_rs::cl100k_base;
 use tokenizers::Tokenizer;
@@ -105,6 +107,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
             "notebook_linearizer_annotator",
             NotebookLinearizerAnnotator
         );
+        register_processor!(m, "readibility_annotator", ReadabilityAnnotator);
         m
     });
 
@@ -3727,5 +3730,71 @@ impl NotebookLinearizerAnnotator {
         }
 
         Ok(parts.join("\n\n"))
+    }
+}
+
+/*================================================================================
+=                         READABILITY EXTRACTOR                                  =
+================================================================================*/
+
+/// Extracts content from HTML files. Converts markdown format.
+/// - Markdown cells are output as-is
+/// - Code cells are wrapped in ```python fencing
+/// - Outputs are wrapped in ```output fencing (with truncation)
+#[derive(Serialize, Debug)]
+pub struct ReadabilityAnnotator {
+    pub text_field: String,   // defaults to "text"
+    pub output_field: String, // defaults to "readability"
+}
+
+impl DataProcessor for ReadabilityAnnotator {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let text_field = get_default(config, "text_field", String::from("text"));
+        let output_field = get_default(config, "output_field", String::from("readability"));
+        Ok(Self {
+            text_field,
+            output_field,
+        })
+    }
+
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+        let raw_html = json_get(&data, &self.text_field)
+            .ok_or_else(|| anyhow!("Text field '{}' not found", self.text_field))?
+            .as_str()
+            .unwrap_or("");
+
+        // instantiate a parser with the HTML content
+        let text = match Readability::new(raw_html, None) {
+            Ok(mut parser) => match parser.parse() {
+                Some(article) => {
+                    let mut article_content = match article.content {
+                        Some(content) => {
+                            html_to_markdown(&content, None).unwrap_or(String::new())
+                        }
+                        None => String::new(),
+                    };
+                    if let Some(title) = article.title {
+                        article_content.insert_str(0, &format!("# {}\n\n", title));
+                    }
+                    article_content
+                }
+                None => String::new(),
+            },
+            Err(_) => String::new(),
+        };
+
+        let frac = if raw_html.len() > 0 {
+            text.len() as f64 / raw_html.len() as f64
+        } else {
+            0.0
+        };
+
+        let output = serde_json::json!({
+            "text": text,
+            "frac": frac
+        });
+
+        json_set(&mut data, &self.output_field, output)?;
+        Ok(Some(data))
     }
 }
