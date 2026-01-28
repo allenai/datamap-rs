@@ -1,9 +1,29 @@
-name: code_classifier
+name: sql_code_classifier
 text_field: text
 pipeline:
-  - name: ultrafineweb_annotator
-    kwargs:
-      text_field: text
-      output_field: metadata.code_quality
-      max_text_length: 10000
-      fast_text_file: /mnt/raid0/ai2-llm/classifiers/code-quality/trained_models/fasttext/the-stack-v2_spring2code_v2_minhash_v2_annotated_sample_1GB__gpt-5-mini_10k_trimmed_fasttext_ultrafine_thr12_SQL/SQL/model.bin
+    - name: gzip_annotator
+      kwargs:
+          text_field: text
+          anno_field: metadata.gzip_compression_ratio
+
+    - name: ultrafineweb_annotator
+      kwargs:
+          text_field: text
+          output_field: metadata.stack_edu_redux
+          max_text_length: 10000
+          fast_text_file: /mnt/raid0/ai2-llm/classifiers/code-quality/trained_models/fasttext/stack_edu_redux_ultrafine_bin5/SQL/model.bin
+    - name: linear_transform_annotator
+      kwargs:
+          features:
+              - field: metadata.stack_edu_redux.__label__bin1
+                weight: -0.427984
+              - field: metadata.stack_edu_redux.__label__bin2
+                weight: -0.16302
+              - field: metadata.stack_edu_redux.__label__bin3
+                weight: 0.071014
+              - field: metadata.stack_edu_redux.__label__bin4
+                weight: 0.36637
+              - field: metadata.stack_edu_redux.__label__bin5
+                weight: 0.15374
+          bias: 0.415761
+          output_field: metadata.stack_edu_redux_combined
