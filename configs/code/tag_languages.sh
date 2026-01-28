@@ -5,8 +5,8 @@ set -euox pipefail
 REMOTE_DIR="s3://ai2-llm"
 LOCAL_DIR="/mnt/raid0/ai2-llm"
 INPUT_DIR="pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated_reshard"
-OUTPUT_DIR="pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated_reshard_qc_tagged_auto5"
-CONFIGS_DIR="configs/code/cls_auto5"
+OUTPUT_DIR="pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_filter_v2_2026_stack_edu_redux"
+CONFIGS_DIR="configs/code/classifiers"
 
 # ============================================================================
 # Get instance rank and world size from EC2 metadata
@@ -120,16 +120,20 @@ done
 
 for language in "${LANGUAGES[@]}"; do
     input_dir="${LOCAL_DIR}/${OUTPUT_DIR}/${language}/step_final/"
-    output_file="${LOCAL_DIR}/${OUTPUT_DIR}/${language}/code_quality_report.json"
+    output_file="${LOCAL_DIR}/${OUTPUT_DIR}/${language}/code_quality_report.yaml"
 
     if [ -f "${output_file}" ]; then
         echo "Output file ${output_file} already exists"
         continue
     fi
 
-    echo "Sampling ${language}..."
-    cargo run --release reservoir-sample --input-dir ${input_dir} --output-file ${output_file} \
-    --key "metadata.code_quality.__label__pos" --text-key text --token-weighted --reservoir-size 100000
+    echo "Determining vigintiles for ${language}..."
+    uv run python/percentile.py \
+        --input-dir "${input_dir}" \
+        --output-file "${output_file}" \
+        --key ".metadata.stack_edu_redux_combined" \
+        --weight-by '.text' \
+        --num-samples 10000000   # 10M samples
 done
 
 # ============================================================================
