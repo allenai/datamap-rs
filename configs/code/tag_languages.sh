@@ -42,7 +42,6 @@ echo "World Size: ${WORLD_SIZE}"
 # ============================================================================
 
 ALL_LANGUAGES=(
-    "Python"
     "C"
     "C++"
     "C-Sharp"
@@ -51,6 +50,7 @@ ALL_LANGUAGES=(
     "JavaScript"
     "Markdown"
     "PHP"
+    "Python"
     "Ruby"
     "Rust"
     "Shell"
@@ -97,7 +97,7 @@ for language in "${LANGUAGES[@]}"; do
     local_output_dir="${LOCAL_DIR}/${OUTPUT_DIR}/${language}"
 
     if [ -d "${local_output_dir}" ]; then
-        echo "Output directory ${output_dir} already exists"
+        echo "Output directory ${local_output_dir} already exists"
         continue
     fi
 
