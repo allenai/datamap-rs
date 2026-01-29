@@ -129,9 +129,9 @@ for language in "${LANGUAGES[@]}"; do
 
     echo "Determining vigintiles for ${language}..."
     uv run python/percentile.py \
-        --input-dir "${input_dir}" \
+        "${input_dir}" \
         --output-file "${output_file}" \
-        --key ".metadata.stack_edu_redux_combined" \
+        --expression ".metadata.stack_edu_redux_combined" \
         --weight-by '.text' \
         --num-samples 10000000   # 10M samples
 done
@@ -143,7 +143,7 @@ done
 echo "Uploading results to S3..."
 for language in "${LANGUAGES[@]}"; do
     local_dir="${LOCAL_DIR}/${OUTPUT_DIR}/${language}"
-    s3_dir="${REMOTE_DIR}${OUTPUT_DIR}/${language}"
+    s3_dir="${REMOTE_DIR}/${OUTPUT_DIR}/${language}"
 
     if [ -d "${local_dir}" ]; then
         echo "Uploading ${language} to ${s3_dir}..."
