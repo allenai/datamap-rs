@@ -577,7 +577,7 @@ fn main() {
             text_key,
             num_buckets,
             subsample_rate
-        } => percentile_finder(input_dir, output_file, score_key, tokenizer, text_key, *num_buckets, *subsample_rate),
+        } => percentile_finder(input_dir, output_file, score_key, text_key, tokenizer, *num_buckets, *subsample_rate),
 
         Commands::DiscretePartition {
             input_dir,
