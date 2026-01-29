@@ -129,7 +129,7 @@ for language in "${LANGUAGES[@]}"; do
 
     echo "Determining vigintiles for ${language}..."
     uv run python/percentile.py \
-        --input-dir "${input_dir}" \
+        "${input_dir}" \
         --output-file "${output_file}" \
         --key ".metadata.stack_edu_redux_combined" \
         --weight-by '.text' \

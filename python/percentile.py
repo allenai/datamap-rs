@@ -8,6 +8,7 @@
 #     "tqdm",
 #     "numpy",
 #     "click",
+#     "pyyaml",
 # ]
 # ///
 """
@@ -36,6 +37,7 @@ import jq
 import msgspec
 import numpy as np
 import smart_open
+import yaml
 from tqdm import tqdm
 
 FILE_SUFFIXES = frozenset(
@@ -306,6 +308,13 @@ def calculate_unweighted_percentiles(
     is_flag=True,
     help="Don't search subdirectories",
 )
+@click.option(
+    "-o",
+    "--output-file",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Save statistics to a YAML file",
+)
 def main(
     directory: Path,
     expression: str,
@@ -315,6 +324,7 @@ def main(
     workers: int | None,
     seed: int,
     no_recursive: bool,
+    output_file: Path | None,
 ):
     """Calculate percentiles from values in JSONL files.
 
@@ -426,6 +436,11 @@ def main(
     for p in sorted(percentiles):
         key = f"p{p:g}"
         click.echo(f"  {key:>6}: {results[key]:.6f}")
+
+    if output_file:
+        with open(output_file, "w") as f:
+            yaml.safe_dump(results, f, default_flow_style=False, sort_keys=False)
+        click.echo(f"\nStatistics saved to {output_file}")
 
 
 if __name__ == "__main__":
