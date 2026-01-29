@@ -33,6 +33,7 @@ use datamap_rs::reshard::reshard;
 use datamap_rs::groupfilter::{group, group_filter};
 use datamap_rs::reservoir_sample::reservoir_sample;
 use datamap_rs::shuffle::shuffle; 
+use datamap_rs::percentile_finder::percentile_finder;
 /*
 Map Config layout:
 
@@ -117,7 +118,29 @@ enum Commands {
 
         #[arg(long, default_value_t=String::from("text"))]
         text_key: String,
+    },
 
+    PercentileFinder {
+        #[arg(required=true, long)]
+        input_dir: PathBuf,
+
+        #[arg(required=true, long)]
+        output_file: PathBuf,
+
+        #[arg(required=true, long)]
+        score_key: String,
+
+        #[arg(long, default_value_t=String::from("text"))]
+        text_key: String,
+
+        #[arg(long, default_value_t=String::from("cl100k"))]
+        tokenizer: String,
+
+        #[arg(long, default_value_t=100)]
+        num_buckets: usize,
+
+        #[arg(long, default_value_t=1.0)]
+        subsample_rate: f32,
     },
 
     DiscretePartition {
@@ -544,6 +567,17 @@ fn main() {
             token_weighted,
             text_key
         } => reservoir_sample(input_dir, output_file, key, *reservoir_size, *token_weighted, &text_key.clone()),
+
+
+        Commands::PercentileFinder {
+            input_dir,
+            output_file,
+            score_key,
+            tokenizer,
+            text_key,
+            num_buckets,
+            subsample_rate
+        } => percentile_finder(input_dir, output_file, score_key, tokenizer, text_key, *num_buckets, *subsample_rate),
 
         Commands::DiscretePartition {
             input_dir,

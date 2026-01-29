@@ -179,7 +179,6 @@ fn token_weighted_thread_res(
     
     let mut rng = rand::rng();
     let tokenizer = cl100k_base().unwrap();
-
     input_paths.into_iter().for_each(|p| {
         let contents = read_pathbuf_to_mem(&p).unwrap();
         for line in contents.lines() {
