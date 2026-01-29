@@ -131,7 +131,7 @@ for language in "${LANGUAGES[@]}"; do
     uv run python/percentile.py \
         "${input_dir}" \
         --output-file "${output_file}" \
-        --key ".metadata.stack_edu_redux_combined" \
+        --expression ".metadata.stack_edu_redux_combined" \
         --weight-by '.text' \
         --num-samples 10000000   # 10M samples
 done
