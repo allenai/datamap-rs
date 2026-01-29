@@ -143,7 +143,7 @@ done
 echo "Uploading results to S3..."
 for language in "${LANGUAGES[@]}"; do
     local_dir="${LOCAL_DIR}/${OUTPUT_DIR}/${language}"
-    s3_dir="${REMOTE_DIR}${OUTPUT_DIR}/${language}"
+    s3_dir="${REMOTE_DIR}/${OUTPUT_DIR}/${language}"
 
     if [ -d "${local_dir}" ]; then
         echo "Uploading ${language} to ${s3_dir}..."
