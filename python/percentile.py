@@ -120,11 +120,7 @@ def sample_values_from_file(
                     continue
 
                 if extract_weight:
-                    w = extract_weight(row)
-                    try:
-                        w = float(w)
-                    except (TypeError, ValueError):
-                        w = 1.0
+                    w = float(extract_weight(row))
                 else:
                     w = 1.0
 

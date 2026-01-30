@@ -129,12 +129,14 @@ where
 #[derive(Debug)]
 pub struct PipelineProcessor {
     pub pipeline: Vec<Box<dyn AnyDataProcessor>>,
+    pub steps: Vec<String>,
 }
 
 impl PipelineProcessor {
     // Create an empty pipeline
     pub fn new(config: &Value) -> Result<Self, Error> {
         let mut pipeline: Vec<Box<dyn AnyDataProcessor>> = Vec::<Box<dyn AnyDataProcessor>>::new();
+        let mut steps: Vec<String> = Vec::<String>::new();
         let text_field = get_default(&config, "text_field", String::from("text"));
 
         let pipeline_configs = config.get("pipeline").unwrap().as_array().unwrap();
@@ -154,8 +156,23 @@ impl PipelineProcessor {
             .unwrap();
             let constructor = PROCESSOR_CONSTRUCTORS[subconfig_name];
             pipeline.push(constructor(&subconfig_kwargs).unwrap());
+
+            // find the step number
+            match subconfig.get("step") {
+                Some(step) => steps.push(step.to_string()),
+                None => {
+                    let current_step_number = steps.len();
+                    if current_step_number + 1 < pipeline_configs.len() {
+                        // not the last step
+                        steps.push(format!("step_{:02}", current_step_number));
+                    } else {
+                        // last step
+                        steps.push(String::from("step_final"));
+                    }
+                }
+            };
         }
-        Ok(Self { pipeline })
+        Ok(Self { pipeline, steps })
     }
 
     pub fn process(
