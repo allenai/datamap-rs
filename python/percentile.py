@@ -479,8 +479,8 @@ def main(
     # Build nested output structure for YAML
     if output_file:
         output = {
-            "directory": directory,
-            "num_samples": num_samples,
+            "directory": str(directory),
+            "num_samples": int(num_samples),
             "value": build_output_dict(value_results, expression),
             "length": (
                 build_output_dict(length_results, expression)
