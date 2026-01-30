@@ -1,0 +1,95 @@
+#!/bin/bash
+
+# Script to generate filter configs for all languages based on code_quality_report.yaml from S3
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FILTERS_DIR="${SCRIPT_DIR}/filters"
+S3_BASE="s3://ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_filter_v2_2026_stack_edu_redux_tagged"
+
+# Mapping from classifier name (lowercase) to S3 folder name
+declare -A LANG_MAP=(
+    ["c"]="C"
+    ["cpp"]="C++"
+    ["csharp"]="C-Sharp"
+    ["go"]="Go"
+    ["java"]="Java"
+    ["javascript"]="JavaScript"
+    ["markdown"]="Markdown"
+    ["php"]="PHP"
+    ["python"]="Python"
+    ["ruby"]="Ruby"
+    ["rust"]="Rust"
+    ["shell"]="Shell"
+    ["sql"]="SQL"
+    ["swift"]="Swift"
+    ["typescript"]="TypeScript"
+)
+
+# Percentile keys in order (p5 to p95 in increments of 5)
+PERCENTILES=(p5 p10 p15 p20 p25 p30 p35 p40 p45 p50 p55 p60 p65 p70 p75 p80 p85 p90 p95)
+
+generate_filter_config() {
+    local lang_key="$1"
+    local s3_name="$2"
+    local output_file="${FILTERS_DIR}/${lang_key}.yaml"
+
+    echo "Generating filter config for ${lang_key} (S3: ${s3_name})..."
+
+    # Fetch the code_quality_report.yaml from S3
+    local report
+    report=$(aws s3 cp "${S3_BASE}/${s3_name}/code_quality_report.yaml" - 2>/dev/null)
+
+    if [[ -z "$report" ]]; then
+        echo "  ERROR: Could not fetch code_quality_report.yaml for ${s3_name}"
+        return 1
+    fi
+
+    # Start building the config file
+    cat > "$output_file" << 'EOF'
+name: code_filter
+text_field: text
+pipeline:
+    - name: text_len_filter
+      kwargs:
+          text_field: text
+          lower_bound: 32 # 2 ** 5
+          upper_bound: 262144 # 2 ** 18
+EOF
+
+    # Extract percentiles and add float_filter entries
+    for pct in "${PERCENTILES[@]}"; do
+        # Extract the percentile value from the report
+        local value
+        value=$(echo "$report" | grep "^${pct}:" | awk '{print $2}')
+
+        if [[ -z "$value" ]]; then
+            echo "  WARNING: Could not find ${pct} in report for ${s3_name}"
+            continue
+        fi
+
+        # Format to 6 decimal places
+        value=$(printf "%.6f" "$value")
+
+        cat >> "$output_file" << EOF
+    - name: float_filter
+      kwargs:
+          float_field: metadata.stack_edu_redux_combined
+          lower_bound: ${value}
+EOF
+    done
+
+    echo "  Created ${output_file}"
+}
+
+# Create filters directory if it doesn't exist
+mkdir -p "$FILTERS_DIR"
+
+# Process all languages
+for lang_key in "${!LANG_MAP[@]}"; do
+    s3_name="${LANG_MAP[$lang_key]}"
+    generate_filter_config "$lang_key" "$s3_name"
+done
+
+echo "Done! Generated filter configs for ${#LANG_MAP[@]} languages."
