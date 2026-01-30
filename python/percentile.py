@@ -478,45 +478,40 @@ def main(
 
     # Build nested output structure for YAML
     if output_file:
-        output: dict[str, Any] = {
-            "value": {
-                "statistics": {
-                    "count": value_results["count"],
-                    "mean": value_results["mean"],
-                    "std": value_results["std"],
-                    "min": value_results["min"],
-                    "max": value_results["max"],
-                },
-                "percentiles": {
-                    f"p{p:g}": value_results[f"p{p:g}"] for p in sorted(percentiles)
-                },
-            }
+        output = {
+            "directory": directory,
+            "num_samples": num_samples,
+            "value": build_output_dict(value_results, expression),
+            "length": (
+                build_output_dict(length_results, expression)
+                if length_results
+                else None
+            ),
         }
-        if weight_by and "total_weight" in value_results:
-            output["value"]["statistics"]["total_weight"] = value_results[
-                "total_weight"
-            ]
-            output["value"]["weighted"] = True
-        else:
-            output["value"]["weighted"] = False
-
-        if length_results:
-            output["length"] = {
-                "statistics": {
-                    "count": length_results["count"],
-                    "mean": length_results["mean"],
-                    "std": length_results["std"],
-                    "min": length_results["min"],
-                    "max": length_results["max"],
-                },
-                "percentiles": {
-                    f"p{p:g}": length_results[f"p{p:g}"] for p in sorted(percentiles)
-                },
-            }
 
         with open(output_file, "w") as f:
             yaml.safe_dump(output, f, default_flow_style=False, sort_keys=False)
         click.echo(f"\nStatistics saved to {output_file}")
+
+
+def build_output_dict(results: dict[str, float], expression: str, precision: int = 6):
+    return {
+        "expression": expression,
+        "statistics": {
+            "count": round(results["count"], precision),
+            "mean": round(results["mean"], precision),
+            "std": round(results["std"], precision),
+            "min": round(results["min"], precision),
+            "max": round(results["max"], precision),
+        },
+        "percentiles": {
+            p: round(g, precision)
+            for p, g in sorted(
+                filter(lambda x: x[0].startswith("p"), results.items()),
+                key=lambda x: float(x[0].lstrip("p")),
+            )
+        },
+    }
 
 
 if __name__ == "__main__":
