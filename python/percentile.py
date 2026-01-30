@@ -215,9 +215,9 @@ def calculate_percentiles(
     weighted_var = np.sum(weights * (values - weighted_mean) ** 2) / total_weight
 
     results: dict[str, float] = {
-        "count": len(values),
+        "cnt": len(values),
         "total_weight": float(total_weight),
-        "mean": float(weighted_mean),
+        "avg": float(weighted_mean),
         "std": float(np.sqrt(weighted_var)),
         "min": float(np.min(values)),
         "max": float(np.max(values)),
@@ -236,8 +236,8 @@ def calculate_unweighted_percentiles(
 ) -> dict[str, float]:
     """Calculate unweighted percentiles and basic statistics."""
     results: dict[str, float] = {
-        "count": len(values),
-        "mean": float(np.mean(values)),
+        "cnt": len(values),
+        "avg": float(np.mean(values)),
         "std": float(np.std(values)),
         "min": float(np.min(values)),
         "max": float(np.max(values)),
@@ -474,7 +474,7 @@ def main(
         click.echo("-" * 50)
         for p in sorted(percentiles):
             key = f"p{p:g}"
-            click.echo(f"  {key:>8}: {length_results[key]:.6f}")
+            click.echo(f"  {key:>8}: {length_results[key]:.0f}")
 
     # Build nested output structure for YAML
     if output_file:
@@ -498,14 +498,13 @@ def build_output_dict(results: dict[str, float], expression: str, precision: int
     return {
         "expression": expression,
         "statistics": {
-            "count": round(results["count"], precision),
-            "mean": round(results["mean"], precision),
-            "std": round(results["std"], precision),
-            "min": round(results["min"], precision),
-            "max": round(results["max"], precision),
+            key: (
+                round(results[key], precision) if precision > 0 else int(results[key])
+            )
+            for key in ("cnt", "avg", "std", "min", "max")
         },
         "percentiles": {
-            p: round(g, precision)
+            p: round(g, precision) if precision > 0 else int(g)
             for p, g in sorted(
                 filter(lambda x: x[0].startswith("p"), results.items()),
                 key=lambda x: float(x[0].lstrip("p")),
