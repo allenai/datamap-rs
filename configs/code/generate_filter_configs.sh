@@ -92,7 +92,7 @@ EOF
         value=$(printf "%.6f" "$value")
 
         cat >> "$output_file" << EOF
-    - name: float_filter
+    - name: float_filter  # ${pct}
       kwargs:
           float_field: metadata.stack_edu_redux_combined
           lower_bound: ${value}
