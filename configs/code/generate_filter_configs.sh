@@ -65,16 +65,27 @@ generate_filter_config() {
         return 1
     fi
 
+    # Extract length percentiles for text_len_filter bounds
+    local len_lower len_upper
+    len_lower=$(yaml_get "$report" "length.percentiles.p1")
+    len_upper=$(yaml_get "$report" "length.percentiles.p99")
+
+    if [[ -z "$len_lower" ]] || [[ -z "$len_upper" ]]; then
+        echo "  WARNING: Could not find length percentiles, using defaults"
+        len_lower=32
+        len_upper=262144
+    fi
+
     # Start building the config file
-    cat > "$output_file" << 'EOF'
+    cat > "$output_file" << EOF
 name: code_filter
 text_field: text
 pipeline:
-    - name: text_len_filter
+    - name: text_len_filter  # p1-p99
       kwargs:
           text_field: text
-          lower_bound: 32 # 2 ** 5
-          upper_bound: 262144 # 2 ** 18
+          lower_bound: ${len_lower}
+          upper_bound: ${len_upper}
 EOF
 
     # Extract percentiles and add float_filter entries

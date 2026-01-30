@@ -1,11 +1,11 @@
 name: code_filter
 text_field: text
 pipeline:
-    - name: text_len_filter
+    - name: text_len_filter  # p1-p99
       kwargs:
           text_field: text
-          lower_bound: 32 # 2 ** 5
-          upper_bound: 262144 # 2 ** 18
+          lower_bound: 127
+          upper_bound: 22462
     - name: float_filter  # p5
       kwargs:
           float_field: metadata.stack_edu_redux_combined
