@@ -441,7 +441,7 @@ def main(
     click.echo("\n" + "=" * 50)
     click.echo("VALUE STATISTICS")
     click.echo("=" * 50)
-    click.echo(f"  Count: {value_results['count']:,}")
+    click.echo(f"  Count: {value_results['cnt']:,}")
     if weight_by and "total_weight" in value_results:
         click.echo(f"  Total weight: {value_results['total_weight']:,.0f}")
     click.echo(f"  Mean:  {value_results['avg']:.6f}")
