@@ -483,7 +483,7 @@ def main(
             "num_samples": int(num_samples),
             "value": build_output_dict(value_results, expression),
             "length": (
-                build_output_dict(length_results, expression)
+                build_output_dict(length_results, expression, 0)
                 if length_results
                 else None
             ),
