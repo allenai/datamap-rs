@@ -5,7 +5,7 @@ set -euox pipefail
 REMOTE_DIR="s3://ai2-llm"
 LOCAL_DIR="/mnt/raid0/ai2-llm"
 INPUT_DIR="pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated_reshard"
-OUTPUT_DIR="pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_filter_v2_2026_stack_edu_redux"
+OUTPUT_DIR="pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_filter_v2_2026_stack_edu_redux_tagged"
 CONFIGS_DIR="configs/code/classifiers"
 
 # ============================================================================
