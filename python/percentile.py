@@ -286,7 +286,15 @@ def calculate_unweighted_percentiles(
     multiple=True,
     default=(5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95),
     show_default=True,
-    help="Percentiles to calculate (can specify multiple times)",
+    help="Percentiles to calculate for values (can specify multiple times)",
+)
+@click.option(
+    "--length-percentiles",
+    type=float,
+    multiple=True,
+    default=(0.1, 0.5, 1, 5, 10, 90, 95, 99, 99.5, 99.9),
+    show_default=True,
+    help="Percentiles to calculate for lengths (can specify multiple times)",
 )
 @click.option(
     "-w",
@@ -321,6 +329,7 @@ def main(
     weight_by: str | None,
     num_samples: int,
     percentiles: tuple[float, ...],
+    length_percentiles: tuple[float, ...],
     workers: int | None,
     seed: int,
     no_recursive: bool,
@@ -409,37 +418,94 @@ def main(
 
     click.echo(f"\nCollected {len(values):,} samples")
 
-    # Calculate percentiles
+    # Calculate value percentiles
     if weight_by:
-        results = calculate_percentiles(values, weights, list(percentiles))
+        value_results = calculate_percentiles(values, weights, list(percentiles))
     else:
-        results = calculate_unweighted_percentiles(values, list(percentiles))
+        value_results = calculate_unweighted_percentiles(values, list(percentiles))
+
+    # Calculate length percentiles (only if weight_by is specified, since weights are lengths)
+    length_results: dict[str, float] | None = None
+    if weight_by:
+        length_results = calculate_unweighted_percentiles(weights, list(length_percentiles))
 
     # Print results
     click.echo("\n" + "=" * 50)
-    click.echo("STATISTICS")
+    click.echo("VALUE STATISTICS")
     click.echo("=" * 50)
-    click.echo(f"  Count: {results['count']:,}")
-    if weight_by and "total_weight" in results:
-        click.echo(f"  Total weight: {results['total_weight']:,.0f}")
-    click.echo(f"  Mean:  {results['mean']:.6f}")
-    click.echo(f"  Std:   {results['std']:.6f}")
-    click.echo(f"  Min:   {results['min']:.6f}")
-    click.echo(f"  Max:   {results['max']:.6f}")
+    click.echo(f"  Count: {value_results['count']:,}")
+    if weight_by and "total_weight" in value_results:
+        click.echo(f"  Total weight: {value_results['total_weight']:,.0f}")
+    click.echo(f"  Mean:  {value_results['mean']:.6f}")
+    click.echo(f"  Std:   {value_results['std']:.6f}")
+    click.echo(f"  Min:   {value_results['min']:.6f}")
+    click.echo(f"  Max:   {value_results['max']:.6f}")
 
     click.echo("\n" + "-" * 50)
     if weight_by:
-        click.echo("PERCENTILES (weighted)")
+        click.echo("VALUE PERCENTILES (weighted)")
     else:
-        click.echo("PERCENTILES")
+        click.echo("VALUE PERCENTILES")
     click.echo("-" * 50)
     for p in sorted(percentiles):
         key = f"p{p:g}"
-        click.echo(f"  {key:>6}: {results[key]:.6f}")
+        click.echo(f"  {key:>8}: {value_results[key]:.6f}")
 
+    if length_results:
+        click.echo("\n" + "=" * 50)
+        click.echo("LENGTH STATISTICS")
+        click.echo("=" * 50)
+        click.echo(f"  Count: {length_results['count']:,}")
+        click.echo(f"  Mean:  {length_results['mean']:.6f}")
+        click.echo(f"  Std:   {length_results['std']:.6f}")
+        click.echo(f"  Min:   {length_results['min']:.6f}")
+        click.echo(f"  Max:   {length_results['max']:.6f}")
+
+        click.echo("\n" + "-" * 50)
+        click.echo("LENGTH PERCENTILES")
+        click.echo("-" * 50)
+        for p in sorted(length_percentiles):
+            key = f"p{p:g}"
+            click.echo(f"  {key:>8}: {length_results[key]:.6f}")
+
+    # Build nested output structure for YAML
     if output_file:
+        output: dict[str, Any] = {
+            "value": {
+                "statistics": {
+                    "count": value_results["count"],
+                    "mean": value_results["mean"],
+                    "std": value_results["std"],
+                    "min": value_results["min"],
+                    "max": value_results["max"],
+                },
+                "percentiles": {
+                    f"p{p:g}": value_results[f"p{p:g}"] for p in sorted(percentiles)
+                },
+            }
+        }
+        if weight_by and "total_weight" in value_results:
+            output["value"]["statistics"]["total_weight"] = value_results["total_weight"]
+            output["value"]["weighted"] = True
+        else:
+            output["value"]["weighted"] = False
+
+        if length_results:
+            output["length"] = {
+                "statistics": {
+                    "count": length_results["count"],
+                    "mean": length_results["mean"],
+                    "std": length_results["std"],
+                    "min": length_results["min"],
+                    "max": length_results["max"],
+                },
+                "percentiles": {
+                    f"p{p:g}": length_results[f"p{p:g}"] for p in sorted(length_percentiles)
+                },
+            }
+
         with open(output_file, "w") as f:
-            yaml.safe_dump(results, f, default_flow_style=False, sort_keys=False)
+            yaml.safe_dump(output, f, default_flow_style=False, sort_keys=False)
         click.echo(f"\nStatistics saved to {output_file}")
 
 

@@ -5,6 +5,25 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Function to extract a value from nested YAML using Python
+yaml_get() {
+    local yaml_content="$1"
+    local key_path="$2"
+    echo "$yaml_content" | uv run --with=pyyaml python -c "
+import sys
+import yaml
+data = yaml.safe_load(sys.stdin)
+keys = '${key_path}'.split('.')
+val = data
+for k in keys:
+    if val is None:
+        break
+    val = val.get(k)
+print(val if val is not None else '')
+"
+}
+
 FILTERS_DIR="${SCRIPT_DIR}/filters"
 S3_BASE="s3://ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_filter_v2_2026_stack_edu_redux_tagged"
 
@@ -60,9 +79,9 @@ EOF
 
     # Extract percentiles and add float_filter entries
     for pct in "${PERCENTILES[@]}"; do
-        # Extract the percentile value from the report
+        # Extract the percentile value from the nested YAML structure (value.percentiles.pXX)
         local value
-        value=$(echo "$report" | grep "^${pct}:" | awk '{print $2}')
+        value=$(yaml_get "$report" "value.percentiles.${pct}")
 
         if [[ -z "$value" ]]; then
             echo "  WARNING: Could not find ${pct} in report for ${s3_name}"
