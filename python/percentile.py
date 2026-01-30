@@ -284,17 +284,33 @@ def calculate_unweighted_percentiles(
     "--percentiles",
     type=float,
     multiple=True,
-    default=(5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95),
+    default=(
+        1,
+        2,
+        5,
+        10,
+        15,
+        20,
+        25,
+        30,
+        35,
+        40,
+        45,
+        50,
+        55,
+        60,
+        65,
+        70,
+        75,
+        80,
+        85,
+        90,
+        95,
+        98,
+        99,
+    ),
     show_default=True,
     help="Percentiles to calculate for values (can specify multiple times)",
-)
-@click.option(
-    "--length-percentiles",
-    type=float,
-    multiple=True,
-    default=(0.1, 0.5, 1, 5, 10, 90, 95, 99, 99.5, 99.9),
-    show_default=True,
-    help="Percentiles to calculate for lengths (can specify multiple times)",
 )
 @click.option(
     "-w",
@@ -329,7 +345,6 @@ def main(
     weight_by: str | None,
     num_samples: int,
     percentiles: tuple[float, ...],
-    length_percentiles: tuple[float, ...],
     workers: int | None,
     seed: int,
     no_recursive: bool,
@@ -421,13 +436,10 @@ def main(
     # Calculate value percentiles
     if weight_by:
         value_results = calculate_percentiles(values, weights, list(percentiles))
+        length_results = calculate_unweighted_percentiles(weights, list(percentiles))
     else:
         value_results = calculate_unweighted_percentiles(values, list(percentiles))
-
-    # Calculate length percentiles (only if weight_by is specified, since weights are lengths)
-    length_results: dict[str, float] | None = None
-    if weight_by:
-        length_results = calculate_unweighted_percentiles(weights, list(length_percentiles))
+        length_results: dict[str, float] = {}
 
     # Print results
     click.echo("\n" + "=" * 50)
@@ -464,7 +476,7 @@ def main(
         click.echo("\n" + "-" * 50)
         click.echo("LENGTH PERCENTILES")
         click.echo("-" * 50)
-        for p in sorted(length_percentiles):
+        for p in sorted(percentiles):
             key = f"p{p:g}"
             click.echo(f"  {key:>8}: {length_results[key]:.6f}")
 
@@ -485,7 +497,9 @@ def main(
             }
         }
         if weight_by and "total_weight" in value_results:
-            output["value"]["statistics"]["total_weight"] = value_results["total_weight"]
+            output["value"]["statistics"]["total_weight"] = value_results[
+                "total_weight"
+            ]
             output["value"]["weighted"] = True
         else:
             output["value"]["weighted"] = False
@@ -500,7 +514,7 @@ def main(
                     "max": length_results["max"],
                 },
                 "percentiles": {
-                    f"p{p:g}": length_results[f"p{p:g}"] for p in sorted(length_percentiles)
+                    f"p{p:g}": length_results[f"p{p:g}"] for p in sorted(percentiles)
                 },
             }
 
