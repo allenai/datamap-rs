@@ -4,8 +4,8 @@ set -euox pipefail
 
 REMOTE_DIR="s3://ai2-llm"
 LOCAL_DIR="/mnt/raid0/ai2-llm"
-INPUT_DIR="pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_filter_v2_2026_stack_edu_redux_tagged_partitioned"
-OUTPUT_DIR="pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_filter_v2_2026_stack_edu_redux_tagged"
+INPUT_DIR="pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_filter_v2_2026_stack_edu_redux_tagged"
+OUTPUT_DIR="pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_filter_v2_2026_stack_edu_redux_tagged_partitioned"
 CONFIGS_DIR="configs/code/filters"
 
 # ============================================================================
