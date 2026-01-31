@@ -159,7 +159,7 @@ impl PipelineProcessor {
 
             // find the step number
             match subconfig.get("step") {
-                Some(step) => steps.push(step.to_string()),
+                Some(step) => steps.push(step.as_str().unwrap().to_string()),
                 None => {
                     let current_step_number = steps.len();
                     if current_step_number + 1 < pipeline_configs.len() {

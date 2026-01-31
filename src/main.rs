@@ -1,10 +1,10 @@
 // External crates
 
-use serde_json::json;
-use std::fs;
-use serde_json::Value;
 use dashmap::DashMap;
+use serde_json::json;
+use serde_json::Value;
 use std::collections::HashMap;
+use std::fs;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -13,26 +13,26 @@ use std::time::Instant;
 
 use anyhow::{Error, Result};
 use clap::{Parser, Subcommand};
+use gjson;
 use rayon::prelude::*;
 use serde_json;
 use serde_yaml;
-use gjson;
 
 use mj_io::{
     build_pbar, expand_dirs, get_output_filename, read_pathbuf_to_mem, write_mem_to_pathbuf,
 };
+pub mod groupfilter;
 pub mod map_fxn;
 pub mod partition;
-pub mod utils;
-pub mod groupfilter;
 pub mod reservoir_sample;
-pub use map_fxn::DataProcessor;
+pub mod utils;
+use datamap_rs::groupfilter::{group, group_filter};
 use datamap_rs::map_fxn::PipelineProcessor;
 use datamap_rs::partition::{discrete_partition, range_partition};
-use datamap_rs::reshard::reshard;
-use datamap_rs::groupfilter::{group, group_filter};
 use datamap_rs::reservoir_sample::reservoir_sample;
-use datamap_rs::shuffle::shuffle; 
+use datamap_rs::reshard::reshard;
+use datamap_rs::shuffle::shuffle;
+pub use map_fxn::DataProcessor;
 /*
 Map Config layout:
 
@@ -100,16 +100,16 @@ enum Commands {
     },
 
     ReservoirSample {
-        #[arg(required=true, long)]
+        #[arg(required = true, long)]
         input_dir: PathBuf,
 
-        #[arg(required=true, long)]
+        #[arg(required = true, long)]
         output_file: PathBuf,
 
-        #[arg(required=true, long)]
+        #[arg(required = true, long)]
         key: String,
 
-        #[arg(required=true, long, default_value_t=100_000)]
+        #[arg(required = true, long, default_value_t = 100_000)]
         reservoir_size: usize,
 
         #[arg(long)]
@@ -117,7 +117,6 @@ enum Commands {
 
         #[arg(long, default_value_t=String::from("text"))]
         text_key: String,
-
     },
 
     DiscretePartition {
@@ -131,14 +130,14 @@ enum Commands {
         config: Option<PathBuf>,
 
         #[arg(long)]
-        partition_key: Option<String>  // Use this as the partition key if no config specified
+        partition_key: Option<String>, // Use this as the partition key if no config specified
     },
 
     RangePartition {
-        #[arg(required=true, long)]
+        #[arg(required = true, long)]
         input_dir: PathBuf,
 
-        #[arg(required=true, long)]
+        #[arg(required = true, long)]
         output_dir: PathBuf,
 
         #[arg(long)]
@@ -152,16 +151,16 @@ enum Commands {
 
         #[arg(long, value_delimiter = ',')]
         range_groups: Option<Vec<f64>>,
-        
+
         #[arg(long)]
         reservoir_path: Option<PathBuf>,
-        
+
         #[arg(long)]
         num_buckets: Option<usize>,
-        
+
         #[arg(long)]
         max_file_size: Option<usize>,
-        
+
         #[arg(long)]
         bucket_name: Option<String>,
     },
@@ -174,7 +173,7 @@ enum Commands {
         group_dir: PathBuf,
 
         #[arg(required = true, long)]
-        config: PathBuf,        
+        config: PathBuf,
 
         #[arg(long)]
         subext: Option<String>,
@@ -188,7 +187,7 @@ enum Commands {
         output_dir: PathBuf,
 
         #[arg(required = true, long)]
-        config: PathBuf,                
+        config: PathBuf,
     },
 
     Shuffle {
@@ -196,31 +195,28 @@ enum Commands {
         input_dir: PathBuf,
 
         #[arg(required = true, long)]
-        output_dir: PathBuf,  
+        output_dir: PathBuf,
 
-        #[arg(required=true, long)]
+        #[arg(required = true, long)]
         num_outputs: usize,
 
-        #[arg(long, default_value_t=256_000_000)]
+        #[arg(long, default_value_t = 256_000_000)]
         max_len: usize,
 
-        #[arg(long, default_value_t=false)]
-        delete_after_read: bool
+        #[arg(long, default_value_t = false)]
+        delete_after_read: bool,
     },
 
     Count {
-        #[arg(required=true, long)]
+        #[arg(required = true, long)]
         input_dir: PathBuf,
 
-        #[arg(required=true, long)]
+        #[arg(required = true, long)]
         output_file: PathBuf,
 
         #[arg(long)] // If not None, points to string of key where we count total size
-        count_bytes: Option<String>
+        count_bytes: Option<String>,
     },
-
-
-
 }
 
 /*============================================================
@@ -320,7 +316,6 @@ fn print_global_stats_stuff(
     ()
 }
 
-
 /*============================================================
 =                            GENERAL MAP                     =
 ============================================================*/
@@ -385,7 +380,6 @@ fn gen_map(
     Ok(())
 }
 
-
 fn gen_map_single(
     input_file: &PathBuf,
     input_dir: &PathBuf,
@@ -412,11 +406,12 @@ fn gen_map_single(
     let err_lines_len = err_lines.len();
 
     output_lines.into_iter().for_each(|(k, v)| {
-        let step_output_dir = if k < usize::MAX {
-            output_dir.clone().join(format!("step_{:02}", k))
-        } else {
-            output_dir.clone().join("step_final")
-        };
+        let step_output_dir = output_dir.clone().join(processor.steps[k].to_string());
+        // let step_output_dir = if k < usize::MAX {
+        //     output_dir.clone().join(format!("step_{:02}", k))
+        // } else {
+        //     output_dir.clone().join("step_final")
+        // };
         let output_file = get_output_filename(input_file, input_dir, &step_output_dir).unwrap();
         write_output_lines(v, &output_file).unwrap();
     });
@@ -448,8 +443,11 @@ fn gen_map_single(
     Ok(())
 }
 
-
-pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<String>) -> Result<(), Error> {
+pub fn count(
+    input_dir: &PathBuf,
+    output_file: &PathBuf,
+    count_bytes: Option<String>,
+) -> Result<(), Error> {
     let start_main = Instant::now();
     let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
 
@@ -461,7 +459,6 @@ pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<Str
     } else {
         String::from("")
     };
-
 
     let pbar = build_pbar(all_files.len(), "files");
 
@@ -479,7 +476,7 @@ pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<Str
                 if value.exists() {
                     text_bytes += value.str().len();
                 }
-            }            
+            }
         }
         total_doc_count.fetch_add(file_len, Ordering::SeqCst);
         total_file_sizes.fetch_add(file_size, Ordering::SeqCst);
@@ -493,11 +490,16 @@ pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<Str
     let output_contents = serde_json::to_vec(&output_json).unwrap();
     write_mem_to_pathbuf(&output_contents, output_file).unwrap();
 
-    println!("Saw {:?} docs ({:?} bytes)| {:?} text bytes | in {:?} secs", total_doc_count, total_file_sizes, total_text_bytes, start_main.elapsed().as_secs());
+    println!(
+        "Saw {:?} docs ({:?} bytes)| {:?} text bytes | in {:?} secs",
+        total_doc_count,
+        total_file_sizes,
+        total_text_bytes,
+        start_main.elapsed().as_secs()
+    );
 
     Ok(())
 }
-
 
 /*============================================================
 =                            MAIN                            =
@@ -517,8 +519,13 @@ fn main() {
             config,
             err_dir,
             delete_after_read,
-
-        } => gen_map(input_dir, output_dir, config, err_dir.clone(), *delete_after_read),
+        } => gen_map(
+            input_dir,
+            output_dir,
+            config,
+            err_dir.clone(),
+            *delete_after_read,
+        ),
         Commands::Reshard {
             input_dir,
             output_dir,
@@ -539,44 +546,79 @@ fn main() {
         Commands::ReservoirSample {
             input_dir,
             output_file,
-            key, 
+            key,
             reservoir_size,
             token_weighted,
-            text_key
-        } => reservoir_sample(input_dir, output_file, key, *reservoir_size, *token_weighted, &text_key.clone()),
+            text_key,
+        } => reservoir_sample(
+            input_dir,
+            output_file,
+            key,
+            *reservoir_size,
+            *token_weighted,
+            &text_key.clone(),
+        ),
 
         Commands::DiscretePartition {
             input_dir,
             output_dir,
             config,
-            partition_key
+            partition_key,
         } => discrete_partition(input_dir, output_dir, config, partition_key),
 
         Commands::RangePartition {
             input_dir,
-            output_dir, 
+            output_dir,
             config,
-            value, default_value, range_groups, reservoir_path, num_buckets, max_file_size, bucket_name
-
-        } => range_partition(input_dir, output_dir, config, value, default_value, range_groups, reservoir_path, num_buckets, max_file_size, bucket_name),
+            value,
+            default_value,
+            range_groups,
+            reservoir_path,
+            num_buckets,
+            max_file_size,
+            bucket_name,
+        } => range_partition(
+            input_dir,
+            output_dir,
+            config,
+            value,
+            default_value,
+            range_groups,
+            reservoir_path,
+            num_buckets,
+            max_file_size,
+            bucket_name,
+        ),
         Commands::Group {
             input_dir,
             group_dir,
             config,
-            subext
+            subext,
         } => group(input_dir, group_dir, config, subext.clone()),
         Commands::GroupFilter {
             input_dir,
             output_dir,
-            config
+            config,
         } => group_filter(input_dir, output_dir, config),
 
         Commands::Shuffle {
-            input_dir, output_dir, num_outputs, max_len, delete_after_read
-        } => shuffle(input_dir, output_dir, *num_outputs, *max_len, *delete_after_read),
+            input_dir,
+            output_dir,
+            num_outputs,
+            max_len,
+            delete_after_read,
+        } => shuffle(
+            input_dir,
+            output_dir,
+            *num_outputs,
+            *max_len,
+            *delete_after_read,
+        ),
 
         Commands::Count {
-            input_dir, output_file, count_bytes
+            input_dir,
+            output_file,
+            count_bytes,
         } => count(input_dir, output_file, count_bytes.clone()),
         _ => Ok(()),
     };
