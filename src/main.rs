@@ -406,7 +406,14 @@ fn gen_map_single(
     let err_lines_len = err_lines.len();
 
     output_lines.into_iter().for_each(|(k, v)| {
-        let step_output_dir = output_dir.clone().join(processor.steps[k].to_string());
+        let step_output_dir = if k < usize::MAX {
+            output_dir.clone().join(processor.steps[k].to_string())
+        } else {
+            output_dir
+                .clone()
+                .join(processor.steps[processor.steps.len() - 1].to_string())
+        };
+
         // let step_output_dir = if k < usize::MAX {
         //     output_dir.clone().join(format!("step_{:02}", k))
         // } else {
