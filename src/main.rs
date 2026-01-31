@@ -411,7 +411,7 @@ fn gen_map_single(
         } else {
             output_dir
                 .clone()
-                .join(processor.steps[processor.steps.len() - 1].to_string())
+                .join(processor.steps.last().unwrap().to_string())
         };
 
         // let step_output_dir = if k < usize::MAX {
