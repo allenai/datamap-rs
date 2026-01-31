@@ -4,7 +4,6 @@ pipeline:
     - name: text_len_filter # p1-p99
       step: invalid_length
       kwargs:
-          quality_stekwargs:p:
           text_field: text
           lower_bound: 40
           upper_bound: 56379
