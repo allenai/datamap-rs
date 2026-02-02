@@ -160,16 +160,7 @@ impl PipelineProcessor {
             // find the step number
             match subconfig.get("step") {
                 Some(step) => steps.push(step.as_str().unwrap().to_string()),
-                None => {
-                    let current_step_number = steps.len();
-                    if current_step_number + 1 < pipeline_configs.len() {
-                        // not the last step
-                        steps.push(format!("step_{:02}", current_step_number));
-                    } else {
-                        // last step
-                        steps.push(String::from("step_final"));
-                    }
-                }
+                None => steps.push(format!("step_{:02}", steps.len())),
             };
         }
         Ok(Self { pipeline, steps })
