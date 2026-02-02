@@ -109,16 +109,18 @@ where
 #[derive(Debug)]
 pub struct PipelineProcessor {
     pub pipeline: Vec<Box<dyn AnyDataProcessor>>,
+    pub steps: Vec<String>,
 }
 
 impl PipelineProcessor {
     // Create an empty pipeline
     pub fn new(config: &Value) -> Result<Self, Error> {
         let mut pipeline: Vec<Box<dyn AnyDataProcessor>> = Vec::<Box<dyn AnyDataProcessor>>::new();
+        let mut steps: Vec<String> = Vec::<String>::new();
         let text_field = get_default(&config, "text_field", String::from("text"));
 
         let pipeline_configs = config.get("pipeline").unwrap().as_array().unwrap();
-        for subconfig in pipeline_configs {
+        for (step_num, subconfig) in pipeline_configs.iter().enumerate() {
             let subconfig_name = subconfig.get("name").unwrap().as_str().unwrap();
             let default_json = json!({});
             let mut subconfig_kwargs: Value = subconfig
@@ -135,8 +137,30 @@ impl PipelineProcessor {
             let constructor = PROCESSOR_CONSTRUCTORS[subconfig_name];
             pipeline.push(constructor(&subconfig_kwargs).unwrap());
 
+            match subconfig.get("step") {
+                Some(step) => {
+                    let step_name = step
+                        .as_str()
+                        .ok_or_else(|| Error::msg("'step' must be a string"))?
+                        .to_string();
+                    if step_name == "step_final" {
+                        return Err(Error::msg("'step_final' is a reserved step name"));
+                    }
+                    steps.push(step_name);
+                }
+                None => steps.push(format!("step_{:02}", step_num)),
+            };
+
         }
-        Ok(Self { pipeline })
+
+        // We need to ensure that all provided steps names are unique, otherwise multiple steps
+        // will write to the same output file, overwriting each other.
+        let unique_steps: HashSet<_> = steps.iter().collect();
+        if unique_steps.len() != steps.len() {
+            return Err(Error::msg("Step names must be unique"));
+        }
+
+        Ok(Self { pipeline, steps })
     }
 
     pub fn process(
@@ -2554,7 +2578,7 @@ impl DataProcessor for GzipAnnotator {
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(text.as_bytes())?;
         let compressed = encoder.finish()?;
-        
+
         let ratio: f64 = compressed.len() as f64 / text.len() as f64;
         json_set(&mut data, &self.anno_field, ratio.into()).unwrap();
         Ok(Some(data))
