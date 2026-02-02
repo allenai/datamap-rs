@@ -7,6 +7,11 @@ pipeline:
           text_field: text
           lower_bound: 26
           upper_bound: 12517
+    - name: float_filter # p0
+      step: quality_p00
+      kwargs:
+          float_field: metadata.stack_edu_redux_combined
+          lower_bound: -1000
     - name: float_filter # p5
       step: quality_p05
       kwargs:

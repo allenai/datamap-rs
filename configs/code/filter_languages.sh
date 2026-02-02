@@ -90,7 +90,7 @@ for language in "${LANGUAGES[@]}"; do
         continue
     fi
 
-    local_input_dir="${LOCAL_DIR}/${INPUT_DIR}/${language}"
+    local_input_dir="${LOCAL_DIR}/${INPUT_DIR}/${language}/step_final"
     local_output_dir="${LOCAL_DIR}/${OUTPUT_DIR}/${language}"
 
     if [ -d "${local_output_dir}" ]; then
