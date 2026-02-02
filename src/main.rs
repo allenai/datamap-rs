@@ -288,7 +288,7 @@ fn print_global_stats_stuff(
     println!("Processed {:?} total documents", total_docs);
     println!("-------------------------------------------");
     for (i, el) in processor.pipeline.iter().enumerate() {
-        println!("Step {:?} | {:?}", i, el);
+        println!("Step {:?} | {:?}", processor.steps[i], el);
 
         let step_time_pct = step_fracs.get(&i).unwrap();
         println!(

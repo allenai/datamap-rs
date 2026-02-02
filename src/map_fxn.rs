@@ -120,7 +120,7 @@ impl PipelineProcessor {
         let text_field = get_default(&config, "text_field", String::from("text"));
 
         let pipeline_configs = config.get("pipeline").unwrap().as_array().unwrap();
-        for subconfig in pipeline_configs {
+        for (step_num, subconfig) in pipeline_configs.iter().enumerate() {
             let subconfig_name = subconfig.get("name").unwrap().as_str().unwrap();
             let default_json = json!({});
             let mut subconfig_kwargs: Value = subconfig
@@ -148,7 +148,7 @@ impl PipelineProcessor {
                     }
                     steps.push(step_name);
                 }
-                None => steps.push(format!("step_{:02}", steps.len())),
+                None => steps.push(format!("step_{:02}", step_num)),
             };
 
         }
