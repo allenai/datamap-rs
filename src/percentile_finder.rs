@@ -32,25 +32,36 @@ pub fn percentile_finder(input_dir: &PathBuf, output_file: &PathBuf, score_key: 
     let total_count: usize = docs.par_iter().map(|tup| tup.0).sum::<usize>();
     docs.par_sort_by(|a,b| a.1.partial_cmp(&b.1).unwrap());
 
+    let mut score_breaks: Vec<f32> = Vec::new();    
+    // Add minimum score
+    score_breaks.push(docs[0].1);
+    
+    // Find break points
     let interval = total_count as f64 / num_buckets as f64;
-    let mut score_breaks: Vec<f32> = Vec::new();
-    let mut cur_interval = interval;
+    let mut next_target = interval;
     let mut cur_seen = 0f64;
-    for (tok_count, score) in docs {
-    	cur_seen += tok_count as f64;
-    	if cur_seen > cur_interval {
-    		cur_interval += interval;
-    		score_breaks.push(score);
-    	}
+    
+    for (tok_count, score) in &docs {
+        cur_seen += *tok_count as f64;
+        
+        // Check if we've crossed one or more targets
+        while cur_seen >= next_target && score_breaks.len() < num_buckets {
+            score_breaks.push(*score);
+            next_target += interval;
+        }
     }
+    
+    // Add maximum score
+    score_breaks.push(docs.last().unwrap().1);
+
+
+
 
     let output_json = json!(score_breaks);
     let output_contents = serde_json::to_vec(&output_json).unwrap();
     write_mem_to_pathbuf(&output_contents, output_file).unwrap();
     
     Ok(())
-
-
 
 }
 
