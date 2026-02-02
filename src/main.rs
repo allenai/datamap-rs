@@ -32,7 +32,7 @@ use datamap_rs::partition::{discrete_partition, range_partition};
 use datamap_rs::reshard::reshard;
 use datamap_rs::groupfilter::{group, group_filter};
 use datamap_rs::reservoir_sample::reservoir_sample;
-use datamap_rs::shuffle::shuffle; 
+use datamap_rs::shuffle::shuffle;
 /*
 Map Config layout:
 
@@ -152,16 +152,16 @@ enum Commands {
 
         #[arg(long, value_delimiter = ',')]
         range_groups: Option<Vec<f64>>,
-        
+
         #[arg(long)]
         reservoir_path: Option<PathBuf>,
-        
+
         #[arg(long)]
         num_buckets: Option<usize>,
-        
+
         #[arg(long)]
         max_file_size: Option<usize>,
-        
+
         #[arg(long)]
         bucket_name: Option<String>,
     },
@@ -174,7 +174,7 @@ enum Commands {
         group_dir: PathBuf,
 
         #[arg(required = true, long)]
-        config: PathBuf,        
+        config: PathBuf,
 
         #[arg(long)]
         subext: Option<String>,
@@ -188,7 +188,7 @@ enum Commands {
         output_dir: PathBuf,
 
         #[arg(required = true, long)]
-        config: PathBuf,                
+        config: PathBuf,
     },
 
     Shuffle {
@@ -196,7 +196,7 @@ enum Commands {
         input_dir: PathBuf,
 
         #[arg(required = true, long)]
-        output_dir: PathBuf,  
+        output_dir: PathBuf,
 
         #[arg(required=true, long)]
         num_outputs: usize,
@@ -413,7 +413,7 @@ fn gen_map_single(
 
     output_lines.into_iter().for_each(|(k, v)| {
         let step_output_dir = if k < usize::MAX {
-            output_dir.clone().join(format!("step_{:02}", k))
+            output_dir.clone().join(processor.steps[k].to_string())
         } else {
             output_dir.clone().join("step_final")
         };
@@ -479,7 +479,7 @@ pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<Str
                 if value.exists() {
                     text_bytes += value.str().len();
                 }
-            }            
+            }
         }
         total_doc_count.fetch_add(file_len, Ordering::SeqCst);
         total_file_sizes.fetch_add(file_size, Ordering::SeqCst);
@@ -539,7 +539,7 @@ fn main() {
         Commands::ReservoirSample {
             input_dir,
             output_file,
-            key, 
+            key,
             reservoir_size,
             token_weighted,
             text_key
@@ -554,7 +554,7 @@ fn main() {
 
         Commands::RangePartition {
             input_dir,
-            output_dir, 
+            output_dir,
             config,
             value, default_value, range_groups, reservoir_path, num_buckets, max_file_size, bucket_name
 

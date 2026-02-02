@@ -109,12 +109,14 @@ where
 #[derive(Debug)]
 pub struct PipelineProcessor {
     pub pipeline: Vec<Box<dyn AnyDataProcessor>>,
+    pub steps: Vec<String>,
 }
 
 impl PipelineProcessor {
     // Create an empty pipeline
     pub fn new(config: &Value) -> Result<Self, Error> {
         let mut pipeline: Vec<Box<dyn AnyDataProcessor>> = Vec::<Box<dyn AnyDataProcessor>>::new();
+        let mut steps: Vec<String> = Vec::<String>::new();
         let text_field = get_default(&config, "text_field", String::from("text"));
 
         let pipeline_configs = config.get("pipeline").unwrap().as_array().unwrap();
@@ -135,8 +137,13 @@ impl PipelineProcessor {
             let constructor = PROCESSOR_CONSTRUCTORS[subconfig_name];
             pipeline.push(constructor(&subconfig_kwargs).unwrap());
 
+            match subconfig.get("step") {
+                Some(step) => steps.push(step.as_str().unwrap().to_string()),
+                None => steps.push(format!("step_{:02}", steps.len())),
+            };
+
         }
-        Ok(Self { pipeline })
+        Ok(Self { pipeline, steps })
     }
 
     pub fn process(
@@ -2554,7 +2561,7 @@ impl DataProcessor for GzipAnnotator {
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(text.as_bytes())?;
         let compressed = encoder.finish()?;
-        
+
         let ratio: f64 = compressed.len() as f64 / text.len() as f64;
         json_set(&mut data, &self.anno_field, ratio.into()).unwrap();
         Ok(Some(data))
