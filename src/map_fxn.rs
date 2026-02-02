@@ -29,6 +29,8 @@ use once_cell::sync::OnceCell;
 use derivative::Derivative;
 use flate2::write::GzEncoder;
 use flate2::Compression;
+use tiktoken_rs::{cl100k_base, p50k_base, CoreBPE};
+
 
 /*================================================================================
 =                            PIPELINE PROCESSING                                 =
@@ -89,6 +91,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "constant_annotator", ConstantAnnotator);
         register_processor!(m, "rename_modifier", RenameModifier);
         register_processor!(m, "gzip_annotator", GzipAnnotator);
+        register_processor!(m, "token_count_annotator", TokenCountAnnotator);
         m
     });
 
@@ -2560,3 +2563,41 @@ impl DataProcessor for GzipAnnotator {
         Ok(Some(data))
     }
 }
+
+
+#[derive(Derivative)]
+#[derivative(Debug)]
+#[derive(Serialize)]
+pub struct TokenCountAnnotator {
+    pub text_field: String,
+    pub tokenizer_name: String,
+    pub output_field: String,
+    #[derivative(Debug = "ignore")]    
+    #[serde(skip)]    
+    pub tokenizer: CoreBPE,
+}
+
+impl DataProcessor for TokenCountAnnotator {
+    fn new(config: &Value) -> Result<Self, Error> {
+
+        let text_field = json_get(config, "text_field").unwrap().as_str().unwrap().to_string();
+        let tokenizer_name = json_get(config, "tokenizer_name").unwrap().as_str().unwrap();
+        let tokenizer = match tokenizer_name {
+            "cl100k" => cl100k_base().unwrap(),
+            "p50k" => p50k_base().unwrap(),
+            _ => panic!("Unsupported tokenizer: {}", tokenizer_name)
+        };
+        let output_field = json_get(config, "output_field").unwrap().as_str().unwrap().to_string();
+
+        Ok(Self { text_field, tokenizer_name: tokenizer_name.to_string(), output_field, tokenizer})
+    }
+
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+        let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
+        let token_count = self.tokenizer.encode_with_special_tokens(&text).len();
+        json_set(&mut data, &self.output_field, token_count.into()).unwrap();
+        Ok(Some(data))
+    }
+}
+
+
