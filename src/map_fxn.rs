@@ -139,7 +139,10 @@ impl PipelineProcessor {
 
             match subconfig.get("step") {
                 Some(step) => {
-                    let step_name = step.as_str().unwrap().to_string();
+                    let step_name = step
+                        .as_str()
+                        .ok_or_else(|| Error::msg("'step' must be a string"))?
+                        .to_string();
                     if step_name == "step_final" {
                         return Err(Error::msg("'step_final' is a reserved step name"));
                     }
@@ -149,6 +152,14 @@ impl PipelineProcessor {
             };
 
         }
+
+        // We need to ensure that all provided steps names are unique, otherwise multiple steps
+        // will write to the same output file, overwriting each other.
+        let unique_steps: HashSet<_> = steps.iter().collect();
+        if unique_steps.len() != steps.len() {
+            return Err(Error::msg("Step names must be unique"));
+        }
+
         Ok(Self { pipeline, steps })
     }
 
