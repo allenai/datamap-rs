@@ -106,7 +106,7 @@ for language in "${LANGUAGES[@]}"; do
 
     echo "Filtering ${language} with config ${config_file}..."
     cargo run --release map \
-        --input-dir "${local_input_dir}/" \
+        --input-dir "${local_input_dir}" \
         --output-dir "${local_output_dir}" \
         --config "${config_file}"
 done
