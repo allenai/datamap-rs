@@ -90,13 +90,24 @@ for language in "${LANGUAGES[@]}"; do
         continue
     fi
 
-    local_input_dir="${LOCAL_DIR}/${INPUT_DIR}/${language}/step_final"
+    local_input_dir="${LOCAL_DIR}/${INPUT_DIR}/${language}"
     local_output_dir="${LOCAL_DIR}/${OUTPUT_DIR}/${language}"
 
     if [ -d "${local_output_dir}" ]; then
         echo "Output directory ${local_output_dir} already exists"
         continue
     fi
+
+    # unltil there's a directory called "step_final", replace local_output_dir with step final;
+    # otherwise break out of the loop.
+    while true; do
+        if [ -d "${local_output_dir}/step_final" ]; then
+            local_output_dir="${local_output_dir}/step_final"
+        else
+            break
+        fi
+    done
+
 
     if [ ! -d "${local_input_dir}" ]; then
         remote_input_dir="${REMOTE_DIR}/${INPUT_DIR}/${language}"
