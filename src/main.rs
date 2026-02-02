@@ -409,17 +409,8 @@ fn gen_map_single(
         let step_output_dir = if k < usize::MAX {
             output_dir.clone().join(processor.steps[k].to_string())
         } else {
-            output_dir
-                .clone()
-                // .join(processor.steps.last().unwrap().to_string())
-                .join("step_final")
+            output_dir.clone().join("step_final")
         };
-
-        // let step_output_dir = if k < usize::MAX {
-        //     output_dir.clone().join(format!("step_{:02}", k))
-        // } else {
-        //     output_dir.clone().join("step_final")
-        // };
         let output_file = get_output_filename(input_file, input_dir, &step_output_dir).unwrap();
         write_output_lines(v, &output_file).unwrap();
     });
