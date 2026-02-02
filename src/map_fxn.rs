@@ -138,7 +138,13 @@ impl PipelineProcessor {
             pipeline.push(constructor(&subconfig_kwargs).unwrap());
 
             match subconfig.get("step") {
-                Some(step) => steps.push(step.as_str().unwrap().to_string()),
+                Some(step) => {
+                    let step_name = step.as_str().unwrap().to_string();
+                    if step_name == "step_final" {
+                        return Err(Error::msg("'step_final' is a reserved step name"));
+                    }
+                    steps.push(step_name);
+                }
                 None => steps.push(format!("step_{:02}", steps.len())),
             };
 
