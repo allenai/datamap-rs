@@ -216,7 +216,10 @@ enum Commands {
         output_file: PathBuf,
 
         #[arg(long)] // If not None, points to string of key where we count total size
-        count_bytes: Option<String>
+        count_bytes: Option<String>,
+
+        #[arg(long)] // If not None, is a vec of keys pointing to usizes that we want to sum
+        sum_keys: Option<Vec<String>>
     },
 
 
@@ -449,7 +452,7 @@ fn gen_map_single(
 }
 
 
-pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<String>) -> Result<(), Error> {
+pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<String>, sum_keys_opt: Option<Vec<String>>) -> Result<(), Error> {
     let start_main = Instant::now();
     let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
 
@@ -462,6 +465,11 @@ pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<Str
         String::from("")
     };
 
+    let sum_key_counter : DashMap<String, usize> = if let Some(ref sum_keys) = sum_keys_opt {
+        sum_keys.iter().map(|el| (el.clone(), 0)).collect()
+    } else {
+        DashMap::new()
+    };
 
     let pbar = build_pbar(all_files.len(), "files");
 
@@ -470,6 +478,12 @@ pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<Str
         let mut file_len = 0;
         let mut file_size = 0;
         let mut text_bytes = 0;
+        let mut sum_key_path_counter: HashMap<String, usize> = if let Some(sum_keys) = &sum_keys_opt {
+            sum_keys.iter().map(|el| (el.clone(), 0)).collect()
+        } else {
+            HashMap::new()
+        };
+
         for line in contents.lines() {
             file_len += 1;
             let line = line.unwrap();
@@ -480,7 +494,17 @@ pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<Str
                     text_bytes += value.str().len();
                 }
             }            
+            for (k, v) in sum_key_path_counter.iter_mut() {
+                let kval = gjson::get(&line, &k);
+                if kval.exists() {
+                    *v += kval.u64() as usize;
+                }
+            }
         }
+        for (k,v) in sum_key_path_counter.iter() {
+            sum_key_counter.alter(k, |_, og_v| og_v + v);
+        }
+    
         total_doc_count.fetch_add(file_len, Ordering::SeqCst);
         total_file_sizes.fetch_add(file_size, Ordering::SeqCst);
         total_text_bytes.fetch_add(text_bytes, Ordering::SeqCst);
@@ -489,11 +513,12 @@ pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<Str
     let total_doc_count = total_doc_count.into_inner();
     let total_file_sizes = total_file_sizes.into_inner();
     let total_text_bytes = total_text_bytes.into_inner();
-    let output_json = json!({"total_docs": total_doc_count, "total_file_size": total_file_sizes, "total_text_bytes": total_text_bytes});
+    let sum_key_counter: HashMap<String, usize> = sum_key_counter.into_iter().map(|(k,v)| (k, v)).collect();
+    let output_json = json!({"total_docs": total_doc_count, "total_file_size": total_file_sizes, "total_text_bytes": total_text_bytes, "sum_keys": sum_key_counter});
     let output_contents = serde_json::to_vec(&output_json).unwrap();
     write_mem_to_pathbuf(&output_contents, output_file).unwrap();
 
-    println!("Saw {:?} docs ({:?} bytes)| {:?} text bytes | in {:?} secs", total_doc_count, total_file_sizes, total_text_bytes, start_main.elapsed().as_secs());
+    println!("Saw {:?} docs ({:?} bytes)| {:?} text bytes | {:?} sum keys | in {:?} secs", total_doc_count, total_file_sizes, total_text_bytes, sum_key_counter, start_main.elapsed().as_secs());
 
     Ok(())
 }
@@ -576,8 +601,8 @@ fn main() {
         } => shuffle(input_dir, output_dir, *num_outputs, *max_len, *delete_after_read),
 
         Commands::Count {
-            input_dir, output_file, count_bytes
-        } => count(input_dir, output_file, count_bytes.clone()),
+            input_dir, output_file, count_bytes, sum_keys,
+        } => count(input_dir, output_file, count_bytes.clone(), sum_keys.clone()),
         _ => Ok(()),
     };
     result.unwrap();
