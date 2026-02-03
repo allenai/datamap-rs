@@ -129,12 +129,14 @@ impl PipelineProcessor {
                 .or(Some(&default_json))
                 .unwrap()
                 .clone();
-            json_set(
-                &mut subconfig_kwargs,
-                &String::from("text_field"),
-                serde_json::Value::String(text_field.clone()),
-            )
-            .unwrap();
+            if json_get(&mut subconfig_kwargs, &String::from("text_field")).is_none() {
+                json_set(
+                    &mut subconfig_kwargs,
+                    &String::from("text_field"),
+                    serde_json::Value::String(text_field.clone()),
+                )
+                .unwrap();
+            }
             let constructor = PROCESSOR_CONSTRUCTORS[subconfig_name];
             pipeline.push(constructor(&subconfig_kwargs).unwrap());
 
