@@ -4,9 +4,9 @@ set -euox pipefail
 
 REMOTE_DIR="s3://ai2-llm"
 LOCAL_DIR="/mnt/raid0/ai2-llm"
-INPUT_DIR="pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_v2_annotated_reshard"
+INPUT_DIR="pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_filter_2026"
 OUTPUT_DIR="pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_filter_v2_2026_stack_edu_redux_tagged"
-CONFIGS_DIR="configs/code/classifiers"
+CONFIGS_DIR="configs/code/classifiers2"
 
 # ============================================================================
 # Get instance rank and world size from EC2 metadata
@@ -42,21 +42,39 @@ echo "World Size: ${WORLD_SIZE}"
 # ============================================================================
 
 ALL_LANGUAGES=(
-    "C"
-    "C++"
-    "C-Sharp"
-    "Go"
-    "Java"
-    "JavaScript"
-    "Markdown"
-    "PHP"
-    "Python"
-    "Ruby"
-    "Rust"
-    "Shell"
-    "SQL"
-    "Swift"
-    "TypeScript"
+    "Blade"
+    "Bluespec"
+    "Clojure"
+    "Common_Lisp"
+    "CSS"
+    "Cuda"
+    "Dart"
+    "Erlang"
+    "Fortran"
+    "Fortran_Free_Form"
+    "Haskell"
+    "HTML"
+    "Java_Server_Pages"
+    "Julia"
+    "Kotlin"
+    "Lua"
+    "Mathematica"
+    "MATLAB"
+    "Objective-C"
+    "OCaml"
+    "OpenCL"
+    "Pascal"
+    "Perl"
+    "R"
+    "RMarkdown"
+    "Scala"
+    "Scheme"
+    "SCSS"
+    "SystemVerilog"
+    "Tcl"
+    "Verilog"
+    "VHDL"
+    "Vue"
 )
 
 # Compute which languages this instance should process
@@ -86,10 +104,8 @@ done
 # ============================================================================
 
 for language in "${LANGUAGES[@]}"; do
-    if [ "${language}" == "C++" ]; then
-        config_name="cpp.yaml"
-    elif [ "${language}" == "C-Sharp" ]; then
-        config_name="csharp.yaml"
+    if [ "${language}" == "Objective-C" ]; then
+        config_name="objective_c.yaml"
     else
         config_name="$(echo ${language} | tr '[:upper:]' '[:lower:]').yaml"
     fi
