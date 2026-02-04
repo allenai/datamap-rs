@@ -53,16 +53,18 @@ import yaml
 
 data = yaml.safe_load(sys.stdin)
 
-# Extract features and bias from calibration data
-features = data.get('features', [])
+# calibration.yaml has 'weights' dict (__label__binN -> float) and 'bias'
+weights = data.get('weights', {})
+component_names = data.get('component_names', sorted(weights.keys()))
 bias = data.get('bias', 0.0)
 
 # Emit features block
 lines = []
 lines.append('          features:')
-for f in features:
-    lines.append(f'              - field: {f[\"field\"]}')
-    lines.append(f'                weight: {f[\"weight\"]}')
+for name in component_names:
+    w = weights[name]
+    lines.append(f'              - field: metadata.stack_edu_redux.{name}')
+    lines.append(f'                weight: {w}')
 lines.append(f'          bias: {bias}')
 lines.append('          output_field: metadata.stack_edu_redux_combined')
 
