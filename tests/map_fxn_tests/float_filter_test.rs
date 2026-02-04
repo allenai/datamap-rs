@@ -1,4 +1,4 @@
-extern crate datamap_rs; 
+extern crate datamap_rs;
 use datamap_rs::map_fxn::{DataProcessor, FloatFilter};
 
 mod tests {
@@ -14,18 +14,18 @@ mod tests {
             "upper_bound": 30.75,
             "default": 25.0,
         });
-        
+
         let filter = FloatFilter::new(&config).unwrap();
         assert_eq!(filter.float_field, "temperature");
         assert_eq!(filter.lower_bound, 20.5);
         assert_eq!(filter.upper_bound, 30.75);
         assert_eq!(filter.default, 25.0);
-        
+
         // Test with minimal fields (using defaults)
         let config = json!({
             "float_field": "weight"
         });
-        
+
         let filter = FloatFilter::new(&config).unwrap();
         assert_eq!(filter.float_field, "weight");
         assert_eq!(filter.lower_bound, 0.0);
@@ -42,17 +42,17 @@ mod tests {
             default: 0.0,
             negate: false
         };
-        
+
         // Test value in range (should return the document)
         let doc = json!({
             "id": "sensor1",
             "temperature": 25.5
         });
-        
+
         let result = filter.process(doc.clone()).unwrap();
         assert_eq!(result, Some(doc));
     }
-    
+
     #[test]
     fn test_process_value_at_boundaries() {
         let filter = FloatFilter {
@@ -62,26 +62,26 @@ mod tests {
             default: 0.0,
             negate: false
         };
-        
+
         // Test value at lower bound (should be included)
         let doc_lower = json!({
             "id": "sensor1",
             "temperature": 20.0
         });
-        
+
         let result = filter.process(doc_lower.clone()).unwrap();
         assert_eq!(result, Some(doc_lower));
-        
+
         // Test value at upper bound (should be included)
         let doc_upper = json!({
             "id": "sensor2",
             "temperature": 30.0
         });
-        
+
         let result = filter.process(doc_upper.clone()).unwrap();
         assert_eq!(result, Some(doc_upper));
     }
-    
+
     #[test]
     fn test_process_value_out_of_range() {
         let filter = FloatFilter {
@@ -91,26 +91,26 @@ mod tests {
             default: 0.0,
             negate: false
         };
-        
+
         // Test value below range
         let doc_below = json!({
             "id": "sensor1",
             "temperature": 15.5
         });
-        
+
         let result = filter.process(doc_below).unwrap();
         assert_eq!(result, None);
-        
+
         // Test value above range
         let doc_above = json!({
             "id": "sensor2",
             "temperature": 35.0
         });
-        
+
         let result = filter.process(doc_above).unwrap();
         assert_eq!(result, None);
     }
-    
+
     #[test]
     fn test_process_missing_field() {
         let filter = FloatFilter {
@@ -120,17 +120,17 @@ mod tests {
             default: 25.0,
             negate: false
         };
-        
+
         // Test missing field (should use default value)
         let doc = json!({
             "id": "sensor1"
             // temperature field is missing
         });
-        
+
         let result = filter.process(doc.clone()).unwrap();
         // Since default is 25.0 which is in range, document should pass
         assert_eq!(result, Some(doc.clone()));
-        
+
         // Test with default value out of range
         let filter_with_out_of_range_default = FloatFilter {
             float_field: "temperature".to_string(),
@@ -139,11 +139,11 @@ mod tests {
             default: 10.0, // Out of range
             negate: false
         };
-        
+
         let result = filter_with_out_of_range_default.process(doc).unwrap();
         assert_eq!(result, None);
     }
-    
+
     #[test]
     fn test_process_nested_field() {
         let filter = FloatFilter {
@@ -153,7 +153,7 @@ mod tests {
             default: 0.0,
             negate: false
         };
-        
+
         // Test nested field in range
         let doc = json!({
             "id": "sensor1",
@@ -162,10 +162,10 @@ mod tests {
                 "humidity": 40.0
             }
         });
-        
+
         let result = filter.process(doc.clone()).unwrap();
         assert_eq!(result, Some(doc));
-        
+
         // Test nested field out of range
         let doc_out = json!({
             "id": "sensor2",
@@ -174,7 +174,7 @@ mod tests {
                 "humidity": 50.0
             }
         });
-        
+
         let result = filter.process(doc_out).unwrap();
         assert_eq!(result, None);
     }
