@@ -29,6 +29,9 @@ use once_cell::sync::OnceCell;
 use derivative::Derivative;
 use flate2::write::GzEncoder;
 use flate2::Compression;
+use tokenizers::Tokenizer;
+use unicode_normalization::UnicodeNormalization;
+
 
 /*================================================================================
 =                            PIPELINE PROCESSING                                 =
@@ -88,7 +91,9 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "max_extractor", MaxExtractor);
         register_processor!(m, "constant_annotator", ConstantAnnotator);
         register_processor!(m, "rename_modifier", RenameModifier);
+        register_processor!(m, "sa_byte_modifier", SAByteModifier);
         register_processor!(m, "gzip_annotator", GzipAnnotator);
+        register_processor!(m, "ultrafineweb_annotator", UltrafinewebAnnotator);
         m
     });
 
@@ -109,16 +114,18 @@ where
 #[derive(Debug)]
 pub struct PipelineProcessor {
     pub pipeline: Vec<Box<dyn AnyDataProcessor>>,
+    pub steps: Vec<String>,
 }
 
 impl PipelineProcessor {
     // Create an empty pipeline
     pub fn new(config: &Value) -> Result<Self, Error> {
         let mut pipeline: Vec<Box<dyn AnyDataProcessor>> = Vec::<Box<dyn AnyDataProcessor>>::new();
+        let mut steps: Vec<String> = Vec::<String>::new();
         let text_field = get_default(&config, "text_field", String::from("text"));
 
         let pipeline_configs = config.get("pipeline").unwrap().as_array().unwrap();
-        for subconfig in pipeline_configs {
+        for (step_num, subconfig) in pipeline_configs.iter().enumerate() {
             let subconfig_name = subconfig.get("name").unwrap().as_str().unwrap();
             let default_json = json!({});
             let mut subconfig_kwargs: Value = subconfig
@@ -135,8 +142,30 @@ impl PipelineProcessor {
             let constructor = PROCESSOR_CONSTRUCTORS[subconfig_name];
             pipeline.push(constructor(&subconfig_kwargs).unwrap());
 
+            match subconfig.get("step") {
+                Some(step) => {
+                    let step_name = step
+                        .as_str()
+                        .ok_or_else(|| Error::msg("'step' must be a string"))?
+                        .to_string();
+                    if step_name == "step_final" {
+                        return Err(Error::msg("'step_final' is a reserved step name"));
+                    }
+                    steps.push(step_name);
+                }
+                None => steps.push(format!("step_{:02}", step_num)),
+            };
+
         }
-        Ok(Self { pipeline })
+
+        // We need to ensure that all provided steps names are unique, otherwise multiple steps
+        // will write to the same output file, overwriting each other.
+        let unique_steps: HashSet<_> = steps.iter().collect();
+        if unique_steps.len() != steps.len() {
+            return Err(Error::msg("Step names must be unique"));
+        }
+
+        Ok(Self { pipeline, steps })
     }
 
     pub fn process(
@@ -598,6 +627,7 @@ pub struct FastTextAnnotator {
     pub threshold: f32,
     #[serde(skip)]
     pub model: FastText,
+    pub max_text_length: usize,
 }
 
 impl DataProcessor for FastTextAnnotator {
@@ -614,6 +644,7 @@ impl DataProcessor for FastTextAnnotator {
         let threshold = get_default(config, "threshold", 0.0) as f32;
         let mut model = FastText::new();
         model.load_model(&fast_text_file).unwrap();
+        let max_text_length: usize = get_default(config, "max_text_length", 0);
         Ok(Self {
             fast_text_file,
             text_field,
@@ -621,6 +652,7 @@ impl DataProcessor for FastTextAnnotator {
             k,
             threshold,
             model,
+            max_text_length,
         })
     }
 
@@ -631,15 +663,25 @@ impl DataProcessor for FastTextAnnotator {
             .unwrap()
             .to_string()
             .replace("\n", " ");
+
+        // Trim text if max_text_length is set, avoiding cutting on multi-byte characters
+        if self.max_text_length > 0 && text.len() > self.max_text_length {
+            let mut end = self.max_text_length;
+            while end > 0 && !text.is_char_boundary(end) {
+                end -= 1;
+            }
+            text.truncate(end);
+        }
+
         text.push_str("\n");
 
         let predictions = match self.model.predict(&text, self.k, self.threshold) {
-			Ok(preds) => preds,
-			Err(_e) => {
-				// If prediction fails, drop this document by returning None, this can happen for some bad utf bytes etc that happen very rarely
-				return Ok(None);
-			}
-		};
+            Ok(preds) => preds,
+            Err(_e) => {
+                // If prediction fails, drop this document by returning None, this can happen for some bad utf bytes etc that happen very rarely
+                return Ok(None);
+            }
+        };
 
         let mut map = serde_json::Map::new();
         for pred in predictions {
@@ -2533,6 +2575,309 @@ impl DataProcessor for RenameModifier {
 }
 
 
+#[derive(Serialize, Debug, Default)]
+struct SaRules {
+    gap_merging: bool,
+    coherence_checks: bool,
+    proportion_removal: bool,
+    intervals_before_merge: usize,
+    intervals_after_merge: usize,
+    bytes_to_remove_before: usize,
+    bytes_to_remove_after: usize,
+    original_bytes: usize,
+    remaining_bytes: usize,
+    coherent_interval_mods: usize,
+}
+
+#[derive(Serialize, Debug)]
+pub struct SAByteModifier {
+    pub suffix_array_key: String,
+    pub text_key: String,
+    pub old_text_key: Option<String>,
+    pub check_paragraph: bool,
+    pub check_newline: bool,
+    pub check_sentences: bool,
+    pub check_width: usize,
+    pub metadata_key: Option<String>,
+    pub gap_width: usize,
+    pub proportion_removal: f64,
+    pub doc_min_length: usize,    
+}
+
+impl DataProcessor for SAByteModifier {
+    fn new(config: &Value) -> Result<Self, Error> {
+        // Extract configuration values with defaults
+        let suffix_array_key = get_default(config, "suffix_array_key", String::from("metadata.suffix_array"));
+        let text_key = get_default(config, "text_key", String::from("text"));
+        let old_text_key = config.get("old_text_key")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        
+        // Configure coherence checking options
+        let check_paragraph = get_default(config, "check_paragraph", true);
+        let check_newline = get_default(config, "check_newline", true);
+        let check_sentences = get_default(config, "check_sentences", true);
+        let check_width = get_default(config, "check_width", 50);
+        
+        // Configure output and filtering options
+        let metadata_key = config.get("metadata_key")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let gap_width = get_default(config, "gap_width", 50); 
+        let proportion_removal = get_default(config, "proportion_removal", 0.0); 
+        let doc_min_length = get_default(config, "doc_min_length", 0);
+
+        Ok(Self {
+            suffix_array_key,
+            text_key,
+            old_text_key,
+            check_paragraph,
+            check_newline,
+            check_sentences,
+            check_width,
+            metadata_key,
+            gap_width,
+            proportion_removal,
+            doc_min_length,
+        })
+    }
+
+    /// Process a document by removing duplicate text intervals identified by suffix array,
+    /// adjusting boundaries to maintain text coherence at paragraph/sentence/newline boundaries.
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+        // Extract suffix array intervals from the document, or return unchanged if not present
+        let sa_intervals_val = if let Some(sa_intervals_val) = json_get(&data, &self.suffix_array_key) {
+            sa_intervals_val
+        } else {
+            return Ok(Some(data));
+        };
+        
+        // Get the original text as bytes for processing
+        let og_text = json_get(&data, &self.text_key).unwrap().clone();
+        let text_bytes = og_text.as_str().unwrap().as_bytes();
+        let original_length = text_bytes.len();
+
+
+        // Parse intervals as (start, end) tuples
+        let sa_intervals: Vec<(usize, usize)> = sa_intervals_val.as_array().unwrap()
+            .iter()
+            .map(|v| (v[0].as_u64().unwrap() as usize,  std::cmp::min(v[1].as_u64().unwrap() as usize, original_length)))
+            .collect();
+        
+        if sa_intervals.is_empty() {
+            return Ok(Some(data));
+        }
+
+        // Initialize tracking metrics for the modification process
+        let mut rules = SaRules {
+            intervals_before_merge: sa_intervals.len(),
+            bytes_to_remove_before: sa_intervals.iter().map(|(s, e)| e - s).sum(),
+            original_bytes: original_length,
+            ..Default::default()
+        };
+
+        // Merge intervals that are close together (within gap_width)
+        let sa_intervals = self.merge_gaps(sa_intervals);
+        if sa_intervals.len() < rules.intervals_before_merge {
+            rules.gap_merging = true;
+        }
+        rules.intervals_after_merge = sa_intervals.len();
+
+        // Apply coherence checks to adjust interval boundaries to natural break points
+
+        let sa_intervals = if self.check_paragraph || self.check_newline || self.check_sentences {
+            self.apply_coherence_checks(text_bytes, sa_intervals, &mut rules)        
+        } else {
+            sa_intervals
+        };
+
+        // Calculate final bytes to remove and update metrics
+        let bytes_to_remove_after: usize = sa_intervals.iter().map(|(s, e)| e - s).sum();        
+        rules.bytes_to_remove_after = bytes_to_remove_after;
+
+        // Check if the document meets minimum length requirements after removal
+        if (original_length - bytes_to_remove_after < self.doc_min_length) || 
+           ((original_length - bytes_to_remove_after) as f64 / (original_length as f64) < self.proportion_removal) {
+            return Ok(None);
+        }
+
+        // Build the modified text by keeping segments between removal intervals
+        let mut kept_segments = Vec::new();
+        let mut last_end = 0;
+        for (start, end) in sa_intervals {
+            if start > last_end {
+                kept_segments.push(&text_bytes[last_end..start]);
+            }
+            last_end = end;
+        }
+        if last_end < text_bytes.len() {
+            kept_segments.push(&text_bytes[last_end..]);
+        }
+ 
+        // Write metadata about the modification process if configured
+        if let Some(metadata) = &self.metadata_key {
+            let rule_json: serde_json::Value = serde_json::to_value(rules).unwrap();
+            json_set(&mut data, &metadata, rule_json).unwrap();
+        }
+
+        // Store the original text if configured
+        if let Some(old_text) = &self.old_text_key {
+            json_set(&mut data, &old_text, og_text.clone()).unwrap();
+        }
+
+        // Combine kept segments and update the document with modified text
+        let combined = kept_segments.concat();  
+        let combined_str = Value::String(String::from_utf8_lossy(&combined).into_owned());
+        json_set(&mut data, &self.text_key, combined_str).unwrap();
+
+        Ok(Some(data))
+    }
+}
+
+impl SAByteModifier {
+    /// Merge intervals that are separated by gaps smaller than gap_width to reduce fragmentation.
+    fn merge_gaps(&self, intervals: Vec<(usize, usize)>) -> Vec<(usize, usize)> {        
+        if intervals.is_empty() {
+            return intervals;
+        }
+
+        // Start with the first interval
+        let mut merged = vec![intervals[0]];
+
+        // Iterate through remaining intervals and merge if gap is small enough
+        for (start, end) in intervals.into_iter().skip(1) {
+            let last_idx = merged.len() - 1;
+            let (last_start, last_end) = merged[last_idx];
+
+            // Merge if the gap between intervals is within gap_width
+            if start.saturating_sub(last_end) <= self.gap_width {
+                merged[last_idx] = (last_start, end.max(last_end));
+            } else {
+                merged.push((start, end));
+            }
+        }
+
+        merged            
+    }
+
+    /// Adjust interval boundaries to align with natural text boundaries (paragraphs, sentences, newlines)
+    /// to maintain coherence when removing text segments.
+    fn apply_coherence_checks(&self, text_bytes: &[u8], intervals: Vec<(usize, usize)>, rules: &mut SaRules) -> Vec<(usize, usize)> {
+        intervals.into_iter()
+            .map(|(start, end)| {
+                // Define search windows before and after each boundary
+                let check_start_before = start.saturating_sub(self.check_width);
+                let check_start_after = std::cmp::min(text_bytes.len(), start + self.check_width);
+                let check_end_before = end.saturating_sub(self.check_width);
+                let check_end_after = std::cmp::min(text_bytes.len(), end + self.check_width);
+
+                // Extract byte slices for boundary searching
+                let start_before_bytes = &text_bytes[check_start_before..start];
+                let start_after_bytes = &text_bytes[start..check_start_after];
+                let end_before_bytes = &text_bytes[check_end_before..end];
+                let end_after_bytes = &text_bytes[end..check_end_after];
+
+                // Find natural boundaries (paragraphs, sentences, newlines) in each slice
+                let start_before_bounds = self.find_boundaries(start_before_bytes, true, start_before_bytes.len() < self.check_width, false);
+                let start_after_bounds = self.find_boundaries(start_after_bytes, false, false, start_after_bytes.len() < self.check_width);
+                let end_before_bounds = self.find_boundaries(end_before_bytes, true, end_before_bytes.len() < self.check_width, false);
+                let end_after_bounds = self.find_boundaries(end_after_bytes, false, false, end_after_bytes.len() < self.check_width);
+
+                let new_start = {
+                    let before_dist = start_before_bounds.last().map(|&idx| start_before_bytes.len() - idx);
+                    let after_dist = start_after_bounds.first().copied();
+
+                    match (before_dist, after_dist) {
+                        (Some(before), Some(after)) => {
+                            if before <= after {
+                                start.saturating_sub(before)
+                            } else {
+                                start.saturating_add(after)
+                            }
+                        }
+                        (Some(before), None) => start.saturating_sub(before),
+                        (None, Some(after)) => start.saturating_add(after),
+                        (None, None) => start
+                    }
+                };
+
+                let new_end = {
+                    let before_dist = end_before_bounds.last().map(|&idx| end_before_bytes.len() - idx);
+                    let after_dist = end_after_bounds.first().copied();
+
+                    match (before_dist, after_dist) {
+                        (Some(before), Some(after)) => {
+                            if before <= after {
+                                end.saturating_sub(before)
+                            } else {
+                                end.saturating_add(after)
+                            }
+                        }
+                        (Some(before), None) => end.saturating_sub(before),
+                        (None, Some(after)) => end.saturating_add(after),
+                        (None, None) => end
+                    }
+                };
+
+                // Track if boundaries were modified
+                if (new_start != start) || (new_end != end) {
+                    rules.coherent_interval_mods += 1;
+                }
+
+                (new_start, new_end)
+            })
+            .collect()
+    }
+
+    /// Find positions of natural text boundaries (periods, newlines, double newlines) within a byte slice.
+    fn find_boundaries(&self, text: &[u8], idx_before_punct: bool, prepend_zero: bool, postpend_len: bool) -> Vec<usize> {
+        let mut results = Vec::new();
+        
+        // Optionally include the start of the text as a boundary
+        if prepend_zero {
+            results.push(0);
+        }
+        let offset = if idx_before_punct {
+            0
+        } else {
+            1
+        };
+        let mut i = 0;
+
+        // Scan through the text looking for boundary markers
+        while i < text.len() {
+            match text[i] {
+                // Sentence boundaries (if enabled)
+                b'.' | b'!' | b'?' if self.check_sentences => {
+                    results.push(i + offset);
+                }
+                b'\n' => {
+                    // Check for paragraph boundary (double newline) first
+                    if self.check_paragraph
+                        && i + 1 < text.len() 
+                        && text[i + 1] == b'\n' 
+                    {
+                        results.push(i + offset);
+                        i += 1;
+                        results.push(i + offset);
+                    } 
+                    // Otherwise check for single newline boundary
+                    else if self.check_newline {
+                        results.push(i + offset);
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+        
+        // Optionally include the end of the text as a boundary
+        if postpend_len {
+            results.push(text.len());
+        }
+        results        
+    }
+}
 #[derive(Serialize, Debug)]
 pub struct GzipAnnotator {
     // Renames a field in the json
@@ -2554,9 +2899,157 @@ impl DataProcessor for GzipAnnotator {
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(text.as_bytes())?;
         let compressed = encoder.finish()?;
-        
+
         let ratio: f64 = compressed.len() as f64 / text.len() as f64;
         json_set(&mut data, &self.anno_field, ratio.into()).unwrap();
         Ok(Some(data))
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Debug)]
+#[derive(Serialize)]
+pub struct UltrafinewebAnnotator {
+    pub text_field: String,
+    pub tokenizer_path: String,
+    #[derivative(Debug = "ignore")]
+    #[serde(skip)]
+    pub tokenizer: Tokenizer,
+    #[derivative(Debug = "ignore")]
+    #[serde(skip)]
+    pub regexes: [Regex; 5],
+    pub output_field: String,
+    pub fast_text_file: String,
+    #[derivative(Debug = "ignore")]
+    #[serde(skip)]
+    pub model: FastText,
+    pub max_text_length: usize,
+}
+
+impl DataProcessor for UltrafinewebAnnotator {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let text_field = json_get(config, "text_field")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+        let tokenizer_path = get_default(
+            config,
+            "tokenizer_path",
+            String::from("tokenizers/deepseek_v2.json"),
+        );
+        println!("TOKENIZER PATH {:?}", tokenizer_path);
+        let tokenizer = Tokenizer::from_file(&tokenizer_path).unwrap();
+
+        let output_field = json_get(config, "output_field")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+        let re_multinewline = Regex::new(r"\n{3,}").unwrap();
+        let re_newline = Regex::new(r"\n").unwrap();
+        let re_carriage = Regex::new(r"\r").unwrap();
+        let re_tab = Regex::new(r"\t").unwrap();
+        let re_spaces = Regex::new(r" +").unwrap();
+        let regexes: [Regex; 5] = [re_multinewline, re_newline, re_carriage, re_tab, re_spaces];
+
+        let fast_text_file = get_default(
+            config,
+            "fast_text_file",
+            String::from("ft_classifiers/ultrafineweb.bin"),
+        );
+        let mut model = FastText::new();
+        model.load_model(&fast_text_file).unwrap();
+        let max_text_length: usize = get_default(config, "max_text_length", 0);
+
+        Ok(Self {
+            text_field,
+            tokenizer_path,
+            tokenizer,
+            regexes,
+            output_field,
+            fast_text_file,
+            model,
+            max_text_length,
+        })
+    }
+
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+        let mut text = json_get(&data, &self.text_field)
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        // Trim text if max_text_length is set, avoiding cutting on multi-byte characters
+        if self.max_text_length > 0 && text.len() > self.max_text_length {
+            let mut end = self.max_text_length;
+            while end > 0 && !text.is_char_boundary(end) {
+                end -= 1;
+            }
+            text.truncate(end);
+        }
+
+        // apply preprocessing
+        let mut preproc = self.preprocess(&text).unwrap();
+
+        // you need to push newline character at the end to match fasttext binaries/python bindings
+        preproc.push_str("\n");
+
+        let predictions = match self.model.predict(&preproc, 10, 0.0) {
+            Ok(preds) => preds,
+            Err(_e) => {
+                // If prediction fails, drop this document by returning None, this can happen for some bad utf bytes etc that happen very rarely
+                return Ok(None);
+            }
+        };
+
+        let mut map = serde_json::Map::new();
+        for pred in predictions {
+            map.insert(pred.label.clone(), json!(pred.prob));
+        }
+        let pred_json = Value::Object(map);
+        json_set(&mut data, &self.output_field, pred_json).unwrap();
+        Ok(Some(data))
+    }
+}
+
+impl UltrafinewebAnnotator {
+    fn preprocess(&self, text: &String) -> Result<String, Error> {
+        // 1. Remove multiple newlines -> Replace with just two newlines
+        let mut text = self.regexes[0].replace_all(text, "\n\n").to_string();
+
+        // 2. Lowercase everything
+        text = text.to_lowercase();
+
+        // 3. Remove diacritics
+        text = text
+            .nfkd()
+            .filter(|c| {
+                use unicode_general_category::GeneralCategory;
+                let category = unicode_general_category::get_general_category(*c);
+                category != GeneralCategory::NonspacingMark
+            })
+            .collect::<String>();
+
+        // 4. Word segmentation
+        let encoding = self.tokenizer.encode(text, false).unwrap();
+        let token_ids = encoding.get_ids();
+        let single_text_list: Vec<_> = token_ids
+            .into_iter()
+            .map(|tok| self.tokenizer.decode(&[*tok], false).unwrap())
+            .collect();
+        text = single_text_list.join(" ");
+
+        // 5. keep escape chars, \n, \t, \r -> \\n, \\t, \\r
+        text = self.regexes[1].replace_all(&text, r"\n").to_string();
+
+        text = self.regexes[2].replace_all(&text, r"\r").to_string();
+
+        text = self.regexes[3].replace_all(&text, r"\t").to_string();
+
+        text = self.regexes[4].replace_all(&text, " ").to_string();
+
+        Ok(text.trim().to_string())
     }
 }

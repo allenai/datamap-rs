@@ -1,0 +1,15 @@
+name: quality_classifiers
+text_field: text
+pipeline:
+  - name: fasttext_annotator
+    kwargs:
+      fast_text_file: ft_classifiers/ultrafineweb.bin
+      output_field: metadata.ultrafineweb
+  - name: fasttext_annotator
+    kwargs:
+      fast_text_file: ft_classifiers/wo_topic.bin
+      output_field: metadata.weborganizer
+  - name: max_extractor
+    kwargs:
+      main_attribute: metadata.weborganizer
+      output_attribute: metadata.wo_topic
