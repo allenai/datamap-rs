@@ -32,7 +32,7 @@ use datamap_rs::partition::{discrete_partition, range_partition};
 use datamap_rs::reshard::reshard;
 use datamap_rs::groupfilter::{group, group_filter};
 use datamap_rs::reservoir_sample::reservoir_sample;
-use datamap_rs::shuffle::shuffle; 
+use datamap_rs::shuffle::shuffle;
 /*
 Map Config layout:
 
@@ -152,16 +152,16 @@ enum Commands {
 
         #[arg(long, value_delimiter = ',')]
         range_groups: Option<Vec<f64>>,
-        
+
         #[arg(long)]
         reservoir_path: Option<PathBuf>,
-        
+
         #[arg(long)]
         num_buckets: Option<usize>,
-        
+
         #[arg(long)]
         max_file_size: Option<usize>,
-        
+
         #[arg(long)]
         bucket_name: Option<String>,
     },
@@ -174,7 +174,7 @@ enum Commands {
         group_dir: PathBuf,
 
         #[arg(required = true, long)]
-        config: PathBuf,        
+        config: PathBuf,
 
         #[arg(long)]
         subext: Option<String>,
@@ -188,7 +188,7 @@ enum Commands {
         output_dir: PathBuf,
 
         #[arg(required = true, long)]
-        config: PathBuf,                
+        config: PathBuf,
     },
 
     Shuffle {
@@ -196,7 +196,7 @@ enum Commands {
         input_dir: PathBuf,
 
         #[arg(required = true, long)]
-        output_dir: PathBuf,  
+        output_dir: PathBuf,
 
         #[arg(required=true, long)]
         num_outputs: usize,
@@ -216,7 +216,10 @@ enum Commands {
         output_file: PathBuf,
 
         #[arg(long)] // If not None, points to string of key where we count total size
-        count_bytes: Option<String>
+        count_bytes: Option<String>,
+
+        #[arg(long, default_value_t=false)]
+        count_per_doc: bool
     },
 
 
@@ -288,7 +291,7 @@ fn print_global_stats_stuff(
     println!("Processed {:?} total documents", total_docs);
     println!("-------------------------------------------");
     for (i, el) in processor.pipeline.iter().enumerate() {
-        println!("Step {:?} | {:?}", i, el);
+        println!("Step {:?} | {:?}", processor.steps[i], el);
 
         let step_time_pct = step_fracs.get(&i).unwrap();
         println!(
@@ -413,7 +416,7 @@ fn gen_map_single(
 
     output_lines.into_iter().for_each(|(k, v)| {
         let step_output_dir = if k < usize::MAX {
-            output_dir.clone().join(format!("step_{:02}", k))
+            output_dir.clone().join(processor.steps[k].to_string())
         } else {
             output_dir.clone().join("step_final")
         };
@@ -449,7 +452,7 @@ fn gen_map_single(
 }
 
 
-pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<String>) -> Result<(), Error> {
+pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<String>, count_per_doc: bool) -> Result<(), Error> {
     let start_main = Instant::now();
     let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
 
@@ -462,6 +465,11 @@ pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<Str
         String::from("")
     };
 
+    let count_per_doc_opt: Option<DashMap<PathBuf, usize>> = if count_per_doc {
+        Some(DashMap::new())
+    } else {
+        None
+    };
 
     let pbar = build_pbar(all_files.len(), "files");
 
@@ -479,18 +487,31 @@ pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<Str
                 if value.exists() {
                     text_bytes += value.str().len();
                 }
-            }            
+            }
         }
         total_doc_count.fetch_add(file_len, Ordering::SeqCst);
         total_file_sizes.fetch_add(file_size, Ordering::SeqCst);
         total_text_bytes.fetch_add(text_bytes, Ordering::SeqCst);
+        if let Some(doc_counts) = &count_per_doc_opt {
+            doc_counts.entry(p).or_insert(text_bytes);
+        }
         pbar.inc(1);
     });
     let total_doc_count = total_doc_count.into_inner();
     let total_file_sizes = total_file_sizes.into_inner();
     let total_text_bytes = total_text_bytes.into_inner();
-    let output_json = json!({"total_docs": total_doc_count, "total_file_size": total_file_sizes, "total_text_bytes": total_text_bytes});
+
+
+    let output_json = if let Some(doc_counts) = count_per_doc_opt {
+        let doc_counts: HashMap<PathBuf, usize> = doc_counts.into_par_iter().map(|(k, v)| (k,v)).collect();
+        json!({"total_docs": total_doc_count, "total_file_size": total_file_sizes, "total_text_bytes": total_text_bytes, "per_file_text_bytes": doc_counts})
+
+    } else {
+        json!({"total_docs": total_doc_count, "total_file_size": total_file_sizes, "total_text_bytes": total_text_bytes})
+    };
     let output_contents = serde_json::to_vec(&output_json).unwrap();
+
+
     write_mem_to_pathbuf(&output_contents, output_file).unwrap();
 
     println!("Saw {:?} docs ({:?} bytes)| {:?} text bytes | in {:?} secs", total_doc_count, total_file_sizes, total_text_bytes, start_main.elapsed().as_secs());
@@ -539,7 +560,7 @@ fn main() {
         Commands::ReservoirSample {
             input_dir,
             output_file,
-            key, 
+            key,
             reservoir_size,
             token_weighted,
             text_key
@@ -554,7 +575,7 @@ fn main() {
 
         Commands::RangePartition {
             input_dir,
-            output_dir, 
+            output_dir,
             config,
             value, default_value, range_groups, reservoir_path, num_buckets, max_file_size, bucket_name
 
@@ -576,8 +597,8 @@ fn main() {
         } => shuffle(input_dir, output_dir, *num_outputs, *max_len, *delete_after_read),
 
         Commands::Count {
-            input_dir, output_file, count_bytes
-        } => count(input_dir, output_file, count_bytes.clone()),
+            input_dir, output_file, count_bytes, count_per_doc
+        } => count(input_dir, output_file, count_bytes.clone(), *count_per_doc),
         _ => Ok(()),
     };
     result.unwrap();
