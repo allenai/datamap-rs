@@ -96,6 +96,6 @@ mkdir -p "${LOCAL_OUTPUT}" "${LOCAL_STORAGE}"
 # ============================================================================
 
 echo "Uploading results to ${S3_OUTPUT}..."
-s5cmd cp -sp "${LOCAL_OUTPUT}/*" "${S3_OUTPUT}/step_final/"
+s5cmd cp -sp "${LOCAL_OUTPUT}/*" "${S3_OUTPUT}/"
 
-echo "Done! Results at ${S3_OUTPUT}/step_final/"
+echo "Done! Results at ${S3_OUTPUT}/"
