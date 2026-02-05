@@ -90,7 +90,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "constant_annotator", ConstantAnnotator);
         register_processor!(m, "rename_modifier", RenameModifier);
         register_processor!(m, "gzip_annotator", GzipAnnotator);
-        register_processor!(m, "ngram_repetiiton_filter", NgramRepetitionFilter);
+        register_processor!(m, "ngram_repetition_filter", NgramRepetitionFilter);
         m
     });
 
