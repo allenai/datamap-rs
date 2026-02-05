@@ -131,12 +131,12 @@ for language in "${LANGUAGES[@]}"; do
     if [ ! -d "${local_input_dir}" ]; then
         remote_input_dir="${REMOTE_DIR}/${INPUT_DIR}/${language}"
 
-        s5cmd cp -sp "${remote_input_dir}/step_final/*" "${local_input_dir}/step_final/"
+        s5cmd cp -sp "${remote_input_dir}/*" "${local_input_dir}/"
     fi
 
     echo "Tagging ${language} with config ${config_file}..."
     cargo run --release map \
-        --input-dir "${local_input_dir}/step_final/" \
+        --input-dir "${local_input_dir}" \
         --output-dir "${local_output_dir}" \
         --config "${config_file}"
 done
