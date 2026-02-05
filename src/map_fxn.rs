@@ -29,7 +29,7 @@ use once_cell::sync::OnceCell;
 use derivative::Derivative;
 use flate2::write::GzEncoder;
 use flate2::Compression;
-use tokenizers::Tokenizer;
+use tiktoken_rs::{cl100k_base, p50k_base, CoreBPE};
 
 
 /*================================================================================
@@ -2518,26 +2518,34 @@ impl DataProcessor for GzipAnnotator {
     }
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Derivative)]
+#[derivative(Debug)]
+#[derive(Serialize)]
 pub struct NgramRepetitionFilter {
     pub text_field: String, // defaults to text
-    pub tokenizer_path: String, // Path to tokenizer 
+    pub tokenizer_name: String, // Name of tokenizer
     pub period_lb: usize, // defaults to 1
     pub period_ub: usize, // defaults to 13
     pub rep_count: usize, // defaults to 32,
-    pub tokenizer: Tokenizer, 
+    #[derivative(Debug = "ignore")]    
+    #[serde(skip)]      
+    pub tokenizer: CoreBPE, 
 }
 
 impl DataProcessor for NgramRepetitionFilter {
     fn new(config: &Value) -> Result<Self, Error> {
         let text_field = get_default(config, "text_field", String::from("text"));        
-        let tokenizer_path = get_default(config, "tokenizer_path", String::from("tokenizers/allenai_dolma2-tokenizer.json"));
+        let tokenizer_name = get_default(config, "tokenizer_name", String::from("cl100k"));
         let period_lb = get_default(config, "period_lb", 1);
         let period_ub = get_default(config, "period_ub", 13);
         let rep_count = get_default(config, "rep_count", 32);
 
-        let tokenizer = Tokenizer::from_file(&tokenizer_path).unwrap();
-        Ok(Self { text_field, tokenizer_path, period_lb, period_ub, rep_count, tokenizer})
+        let tokenizer = match tokenizer_name.as_str() {
+            "cl100k" => cl100k_base().unwrap(),
+            "p50k" => p50k_base().unwrap(),
+            _ => panic!("Unsupported tokenizer: {}", tokenizer_name)
+        };
+        Ok(Self { text_field, tokenizer_name, period_lb, period_ub, rep_count, tokenizer})
     }
 
     fn process(&self, data: Value) -> Result<Option<Value>, Error> {
@@ -2547,8 +2555,7 @@ impl DataProcessor for NgramRepetitionFilter {
             .unwrap()
             .to_string();
 
-        let binding = self.tokenizer.encode(text, true).unwrap();
-        let tokens = binding.get_ids();
+        let tokens = self.tokenizer.encode_with_special_tokens(&text);
         if NgramRepetitionFilter::exceeds_repetition_threshold(&tokens, self.period_lb, self.period_ub, self.rep_count).unwrap() {
             Ok(None)
         } else {
