@@ -75,6 +75,9 @@ ALL_LANGUAGES=(
     "Verilog"
     "VHDL"
     "Vue"
+    "jupyter_notebook"
+    "reStructuredText"
+    "CoNLL-U"
 )
 
 # Compute which languages this instance should process
