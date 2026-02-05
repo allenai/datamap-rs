@@ -1,4 +1,4 @@
-name: opencl_code_classifier
+name: restructuredtext_code_classifier
 text_field: text
 pipeline:
     - name: gzip_annotator
@@ -11,19 +11,19 @@ pipeline:
           text_field: text
           output_field: metadata.stack_edu_redux
           max_text_length: 10000
-          fast_text_file: /mnt/raid0/ai2-llm/classifiers/code-quality/trained_models/fasttext/stack_edu_redux_ultrafine_bin5/OpenCL/model.bin
+          fast_text_file: /mnt/raid0/ai2-llm/classifiers/code-quality/trained_models/fasttext/stack_edu_redux_ultrafine_bin5/reStructuredText/model.bin
     - name: linear_transform_annotator
       kwargs:
           features:
               - field: metadata.stack_edu_redux.__label__bin1
-                weight: 0.005734
+                weight: -0.396326
               - field: metadata.stack_edu_redux.__label__bin2
-                weight: 0.235025
+                weight: -0.168309
               - field: metadata.stack_edu_redux.__label__bin3
-                weight: 0.500773
+                weight: 0.07246
               - field: metadata.stack_edu_redux.__label__bin4
-                weight: 0.887678
+                weight: 0.450983
               - field: metadata.stack_edu_redux.__label__bin5
-                weight: -1.62769
-          bias: -0.017521
+                weight: 0.041233
+          bias: 0.41563
           output_field: metadata.stack_edu_redux_combined

@@ -45,6 +45,9 @@ declare -A LANG_MAP=(
     ["verilog"]="Verilog"
     ["vhdl"]="VHDL"
     ["vue"]="Vue"
+    ["jupyter_notebook"]="jupyter_notebook"
+    ["restructuredtext"]="reStructuredText"
+    ["conllu"]="CoNLL-U"
 )
 
 generate_classifier_config() {

@@ -16,14 +16,14 @@ pipeline:
       kwargs:
           features:
               - field: metadata.stack_edu_redux.__label__bin1
-                weight: -0.240039
+                weight: 0.929077
               - field: metadata.stack_edu_redux.__label__bin2
-                weight: -2.398727
+                weight: -2.921637
               - field: metadata.stack_edu_redux.__label__bin3
-                weight: 1.89482
+                weight: 1.895979
               - field: metadata.stack_edu_redux.__label__bin4
-                weight: 0.310119
+                weight: 0.284461
               - field: metadata.stack_edu_redux.__label__bin5
-                weight: 0.434101
-          bias: -0.007491
+                weight: -0.187455
+          bias: 0.040174
           output_field: metadata.stack_edu_redux_combined

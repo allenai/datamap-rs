@@ -1,11 +1,10 @@
-name: html_code_classifier
+name: jupyter_notebook_code_classifier
 text_field: text
 pipeline:
-  - name: readibility_annotator
+  - name: notebook_linearizer_annotator
     kwargs:
       text_field: text
-      output_field: readability
-
+      output_field: text
   - name: gzip_annotator
     kwargs:
       text_field: text
@@ -16,19 +15,19 @@ pipeline:
       text_field: text
       output_field: metadata.stack_edu_redux
       max_text_length: 10000
-      fast_text_file: /mnt/raid0/ai2-llm/classifiers/code-quality/trained_models/fasttext/stack_edu_redux_ultrafine_bin5/HTML/model.bin
+      fast_text_file: /mnt/raid0/ai2-llm/classifiers/code-quality/trained_models/fasttext/stack_edu_redux_ultrafine_bin5/jupyter_notebook/model.bin
   - name: linear_transform_annotator
     kwargs:
       features:
         - field: metadata.stack_edu_redux.__label__bin1
-          weight: 0.036997
+          weight: -0.49716
         - field: metadata.stack_edu_redux.__label__bin2
-          weight: 0.294097
+          weight: -0.23606
         - field: metadata.stack_edu_redux.__label__bin3
-          weight: 0.544548
+          weight: 0.015159
         - field: metadata.stack_edu_redux.__label__bin4
-          weight: 0.900034
+          weight: 0.32222
         - field: metadata.stack_edu_redux.__label__bin5
-          weight: -1.775808
-      bias: -0.043177
+          weight: 0.39449
+      bias: 0.475797
       output_field: metadata.stack_edu_redux_combined
