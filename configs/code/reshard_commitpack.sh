@@ -73,8 +73,6 @@ for language in "${LANGUAGES[@]}"; do
         --max-size 100000000
 
     s5cmd cp -sp "${local_output_dir}/*" "${remote_output_dir}/"
-
-    exit 0
 done
 
 echo "Done!"
