@@ -159,7 +159,7 @@ for language in "${LANGUAGES[@]}"; do
         "${input_dir}" \
         --output-file "${output_file}" \
         --expression ".metadata.stack_edu_redux_combined" \
-        --weight-by '.text' \
+        --weight-by '.text | length' \
         --num-samples 10000000   # 10M samples
 done
 
