@@ -140,6 +140,12 @@ for language in "${LANGUAGES[@]}"; do
     fi
 
     for step_dir in $(ls --color=never "${local_input_dir}"); do
+        num_processes=$(python3 -c "import multiprocessing; print(multiprocessing.cpu_count())")
+        # Cap num_processes by directory size / 100MB
+        dir_size_bytes=$(du -sb "${local_input_dir}/${step_dir}" | awk '{print $1}')
+        size_based_procs=$(python3 -c "import math; print(max(1, math.floor(${dir_size_bytes} / (100 * 1024 * 1024))))")
+        num_processes=$(( num_processes < size_based_procs ? num_processes : size_based_procs ))
+
         # tokenizing the language
         uv run dolma tokens \
             --documents "${local_input_dir}/${step_dir}/${EXTENSION}" \
@@ -150,7 +156,7 @@ for language in "${LANGUAGES[@]}"; do
             --fields.id_field_name ${FIELD_ID} \
             --no-tokenizer.segment_before_tokenization \
             --tokenizer.encode_special_tokens \
-            --processes $(python3 -c "import multiprocessing; print(multiprocessing.cpu_count())") \
+            --processes ${num_processes} \
             --max_size 4_000_000_000 \
             --sample_ring_prop \
             --dtype uint32

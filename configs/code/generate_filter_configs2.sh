@@ -109,6 +109,7 @@ name: code_filter
 text_field: text
 pipeline:
     - name: text_len_filter  # p1-p99
+      step: invalid_length
       kwargs:
           text_field: text
           lower_bound: ${len_lower}
@@ -129,8 +130,14 @@ EOF
         # Format to 6 decimal places
         value=$(printf "%.6f" "$value")
 
+        # Remove 5 from the percentile number and format as two digits with "quality_p" prefix
+        local pct_num="${pct#p}"
+        local adjusted_num=$((pct_num - 5))
+        display_pct=$(printf "quality_p%02d" "$adjusted_num")
+
         cat >> "$output_file" << EOF
-    - name: float_filter  # ${pct}
+    - name: float_filter
+      step: ${display_pct}
       kwargs:
           float_field: metadata.stack_edu_redux_combined
           lower_bound: ${value}
