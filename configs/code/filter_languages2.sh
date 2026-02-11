@@ -37,6 +37,15 @@ WORLD_SIZE=$(aws ec2 describe-instances \
     --query "Reservations[*].Instances[*].InstanceId" --output text | wc -w)
 echo "World Size: ${WORLD_SIZE}"
 
+
+# If there's only one instance, force rank to 0
+if [ "${WORLD_SIZE}" -eq 1 ]; then
+    RANK=0
+    echo "Single instance detected, setting RANK to 0"
+fi
+
+
+
 # ============================================================================
 # Define all languages and compute subset for this instance
 # ============================================================================
