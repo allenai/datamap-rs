@@ -4,9 +4,11 @@ set -euox pipefail
 
 REMOTE_DIR="s3://ai2-llm"
 LOCAL_DIR="/mnt/raid0/ai2-llm"
-INPUT_DIR="pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_filter_2026"
-OUTPUT_DIR="pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_filter_v2_2026_stack_edu_redux_tagged"
-CONFIGS_DIR="configs/code/classifiers2"
+INPUT_DIR="pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_filter_v2_2026_stack_edu_redux_tagged_partitioned"
+
+FIELD_ID="blob_id"
+EXTENSION="*"
+TOKENIZER_NAME="allenai/dolma2-tokenizer"
 
 # ============================================================================
 # Get instance rank and world size from EC2 metadata
@@ -53,7 +55,6 @@ ALL_LANGUAGES=(
     "Bluespec"
     "CSS"
     "Clojure"
-    "CoNLL-U"
     "Common_Lisp"
     "Cuda"
     "Dart"
@@ -86,7 +87,6 @@ ALL_LANGUAGES=(
     "jupyter_notebook"
     "reStructuredText"
 )
-
 # Compute which languages this instance should process
 # Each instance processes languages where (language_index % world_size) == rank
 LANGUAGES=()
@@ -98,76 +98,63 @@ done
 
 echo "This instance (rank ${RANK}/${WORLD_SIZE}) will process: ${LANGUAGES[*]}"
 
-# download tokenizer
-mkdir -p tokenizers
-curl -L -o tokenizers/deepseek_v2.json https://huggingface.co/deepseek-ai/DeepSeek-V2/raw/main/tokenizer.json
-
-# download classifiers for assigned languages only
-CLASSIFIER_S3="s3://ai2-llm/classifiers/code-quality/trained_models/fasttext/stack_edu_redux_ultrafine_bin5"
-CLASSIFIER_LOCAL="/mnt/raid0/ai2-llm/classifiers/code-quality/trained_models/fasttext/stack_edu_redux_ultrafine_bin5"
-for language in "${LANGUAGES[@]}"; do
-    s5cmd sync "${CLASSIFIER_S3}/${language}/*" "${CLASSIFIER_LOCAL}/${language}/"
-done
+# figure out where to output files
+OUTPUT_DIR=$(echo "${INPUT_DIR}" | sed 's|^pretraining-data/sources|preprocessed|')
+echo "Output directory: ${OUTPUT_DIR}"
 
 # ============================================================================
-# Process languages: tagging
+# Setup environment
+# ============================================================================
+
+if [ ! -d ".venv" ]; then
+    # setting up virtual environment
+    uv venv
+fi
+
+# installing dolma
+uv pip install dolma backports-zstd backports-weakref
+
+# downloading dolma2-tokenizer
+uv run --with=huggingface-hub \
+    hf download ${TOKENIZER_NAME} \
+    --local-dir ${LOCAL_DIR}/huggingface/${TOKENIZER_NAME}
+
+# ============================================================================
+# Process languages: tokenization
 # ============================================================================
 
 for language in "${LANGUAGES[@]}"; do
-    if [ "${language}" == "Objective-C" ]; then
-        config_name="objective_c.yaml"
-    else
-        config_name="$(echo ${language} | tr '[:upper:]' '[:lower:]').yaml"
-    fi
-
-    config_file="${CONFIGS_DIR}/${config_name}"
-
-    if [ ! -f "${config_file}" ]; then
-        echo "Config file ${config_file} not found... Skipping ${language}"
-        continue
-    fi
-
     local_input_dir="${LOCAL_DIR}/${INPUT_DIR}/${language}"
     local_output_dir="${LOCAL_DIR}/${OUTPUT_DIR}/${language}"
 
-    if [ -d "${local_output_dir}" ]; then
-        echo "Output directory ${local_output_dir} already exists"
-        continue
-    fi
-
+    # download files if not present locally
     if [ ! -d "${local_input_dir}" ]; then
         remote_input_dir="${REMOTE_DIR}/${INPUT_DIR}/${language}"
-
+        echo "Downloading ${language} from ${remote_input_dir}..."
         s5cmd cp -sp "${remote_input_dir}/*" "${local_input_dir}/"
     fi
 
-    echo "Tagging ${language} with config ${config_file}..."
-    cargo run --release map \
-        --input-dir "${local_input_dir}" \
-        --output-dir "${local_output_dir}" \
-        --config "${config_file}"
-done
-
-# ============================================================================
-# Process languages: sampling
-# ============================================================================
-
-for language in "${LANGUAGES[@]}"; do
-    input_dir="${LOCAL_DIR}/${OUTPUT_DIR}/${language}/step_final/"
-    output_file="${LOCAL_DIR}/${OUTPUT_DIR}/${language}/code_quality_report.yaml"
-
-    if [ -f "${output_file}" ]; then
-        echo "Output file ${output_file} already exists"
+    if [ ! -d "${local_input_dir}" ]; then
+        echo "Input directory ${local_input_dir} not found... Skipping ${language}"
         continue
     fi
 
-    echo "Determining vigintiles for ${language}..."
-    uv run python/percentile.py \
-        "${input_dir}" \
-        --output-file "${output_file}" \
-        --expression ".metadata.stack_edu_redux_combined" \
-        --weight-by '.text | length' \
-        --num-samples 10000000   # 10M samples
+    for step_dir in $(ls --color=never "${local_input_dir}"); do
+        # tokenizing the language
+        uv run dolma tokens \
+            --documents "${local_input_dir}/${step_dir}/${EXTENSION}" \
+            --destination "${local_output_dir}/${step_dir}/${TOKENIZER_NAME}" \
+            --tokenizer.name_or_path ${TOKENIZER_NAME} \
+            --tokenizer.eos_token_id 100257 \
+            --tokenizer.pad_token_id 100277 \
+            --fields.id_field_name ${FIELD_ID} \
+            --no-tokenizer.segment_before_tokenization \
+            --tokenizer.encode_special_tokens \
+            --processes $(python3 -c "import multiprocessing; print(multiprocessing.cpu_count())") \
+            --max_size 4_000_000_000 \
+            --sample_ring_prop \
+            --dtype uint32
+    done
 done
 
 # ============================================================================
