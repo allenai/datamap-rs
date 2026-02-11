@@ -2,83 +2,103 @@ name: code_filter
 text_field: text
 pipeline:
     - name: text_len_filter  # p1-p99
+      step: invalid_length
       kwargs:
           text_field: text
           lower_bound: 71
           upper_bound: 257708
-    - name: float_filter  # p5
+    - name: float_filter
+      step: quality_p00
       kwargs:
           float_field: metadata.stack_edu_redux_combined
           lower_bound: 0.059655
-    - name: float_filter  # p10
+    - name: float_filter
+      step: quality_p05
       kwargs:
           float_field: metadata.stack_edu_redux_combined
           lower_bound: 0.106562
-    - name: float_filter  # p15
+    - name: float_filter
+      step: quality_p10
       kwargs:
           float_field: metadata.stack_edu_redux_combined
           lower_bound: 0.123169
-    - name: float_filter  # p20
+    - name: float_filter
+      step: quality_p15
       kwargs:
           float_field: metadata.stack_edu_redux_combined
           lower_bound: 0.129115
-    - name: float_filter  # p25
+    - name: float_filter
+      step: quality_p20
       kwargs:
           float_field: metadata.stack_edu_redux_combined
           lower_bound: 0.135111
-    - name: float_filter  # p30
+    - name: float_filter
+      step: quality_p25
       kwargs:
           float_field: metadata.stack_edu_redux_combined
           lower_bound: 0.150835
-    - name: float_filter  # p35
+    - name: float_filter
+      step: quality_p30
       kwargs:
           float_field: metadata.stack_edu_redux_combined
           lower_bound: 0.181108
-    - name: float_filter  # p40
+    - name: float_filter
+      step: quality_p35
       kwargs:
           float_field: metadata.stack_edu_redux_combined
           lower_bound: 0.214892
-    - name: float_filter  # p45
+    - name: float_filter
+      step: quality_p40
       kwargs:
           float_field: metadata.stack_edu_redux_combined
           lower_bound: 0.240675
-    - name: float_filter  # p50
+    - name: float_filter
+      step: quality_p45
       kwargs:
           float_field: metadata.stack_edu_redux_combined
           lower_bound: 0.254235
-    - name: float_filter  # p55
+    - name: float_filter
+      step: quality_p50
       kwargs:
           float_field: metadata.stack_edu_redux_combined
           lower_bound: 0.285403
-    - name: float_filter  # p60
+    - name: float_filter
+      step: quality_p55
       kwargs:
           float_field: metadata.stack_edu_redux_combined
           lower_bound: 0.360251
-    - name: float_filter  # p65
+    - name: float_filter
+      step: quality_p60
       kwargs:
           float_field: metadata.stack_edu_redux_combined
           lower_bound: 0.421916
-    - name: float_filter  # p70
+    - name: float_filter
+      step: quality_p65
       kwargs:
           float_field: metadata.stack_edu_redux_combined
           lower_bound: 0.463639
-    - name: float_filter  # p75
+    - name: float_filter
+      step: quality_p70
       kwargs:
           float_field: metadata.stack_edu_redux_combined
           lower_bound: 0.491644
-    - name: float_filter  # p80
+    - name: float_filter
+      step: quality_p75
       kwargs:
           float_field: metadata.stack_edu_redux_combined
           lower_bound: 0.513237
-    - name: float_filter  # p85
+    - name: float_filter
+      step: quality_p80
       kwargs:
           float_field: metadata.stack_edu_redux_combined
           lower_bound: 0.533063
-    - name: float_filter  # p90
+    - name: float_filter
+      step: quality_p85
       kwargs:
           float_field: metadata.stack_edu_redux_combined
           lower_bound: 0.561644
-    - name: float_filter  # p95
+    - name: float_filter
+      step: quality_p90
       kwargs:
           float_field: metadata.stack_edu_redux_combined
           lower_bound: 0.601600
