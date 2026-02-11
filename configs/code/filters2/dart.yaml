@@ -1,0 +1,84 @@
+name: code_filter
+text_field: text
+pipeline:
+    - name: text_len_filter  # p1-p99
+      kwargs:
+          text_field: text
+          lower_bound: 71
+          upper_bound: 29433
+    - name: float_filter  # p5
+      kwargs:
+          float_field: metadata.stack_edu_redux_combined
+          lower_bound: 0.357308
+    - name: float_filter  # p10
+      kwargs:
+          float_field: metadata.stack_edu_redux_combined
+          lower_bound: 0.386537
+    - name: float_filter  # p15
+      kwargs:
+          float_field: metadata.stack_edu_redux_combined
+          lower_bound: 0.403776
+    - name: float_filter  # p20
+      kwargs:
+          float_field: metadata.stack_edu_redux_combined
+          lower_bound: 0.417205
+    - name: float_filter  # p25
+      kwargs:
+          float_field: metadata.stack_edu_redux_combined
+          lower_bound: 0.428769
+    - name: float_filter  # p30
+      kwargs:
+          float_field: metadata.stack_edu_redux_combined
+          lower_bound: 0.439360
+    - name: float_filter  # p35
+      kwargs:
+          float_field: metadata.stack_edu_redux_combined
+          lower_bound: 0.449738
+    - name: float_filter  # p40
+      kwargs:
+          float_field: metadata.stack_edu_redux_combined
+          lower_bound: 0.460108
+    - name: float_filter  # p45
+      kwargs:
+          float_field: metadata.stack_edu_redux_combined
+          lower_bound: 0.470620
+    - name: float_filter  # p50
+      kwargs:
+          float_field: metadata.stack_edu_redux_combined
+          lower_bound: 0.481169
+    - name: float_filter  # p55
+      kwargs:
+          float_field: metadata.stack_edu_redux_combined
+          lower_bound: 0.491360
+    - name: float_filter  # p60
+      kwargs:
+          float_field: metadata.stack_edu_redux_combined
+          lower_bound: 0.502197
+    - name: float_filter  # p65
+      kwargs:
+          float_field: metadata.stack_edu_redux_combined
+          lower_bound: 0.513862
+    - name: float_filter  # p70
+      kwargs:
+          float_field: metadata.stack_edu_redux_combined
+          lower_bound: 0.527674
+    - name: float_filter  # p75
+      kwargs:
+          float_field: metadata.stack_edu_redux_combined
+          lower_bound: 0.544282
+    - name: float_filter  # p80
+      kwargs:
+          float_field: metadata.stack_edu_redux_combined
+          lower_bound: 0.564966
+    - name: float_filter  # p85
+      kwargs:
+          float_field: metadata.stack_edu_redux_combined
+          lower_bound: 0.590266
+    - name: float_filter  # p90
+      kwargs:
+          float_field: metadata.stack_edu_redux_combined
+          lower_bound: 0.622249
+    - name: float_filter  # p95
+      kwargs:
+          float_field: metadata.stack_edu_redux_combined
+          lower_bound: 0.665827

@@ -42,7 +42,7 @@ declare -A LANG_MAP=(
     ["fortran"]="Fortran"
     ["fortran_free_form"]="Fortran_Free_Form"
     ["haskell"]="Haskell"
-    ["html"]="HTML"
+    ["html"]="html"
     ["java_server_pages"]="Java_Server_Pages"
     ["julia"]="Julia"
     ["kotlin"]="Kotlin"
@@ -66,7 +66,6 @@ declare -A LANG_MAP=(
     ["vue"]="Vue"
     ["jupyter_notebook"]="jupyter_notebook"
     ["restructuredtext"]="reStructuredText"
-    ["conllu"]="CoNLL-U"
 )
 
 # Percentile keys in order (p5 to p95 in increments of 5)
