@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -ex
+set -euox pipefail
 
 REMOTE_DIR="s3://ai2-llm"
 LOCAL_DIR="/mnt/raid0/ai2-llm"
@@ -132,7 +132,10 @@ for language in "${LANGUAGES[@]}"; do
     # download files
     if [ ! -d "${local_input_dir}" ]; then
         remote_input_dir="${REMOTE_DIR}/${INPUT_DIR}/${language}"
-        s5cmd cp -sp "${remote_input_dir}/*" "${local_input_dir}/"
+        if ! s5cmd cp -sp "${remote_input_dir}/*" "${local_input_dir}/"; then
+            echo "Failed to download ${language} from ${remote_input_dir}... Skipping"
+            continue
+        fi
     fi
 
     # unltil there's a directory called "step_final", replace local_output_dir with step final;
