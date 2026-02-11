@@ -108,7 +108,7 @@ echo "Output directory: ${OUTPUT_DIR}"
 
 if [ ! -d ".venv" ]; then
     # setting up virtual environment
-    uv venv
+    uv venv --python=3.13
 fi
 
 # installing dolma
