@@ -144,6 +144,15 @@ EOF
 EOF
     done
 
+    # catches top bin of quality
+        cat >> "$output_file" << EOF
+    - name: float_filter
+      step: quality_p95
+      kwargs:
+          float_field: metadata.stack_edu_redux_combined
+          lower_bound: 1000
+EOF
+
     echo "  Created ${output_file}"
 }
 

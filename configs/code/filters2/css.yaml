@@ -102,3 +102,8 @@ pipeline:
       kwargs:
           float_field: metadata.stack_edu_redux_combined
           lower_bound: 0.987645
+    - name: float_filter
+      step: quality_p95
+      kwargs:
+          float_field: metadata.stack_edu_redux_combined
+          lower_bound: 1000
