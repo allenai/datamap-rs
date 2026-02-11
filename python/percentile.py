@@ -37,8 +37,11 @@ import jq
 import msgspec
 import numpy as np
 import smart_open
+import smart_open.compression
 import yaml
 from tqdm import tqdm
+
+smart_open.compression.register_compressor(".zstd", smart_open.compression._handle_zstd)
 
 FILE_SUFFIXES = frozenset(
     f"{type_}{compr}"
