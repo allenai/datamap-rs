@@ -108,8 +108,9 @@ echo "Output directory: ${OUTPUT_DIR}"
 
 if [ ! -d ".venv" ]; then
     # setting up virtual environment
-    uv venv --python=3.13
+    uv venv --python=3.12
 fi
+
 
 # installing dolma
 uv pip install dolma backports-zstd backports-weakref
