@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import os
 import random
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Callable
 
@@ -398,7 +398,8 @@ def main(
     all_samples: list[tuple[float, float]] = []
     rng = random.Random(seed)
 
-    with ProcessPoolExecutor(max_workers=workers) as pool:
+    pool_cls = ThreadPoolExecutor if workers == 1 else ProcessPoolExecutor
+    with pool_cls(max_workers=workers) as pool:
         futures = {}
         for file_path, target in zip(files, samples_per_file):
             file_seed = rng.randint(0, 2**31)
