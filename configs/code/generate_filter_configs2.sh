@@ -76,6 +76,11 @@ generate_filter_config() {
     local s3_name="$2"
     local output_file="${FILTERS_DIR}/${lang_key}.yaml"
 
+    if [[ -f "$output_file" ]]; then
+        echo "Filter config for ${lang_key} already exists"
+        return 0
+    fi
+
     echo "Generating filter config for ${lang_key} (S3: ${s3_name})..."
 
     # Fetch the code_quality_report.yaml from S3
