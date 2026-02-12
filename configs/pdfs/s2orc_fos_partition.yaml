@@ -1,0 +1,3 @@
+name: "FOS Partition"
+partition_key: "fos_max"
+max_file_size: 256000000  # Optional: max bytes per output file (default: 256MB)

@@ -1,0 +1,22 @@
+name: pdf_spam
+text_field: text
+pipeline:
+  - name: word_ratio_filter
+    kwargs:
+      words:
+        - download
+        - pdf
+        - epub
+        - mobi
+        - free
+        - erotica
+        - ebook
+        - ebooks
+        - save
+        - casino
+        - viagra
+        - cialis
+      upper_bound: 0.003  # filter out if spam word ratio > 0.3%
+      case_sensitive: false
+      count_unique: true
+      clean_text: true

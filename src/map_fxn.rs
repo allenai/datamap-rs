@@ -73,6 +73,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "ellipsis_line_ratio_filter", EllipsisLineRatioFilter);
         register_processor!(m, "alphabetic_word_ratio_filter", AlphabeticWordRatioFilter);
         register_processor!(m, "stop_word_filter", StopWordFilter);
+        register_processor!(m, "word_ratio_filter", WordRatioFilter);
         register_processor!(
             m,
             "massive_web_repetition_filter",
@@ -1266,6 +1267,129 @@ impl StopWordFilter {
             }
         }
         false
+    }
+}
+
+#[derive(Serialize, Debug)]
+pub struct WordRatioFilter {
+    /// Filters documents based on the ratio of specific words to total words.
+    /// Similar to download spam detection - counts occurrences of configured words
+    /// and filters if the ratio exceeds/falls below thresholds.
+    ///
+    /// Config options:
+    /// - text_field: field containing text to analyze (default: "text")
+    /// - words: array of words to look for (e.g., ["download", "free", "pdf"])
+    /// - lower_bound: minimum ratio to keep document (default: 0.0)
+    /// - upper_bound: maximum ratio to keep document (default: 1.0)
+    /// - case_sensitive: whether matching is case-sensitive (default: false)
+    /// - count_unique: if true, count unique word matches; if false, count all occurrences (default: false)
+    /// - clean_text: if true, remove non-alphanumeric chars before counting (default: true)
+    pub text_field: String,
+    pub lower_bound: f32,
+    pub upper_bound: f32,
+    pub case_sensitive: bool,
+    pub count_unique: bool,
+    pub clean_text: bool,
+    pub words: HashSet<String>,
+}
+
+impl DataProcessor for WordRatioFilter {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let text_field = get_default(config, "text_field", String::from("text"));
+        let lower_bound = get_default(config, "lower_bound", 0.0_f64) as f32;
+        let upper_bound = get_default(config, "upper_bound", 1.0_f64) as f32;
+        let case_sensitive = get_default(config, "case_sensitive", false);
+        let count_unique = get_default(config, "count_unique", false);
+        let clean_text = get_default(config, "clean_text", true);
+
+        let words_array = config
+            .get("words")
+            .ok_or_else(|| anyhow!("WordRatioFilter requires 'words' array"))?
+            .as_array()
+            .ok_or_else(|| anyhow!("'words' must be an array"))?;
+
+        let words: HashSet<String> = words_array
+            .iter()
+            .map(|v| {
+                let word = v.as_str().unwrap_or("").to_string();
+                if case_sensitive {
+                    word
+                } else {
+                    word.to_lowercase()
+                }
+            })
+            .filter(|w| !w.is_empty())
+            .collect();
+
+        ensure!(!words.is_empty(), "WordRatioFilter requires at least one word");
+
+        Ok(Self {
+            text_field,
+            lower_bound,
+            upper_bound,
+            case_sensitive,
+            count_unique,
+            clean_text,
+            words,
+        })
+    }
+
+    fn process(&self, data: Value) -> Result<Option<Value>, Error> {
+        let text = json_get(&data, &self.text_field)
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Text field '{}' not found or not a string", self.text_field))?;
+
+        let ratio = self.calculate_word_ratio(text);
+
+        if self.lower_bound <= ratio && ratio <= self.upper_bound {
+            Ok(Some(data))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+impl WordRatioFilter {
+    fn calculate_word_ratio(&self, text: &str) -> f32 {
+        // Optionally clean text by removing non-alphanumeric characters
+        let processed_text: String = if self.clean_text {
+            text.chars()
+                .map(|c| if c.is_alphanumeric() || c.is_whitespace() { c } else { ' ' })
+                .collect()
+        } else {
+            text.to_string()
+        };
+
+        let processed_text = if self.case_sensitive {
+            processed_text
+        } else {
+            processed_text.to_lowercase()
+        };
+
+        let words_iter = processed_text.split_whitespace();
+        let total_words: Vec<&str> = words_iter.collect();
+        let total_count = total_words.len();
+
+        if total_count == 0 {
+            return 0.0;
+        }
+
+        let match_count = if self.count_unique {
+            // Count unique matching words
+            total_words
+                .iter()
+                .filter(|w| self.words.contains(**w))
+                .collect::<HashSet<_>>()
+                .len()
+        } else {
+            // Count all occurrences
+            total_words
+                .iter()
+                .filter(|w| self.words.contains(**w))
+                .count()
+        };
+
+        match_count as f32 / total_count as f32
     }
 }
 
