@@ -44,6 +44,7 @@ unicode-normalization = "0.1"
 unicode-general-category = "0.6"
 html-to-markdown-rs = "2.23.4"
 dom_smoothie = "0.15.0"
+similar = "2.7.0"
 
 
 
