@@ -114,7 +114,10 @@ for source in "${SOURCES[@]}"; do
 
         # tokenizing the source
         uv run dolma tokens \
-            --documents "${local_input_dir}/${step_dir}/${EXTENSION}" \
+            --documents \
+                "${local_input_dir}/${step_dir}/english/${EXTENSION}" \
+                "${local_input_dir}/${step_dir}/low_confidence/${EXTENSION}" \
+                "${local_input_dir}/${step_dir}/non_english/*/${EXTENSION}" \
             --destination "${local_output_dir}/${step_dir}/${TOKENIZER_NAME}" \
             --tokenizer.name_or_path ${TOKENIZER_NAME} \
             --tokenizer.eos_token_id 100257 \
