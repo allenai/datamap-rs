@@ -5,7 +5,6 @@ set -euox pipefail
 REMOTE_DIR="s3://ai2-llm"
 LOCAL_DIR="/mnt/raid0/ai2-llm"
 
-FIELD_ID="blob_id"
 EXTENSION="*"
 TOKENIZER_NAME="allenai/dolma2-tokenizer"
 
@@ -122,7 +121,6 @@ for source in "${SOURCES[@]}"; do
             --tokenizer.name_or_path ${TOKENIZER_NAME} \
             --tokenizer.eos_token_id 100257 \
             --tokenizer.pad_token_id 100277 \
-            --fields.id_field_name ${FIELD_ID} \
             --no-tokenizer.segment_before_tokenization \
             --tokenizer.encode_special_tokens \
             --processes ${num_processes} \
