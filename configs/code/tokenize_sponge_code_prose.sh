@@ -5,7 +5,7 @@ set -euox pipefail
 REMOTE_DIR="s3://ai2-llm"
 LOCAL_DIR="/mnt/raid0/ai2-llm"
 
-EXTENSION="*"
+EXTENSION="*.zst"
 TOKENIZER_NAME="allenai/dolma2-tokenizer"
 
 # ============================================================================
