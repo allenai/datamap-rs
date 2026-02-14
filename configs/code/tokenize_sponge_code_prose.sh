@@ -110,13 +110,19 @@ for source in "${SOURCES[@]}"; do
         dir_size_bytes=$(du -sb "${local_input_dir}/${step_dir}" | awk '{print $1}')
         size_based_procs=$(python3 -c "import math; print(max(1, math.floor(${dir_size_bytes} / (100 * 1024 * 1024))))")
         num_processes=$(( num_processes < size_based_procs ? num_processes : size_based_procs ))
+        current_destination="${local_output_dir}/${step_dir}/${TOKENIZER_NAME}"
+
+        if [ -d "${current_destination}" ]; then
+            echo "Output directory ${current_destination} already exists... Skipping ${source}"
+            continue
+        fi
 
         # tokenizing the source
         uv run dolma tokens \
             --documents \
                 "${local_input_dir}/${step_dir}/english/${EXTENSION}" \
                 "${local_input_dir}/${step_dir}/low_confidence/${EXTENSION}" \
-                "${local_input_dir}/${step_dir}/non_english/*/${EXTENSION}" \
+                "${local_input_dir}/${step_dir}/non_english/**/${EXTENSION}" \
             --destination "${local_output_dir}/${step_dir}/${TOKENIZER_NAME}" \
             --tokenizer.name_or_path ${TOKENIZER_NAME} \
             --tokenizer.eos_token_id 100257 \
