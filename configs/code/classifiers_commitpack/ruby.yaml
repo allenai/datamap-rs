@@ -1,0 +1,51 @@
+name: ruby_commitpack_classifier
+text_field: new_contents
+pipeline:
+    - name: gzip_annotator
+      kwargs:
+          text_field: new_contents
+          anno_field: metadata.gzip_compression_ratio
+
+    - name: ultrafineweb_annotator
+      kwargs:
+          text_field: new_contents
+          output_field: metadata.stack_edu_redux
+          max_text_length: 10000
+          fast_text_file: /mnt/raid0/ai2-llm/classifiers/code-quality/trained_models/fasttext/stack_edu_redux_ultrafine_bin5/Ruby/model.bin
+    - name: linear_transform_annotator
+      kwargs:
+          features:
+              - field: metadata.stack_edu_redux.__label__bin1
+                weight: -0.34965
+              - field: metadata.stack_edu_redux.__label__bin2
+                weight: -0.125496
+              - field: metadata.stack_edu_redux.__label__bin3
+                weight: 0.084614
+              - field: metadata.stack_edu_redux.__label__bin4
+                weight: 0.328721
+              - field: metadata.stack_edu_redux.__label__bin5
+                weight: 0.061452
+          bias: 0.397809
+          output_field: metadata.stack_edu_redux_combined
+
+    - name: ultrafineweb_annotator
+      kwargs:
+          text_field: message
+          output_field: metadata.stack_edu_commit_message
+          max_text_length: 10000
+          fast_text_file: /mnt/raid0/ai2-llm/classifiers/code-quality/trained_models/fasttext/commitpack_commit_message_ultrafine_bin5/model.bin
+    - name: linear_transform_annotator
+      kwargs:
+          features:
+              - field: metadata.stack_edu_commit_message.__label__bin1
+                weight: -0.117078
+              - field: metadata.stack_edu_commit_message.__label__bin2
+                weight: -0.042325
+              - field: metadata.stack_edu_commit_message.__label__bin3
+                weight: 0.005211
+              - field: metadata.stack_edu_commit_message.__label__bin4
+                weight: 0.078979
+              - field: metadata.stack_edu_commit_message.__label__bin5
+                weight: 0.075298
+          bias: 0.149185
+          output_field: metadata.stack_edu_commit_message_combined
