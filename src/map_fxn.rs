@@ -35,6 +35,10 @@ use unicode_segmentation::UnicodeSegmentation;
 use url::Url;
 use xxhash_rust::xxh3::{xxh3_128, xxh3_64};
 
+use jaq_core::{load, Compiler, Ctx, Filter, Native, RcIter};
+use jaq_json::Val;
+use load::{Arena, File, Loader};
+
 /*================================================================================
 =                            PIPELINE PROCESSING                                 =
 ================================================================================*/
@@ -109,6 +113,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
             NotebookLinearizerAnnotator
         );
         register_processor!(m, "readibility_annotator", ReadabilityAnnotator);
+        register_processor!(m, "jq_annotator", JqAnnotator);
         m
     });
 
@@ -3795,6 +3800,80 @@ impl DataProcessor for ReadabilityAnnotator {
             "text": text,
             "frac": frac
         });
+
+        json_set(&mut data, &self.output_field, output)?;
+        Ok(Some(data))
+    }
+}
+
+#[derive(Serialize, Derivative)]
+#[derivative(Debug)]
+pub struct JqAnnotator {
+    pub expression: String,
+    pub output_field: String,
+    #[serde(skip)]
+    #[derivative(Debug = "ignore")]
+    pub filter: Filter<Native<Val>>,
+}
+
+impl DataProcessor for JqAnnotator {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let expression = json_get(config, "expression")
+            .ok_or_else(|| anyhow!("JqAnnotator requires 'expression' field"))?
+            .as_str()
+            .ok_or_else(|| anyhow!("JqAnnotator 'expression' must be a string"))?
+            .to_string();
+        let output_field = json_get(config, "output_field")
+            .ok_or_else(|| anyhow!("JqAnnotator requires 'output_field' field"))?
+            .as_str()
+            .ok_or_else(|| anyhow!("JqAnnotator 'output_field' must be a string"))?
+            .to_string();
+
+        let program = File {
+            code: expression.as_str(),
+            path: (),
+        };
+        let loader = Loader::new(jaq_std::defs().chain(jaq_json::defs()));
+        let arena = Arena::default();
+        let modules = loader
+            .load(&arena, program)
+            .map_err(|errs| anyhow!("Failed to parse jq expression '{}': {:?}", expression, errs))?;
+        let filter = Compiler::default()
+            .with_funs(jaq_std::funs().chain(jaq_json::funs()))
+            .compile(modules)
+            .map_err(|errs| anyhow!("Failed to compile jq expression '{}': {:?}", expression, errs))?;
+
+        Ok(Self {
+            expression,
+            output_field,
+            filter,
+        })
+    }
+
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+        let inputs = RcIter::new(core::iter::empty());
+        let out = self.filter.run((Ctx::new([], &inputs), Val::from(data.clone())));
+
+        // Collect results: if single value, use it directly; if multiple, collect into array
+        let mut results: Vec<Value> = Vec::new();
+        for val in out {
+            match val {
+                Ok(v) => results.push(Value::from(v)),
+                Err(e) => {
+                    return Err(anyhow!(
+                        "jq expression '{}' failed: {:?}",
+                        self.expression,
+                        e
+                    ))
+                }
+            }
+        }
+
+        let output = match results.len() {
+            0 => Value::Null,
+            1 => results.into_iter().next().unwrap(),
+            _ => Value::Array(results),
+        };
 
         json_set(&mut data, &self.output_field, output)?;
         Ok(Some(data))

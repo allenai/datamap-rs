@@ -22,3 +22,4 @@ pub mod url_substring_filter_test;
 pub mod word_count_adder_test;
 pub mod word_len_filter_test;
 pub mod word_removal_ratio_filter_test;
+pub mod jq_annotator_test;
