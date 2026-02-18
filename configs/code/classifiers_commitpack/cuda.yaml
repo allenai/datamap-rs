@@ -38,16 +38,16 @@ pipeline:
       kwargs:
           features:
               - field: metadata.stack_edu_commit_message.__label__bin1
-                weight: -0.117078
+                weight: -0.463222
               - field: metadata.stack_edu_commit_message.__label__bin2
-                weight: -0.042325
+                weight: -0.230667
               - field: metadata.stack_edu_commit_message.__label__bin3
-                weight: 0.005211
+                weight: -0.008987
               - field: metadata.stack_edu_commit_message.__label__bin4
-                weight: 0.078979
+                weight: 0.251128
               - field: metadata.stack_edu_commit_message.__label__bin5
-                weight: 0.075298
-          bias: 0.149185
+                weight: 0.451173
+          bias: 0.484604
           output_field: metadata.stack_edu_commit_message_combined
 
     - name: jq_annotator
