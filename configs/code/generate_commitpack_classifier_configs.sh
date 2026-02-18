@@ -5,6 +5,8 @@
 #   1. gzip tagging on new_contents
 #   2. Language-specific code quality classifier (ultrafineweb + linear_transform) on new_contents
 #   3. Global commit message quality classifier (ultrafineweb + linear_transform) on message
+#   4. Geometric mean of code quality and commit message quality scores
+#   5. Concatenate old_contents, message, and new_contents into text field
 
 set -e
 
@@ -177,6 +179,16 @@ pipeline:
 {commit_features_block}
           bias: {commit_bias}
           output_field: metadata.stack_edu_commit_message_combined
+
+    - name: jq_annotator
+      kwargs:
+          expression: '((.metadata.stack_edu_redux_combined // 0) * (.metadata.stack_edu_commit_message_combined // 0)) | sqrt | [., 1] | min | [., 0] | max'
+          output_field: metadata.combined_quality_score
+
+    - name: jq_annotator
+      kwargs:
+          expression: '((.old_contents // "") | gsub("^\\\\s+|\\\\s+$"; "")) + "\\n\\n\\n" + ((.message // "") | gsub("^\\\\s+|\\\\s+$"; "")) + "\\n\\n\\n" + ((.new_contents // "") | gsub("^\\\\s+|\\\\s+$"; ""))'
+          output_field: text
 """)
 
     print(f"  Created {output_path}")

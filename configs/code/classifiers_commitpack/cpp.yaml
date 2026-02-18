@@ -49,3 +49,13 @@ pipeline:
                 weight: 0.075298
           bias: 0.149185
           output_field: metadata.stack_edu_commit_message_combined
+
+    - name: jq_annotator
+      kwargs:
+          expression: '((.metadata.stack_edu_redux_combined // 0) * (.metadata.stack_edu_commit_message_combined // 0)) | sqrt | [., 1] | min | [., 0] | max'
+          output_field: metadata.combined_quality_score
+
+    - name: jq_annotator
+      kwargs:
+          expression: '((.old_contents // "") | gsub("^\\s+|\\s+$"; "")) + "\n\n\n" + ((.message // "") | gsub("^\\s+|\\s+$"; "")) + "\n\n\n" + ((.new_contents // "") | gsub("^\\s+|\\s+$"; ""))'
+          output_field: text
