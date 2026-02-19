@@ -1,5 +1,4 @@
 name: jupyter_notebook_commitpack_classifier
-text_field: new_contents
 pipeline:
     - name: gzip_annotator
       kwargs:
@@ -28,7 +27,7 @@ pipeline:
           bias: 0.475797
           output_field: metadata.stack_edu_redux_combined
 
-    - name: ultrafineweb_annotator
+    - name: ultrafine_commit_annotator
       kwargs:
           text_field: message
           output_field: metadata.stack_edu_commit_message
