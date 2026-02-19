@@ -103,6 +103,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "rename_modifier", RenameModifier);
         register_processor!(m, "gzip_annotator", GzipAnnotator);
         register_processor!(m, "ultrafineweb_annotator", UltrafinewebAnnotator);
+        register_processor!(m, "ultrafine_commit_annotator", UltrafineCommitAnnotator);
         register_processor!(m, "ngram_repetition_filter", NgramRepetitionFilter);
         register_processor!(m, "linear_transform_annotator", LinearTransformAnnotator);
         register_processor!(m, "hyperfine_annotator", HyperfineAnnotator);
@@ -2829,6 +2830,242 @@ impl UltrafinewebAnnotator {
 
         text = self.regexes[3].replace_all(&text, r"\t").to_string();
 
+        text = self.regexes[4].replace_all(&text, " ").to_string();
+
+        Ok(text.trim().to_string())
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Debug)]
+#[derive(Serialize)]
+pub struct UltrafineCommitAnnotator {
+    pub text_field: String,
+    pub tokenizer_path: String,
+    #[derivative(Debug = "ignore")]
+    #[serde(skip)]
+    pub tokenizer: Tokenizer,
+    #[derivative(Debug = "ignore")]
+    #[serde(skip)]
+    pub regexes: [Regex; 5],
+    pub output_field: String,
+    pub fast_text_file: String,
+    #[derivative(Debug = "ignore")]
+    #[serde(skip)]
+    pub model: FastText,
+    pub max_text_length: usize,
+    #[derivative(Debug = "ignore")]
+    #[serde(skip)]
+    pub re_hex: Regex,
+    #[derivative(Debug = "ignore")]
+    #[serde(skip)]
+    pub re_email: Regex,
+    #[derivative(Debug = "ignore")]
+    #[serde(skip)]
+    pub re_url: Regex,
+    #[derivative(Debug = "ignore")]
+    #[serde(skip)]
+    pub re_whitespace: Regex,
+}
+
+impl DataProcessor for UltrafineCommitAnnotator {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let text_field = json_get(config, "text_field")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+        let tokenizer_path = get_default(
+            config,
+            "tokenizer_path",
+            String::from("tokenizers/deepseek_v2.json"),
+        );
+        println!("TOKENIZER PATH {:?}", tokenizer_path);
+        let tokenizer = Tokenizer::from_file(&tokenizer_path).unwrap();
+
+        let output_field = json_get(config, "output_field")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+        let re_multinewline = Regex::new(r"\n{3,}").unwrap();
+        let re_newline = Regex::new(r"\n").unwrap();
+        let re_carriage = Regex::new(r"\r").unwrap();
+        let re_tab = Regex::new(r"\t").unwrap();
+        let re_spaces = Regex::new(r" +").unwrap();
+        let regexes: [Regex; 5] = [re_multinewline, re_newline, re_carriage, re_tab, re_spaces];
+
+        let fast_text_file = get_default(
+            config,
+            "fast_text_file",
+            String::from("ft_classifiers/ultrafineweb.bin"),
+        );
+        let mut model = FastText::new();
+        model.load_model(&fast_text_file).unwrap();
+
+        let max_text_length: usize = get_default(config, "max_text_length", 0);
+
+        let re_hex = Regex::new(r"(?i)[0-9a-f][0-9a-f\-]{15,}(?:@[0-9]+)?").unwrap();
+        let re_email = Regex::new(
+            r"(?i)\b[a-z0-9]+(?:[._%+\-][a-z0-9]+)*@(?:[a-z0-9\-]+\.)+[a-z]{2,63}\b",
+        )
+        .unwrap();
+        let re_url = Regex::new(
+            r#"(?i)\b(?:https?://)?(?:www\.)?[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?)+(?::\d{2,5})?(?:/[^\s<>"'()\{\}\[\]]*)?\b"#,
+        )
+        .unwrap();
+        let re_whitespace = Regex::new(r"\s+").unwrap();
+
+        Ok(Self {
+            text_field,
+            tokenizer_path,
+            tokenizer,
+            regexes,
+            output_field,
+            fast_text_file,
+            model,
+            max_text_length,
+            re_hex,
+            re_email,
+            re_url,
+            re_whitespace,
+        })
+    }
+
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+        let mut text = json_get(&data, &self.text_field)
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        // Trim text if max_text_length is set, avoiding cutting on multi-byte characters
+        if self.max_text_length > 0 && text.len() > self.max_text_length {
+            let mut end = self.max_text_length;
+            while end > 0 && !text.is_char_boundary(end) {
+                end -= 1;
+            }
+            text.truncate(end);
+        }
+
+        // apply preprocessing
+        let mut preproc = self.preprocess(&text).unwrap();
+
+        // you need to push newline character at the end to match fasttext binaries/python bindings
+        preproc.push_str("\n");
+
+        let predictions = match self.model.predict(&preproc, 10, 0.0) {
+            Ok(preds) => preds,
+            Err(_e) => {
+                return Ok(None);
+            }
+        };
+
+        let mut map = serde_json::Map::new();
+        for pred in predictions {
+            map.insert(pred.label.clone(), json!(pred.prob));
+        }
+        let pred_json = Value::Object(map);
+        json_set(&mut data, &self.output_field, pred_json).unwrap();
+        Ok(Some(data))
+    }
+}
+
+impl UltrafineCommitAnnotator {
+    /// Replace hex strings (16+ hex chars) with ___CODE___, checking boundaries manually
+    /// since Rust regex doesn't support lookaheads/lookbehinds.
+    fn replace_hex(&self, text: &str) -> String {
+        let mut result = String::with_capacity(text.len());
+        let mut last_end = 0;
+
+        for mat in self.re_hex.find_iter(text) {
+            let start = mat.start();
+            let end = mat.end();
+
+            // Check that char before match is not a hex char
+            if start > 0 {
+                let prev_char = text[..start].chars().last().unwrap();
+                if prev_char.is_ascii_hexdigit() {
+                    continue;
+                }
+            }
+            // Check that char after match is not a hex char
+            if end < text.len() {
+                let next_char = text[end..].chars().next().unwrap();
+                if next_char.is_ascii_hexdigit() {
+                    continue;
+                }
+            }
+
+            result.push_str(&text[last_end..start]);
+            result.push_str(" ___CODE___ ");
+            last_end = end;
+        }
+
+        result.push_str(&text[last_end..]);
+        result
+    }
+
+    fn preprocess(&self, text: &str) -> Result<String, Error> {
+        // 1. Replace emails -> ___ADDR___ (before URLs so emails aren't caught as URLs)
+        let text = self.re_email.replace_all(text, " ___ADDR___ ").to_string();
+
+        // 2. Replace URLs -> ___URL___
+        let text = self.re_url.replace_all(&text, " ___URL___ ").to_string();
+
+        // 3. Replace hex strings 16+ chars -> ___CODE___
+        let text = self.replace_hex(&text);
+
+        // 4. Strip
+        let text = text.trim().to_string();
+
+        // 5. Collapse 3+ newlines -> \n\n
+        let text = self.regexes[0].replace_all(&text, "\n\n").to_string();
+
+        // 6. Custom lowering: lowercase all tokens except placeholders
+        let mut lowered = String::with_capacity(text.len());
+        for part in self.re_whitespace.split(&text) {
+            if !lowered.is_empty() {
+                lowered.push(' ');
+            }
+            match part {
+                "___CODE___" => lowered.push_str("CODE"),
+                "___URL___" => lowered.push_str("URL"),
+                "___ADDR___" => lowered.push_str("ADDR"),
+                _ => lowered.push_str(&part.to_lowercase()),
+            }
+        }
+
+        // 7. Remove diacritics (NFKD, filter NonspacingMark)
+        let text: String = lowered
+            .nfkd()
+            .filter(|c| {
+                use unicode_general_category::GeneralCategory;
+                let category = unicode_general_category::get_general_category(*c);
+                !matches!(
+                    category,
+                    GeneralCategory::NonspacingMark
+                        | GeneralCategory::SpacingMark
+                        | GeneralCategory::EnclosingMark
+                )
+            })
+            .collect();
+
+        // 8. Tokenizer word segmentation
+        let encoding = self.tokenizer.encode(text, false).unwrap();
+        let token_ids = encoding.get_ids();
+        let single_text_list: Vec<_> = token_ids
+            .iter()
+            .map(|tok| self.tokenizer.decode(&[*tok], false).unwrap())
+            .collect();
+        let mut text = single_text_list.join(" ");
+
+        // 9. Escape chars: \n -> \\n, \r -> \\r, \t -> \\t
+        text = self.regexes[1].replace_all(&text, r"\n").to_string();
+        text = self.regexes[2].replace_all(&text, r"\r").to_string();
+        text = self.regexes[3].replace_all(&text, r"\t").to_string();
+
+        // 10. Collapse spaces, trim
         text = self.regexes[4].replace_all(&text, " ").to_string();
 
         Ok(text.trim().to_string())
