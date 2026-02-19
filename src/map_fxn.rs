@@ -2587,12 +2587,14 @@ struct SaRules {
     original_bytes: usize,
     remaining_bytes: usize,
     coherent_interval_mods: usize,
+    actual_remove_ranges: Vec<(usize, usize)>,
 }
 
 #[derive(Serialize, Debug)]
 pub struct SAByteModifier {
     pub suffix_array_key: String,
-    pub text_key: String,
+    pub input_text_key: String,
+    pub output_text_key: String,
     pub old_text_key: Option<String>,
     pub check_paragraph: bool,
     pub check_newline: bool,
@@ -2608,7 +2610,9 @@ impl DataProcessor for SAByteModifier {
     fn new(config: &Value) -> Result<Self, Error> {
         // Extract configuration values with defaults
         let suffix_array_key = get_default(config, "suffix_array_key", String::from("metadata.suffix_array"));
-        let text_key = get_default(config, "text_key", String::from("text"));
+        let input_text_key = get_default(config, "input_text_key", String::from("text"));
+        let output_text_key = get_default(config, "output_text_key", String::from("text"));
+
         let old_text_key = config.get("old_text_key")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
@@ -2629,7 +2633,8 @@ impl DataProcessor for SAByteModifier {
 
         Ok(Self {
             suffix_array_key,
-            text_key,
+            input_text_key,
+            output_text_key,
             old_text_key,
             check_paragraph,
             check_newline,
@@ -2653,7 +2658,7 @@ impl DataProcessor for SAByteModifier {
         };
         
         // Get the original text as bytes for processing
-        let og_text = json_get(&data, &self.text_key).unwrap().clone();
+        let og_text = json_get(&data, &self.input_text_key).unwrap().clone();
         let text_bytes = og_text.as_str().unwrap().as_bytes();
         let original_length = text_bytes.len();
 
@@ -2694,7 +2699,7 @@ impl DataProcessor for SAByteModifier {
         // Calculate final bytes to remove and update metrics
         let bytes_to_remove_after: usize = sa_intervals.iter().map(|(s, e)| e - s).sum();        
         rules.bytes_to_remove_after = bytes_to_remove_after;
-
+        rules.actual_remove_ranges = sa_intervals.clone();
         // Check if the document meets minimum length requirements after removal
         if (original_length - bytes_to_remove_after < self.doc_min_length) || 
            ((original_length - bytes_to_remove_after) as f64 / (original_length as f64) < self.proportion_removal) {
@@ -2728,7 +2733,7 @@ impl DataProcessor for SAByteModifier {
         // Combine kept segments and update the document with modified text
         let combined = kept_segments.concat();  
         let combined_str = Value::String(String::from_utf8_lossy(&combined).into_owned());
-        json_set(&mut data, &self.text_key, combined_str).unwrap();
+        json_set(&mut data, &self.output_text_key, combined_str).unwrap();
 
         Ok(Some(data))
     }
@@ -2765,39 +2770,34 @@ impl SAByteModifier {
     fn apply_coherence_checks(&self, text_bytes: &[u8], intervals: Vec<(usize, usize)>, rules: &mut SaRules) -> Vec<(usize, usize)> {
         intervals.into_iter()
             .map(|(start, end)| {
-                // Define search windows before and after each boundary
                 let check_start_before = start.saturating_sub(self.check_width);
                 let check_start_after = std::cmp::min(text_bytes.len(), start + self.check_width);
                 let check_end_before = end.saturating_sub(self.check_width);
                 let check_end_after = std::cmp::min(text_bytes.len(), end + self.check_width);
 
-                // Extract byte slices for boundary searching
                 let start_before_bytes = &text_bytes[check_start_before..start];
                 let start_after_bytes = &text_bytes[start..check_start_after];
                 let end_before_bytes = &text_bytes[check_end_before..end];
                 let end_after_bytes = &text_bytes[end..check_end_after];
 
-                // Find natural boundaries (paragraphs, sentences, newlines) in each slice
-                let start_before_bounds = self.find_boundaries(start_before_bytes, true, start_before_bytes.len() < self.check_width, false);
-                let start_after_bounds = self.find_boundaries(start_after_bytes, false, false, start_after_bytes.len() < self.check_width);
-                let end_before_bounds = self.find_boundaries(end_before_bytes, true, end_before_bytes.len() < self.check_width, false);
-                let end_after_bounds = self.find_boundaries(end_after_bytes, false, false, end_after_bytes.len() < self.check_width);
+                let start_before_bounds = self.find_boundaries(start_before_bytes, start_before_bytes.len() < self.check_width, false);
+                let start_after_bounds = self.find_boundaries(start_after_bytes, false, start_after_bytes.len() < self.check_width);
+                let end_before_bounds = self.find_boundaries(end_before_bytes, end_before_bytes.len() < self.check_width, false);
+                let end_after_bounds = self.find_boundaries(end_after_bytes, false, end_after_bytes.len() < self.check_width);
 
                 let new_start = {
+                    // before_dist: how far the cut point is from `start`, looking backwards
                     let before_dist = start_before_bounds.last().map(|&idx| start_before_bytes.len() - idx);
+                    // after_dist: how far the cut point is from `start`, looking forwards
                     let after_dist = start_after_bounds.first().copied();
 
                     match (before_dist, after_dist) {
                         (Some(before), Some(after)) => {
-                            if before <= after {
-                                start.saturating_sub(before)
-                            } else {
-                                start.saturating_add(after)
-                            }
+                            if before <= after { start.saturating_sub(before) } else { start + after }
                         }
                         (Some(before), None) => start.saturating_sub(before),
-                        (None, Some(after)) => start.saturating_add(after),
-                        (None, None) => start
+                        (None, Some(after)) => start + after,
+                        (None, None) => start,
                     }
                 };
 
@@ -2807,19 +2807,14 @@ impl SAByteModifier {
 
                     match (before_dist, after_dist) {
                         (Some(before), Some(after)) => {
-                            if before <= after {
-                                end.saturating_sub(before)
-                            } else {
-                                end.saturating_add(after)
-                            }
+                            if before <= after { end.saturating_sub(before) } else { end + after }
                         }
                         (Some(before), None) => end.saturating_sub(before),
-                        (None, Some(after)) => end.saturating_add(after),
-                        (None, None) => end
+                        (None, Some(after)) => end + after,
+                        (None, None) => end,
                     }
                 };
 
-                // Track if boundaries were modified
                 if (new_start != start) || (new_end != end) {
                     rules.coherent_interval_mods += 1;
                 }
@@ -2830,52 +2825,44 @@ impl SAByteModifier {
     }
 
     /// Find positions of natural text boundaries (periods, newlines, double newlines) within a byte slice.
-    fn find_boundaries(&self, text: &[u8], idx_before_punct: bool, prepend_zero: bool, postpend_len: bool) -> Vec<usize> {
+    fn find_boundaries(&self, text: &[u8], prepend_zero: bool, postpend_len: bool) -> Vec<usize> {
         let mut results = Vec::new();
         
-        // Optionally include the start of the text as a boundary
         if prepend_zero {
             results.push(0);
         }
-        let offset = if idx_before_punct {
-            0
-        } else {
-            1
-        };
-        let mut i = 0;
 
-        // Scan through the text looking for boundary markers
+        let mut i = 0;
         while i < text.len() {
             match text[i] {
-                // Sentence boundaries (if enabled)
+                // Cut point is BEFORE the punctuation character
                 b'.' | b'!' | b'?' if self.check_sentences => {
-                    results.push(i + offset);
+                    if i + 1 < text.len() && text[i + 1].is_ascii_whitespace() {
+                        results.push(i+2); // index of the punctuation itself, i.e. cut before it
+                    }
                 }
                 b'\n' => {
-                    // Check for paragraph boundary (double newline) first
                     if self.check_paragraph
-                        && i + 1 < text.len() 
-                        && text[i + 1] == b'\n' 
+                        && i + 1 < text.len()
+                        && text[i + 1] == b'\n'
                     {
-                        results.push(i + offset);
+                        // Cut point is AFTER both newlines
                         i += 1;
-                        results.push(i + offset);
-                    } 
-                    // Otherwise check for single newline boundary
-                    else if self.check_newline {
-                        results.push(i + offset);
+                        results.push(i + 1);
+                    } else if self.check_newline {
+                        // Cut point is AFTER the newline
+                        results.push(i + 1);
                     }
                 }
                 _ => {}
             }
             i += 1;
         }
-        
-        // Optionally include the end of the text as a boundary
+
         if postpend_len {
             results.push(text.len());
         }
-        results        
+        results
     }
 }
 #[derive(Serialize, Debug)]
