@@ -1,0 +1,10 @@
+name: lentests
+text_field: text
+pipeline:
+  - name: text_len_filter
+    kwargs:
+      lower_bound: 256
+  - name: text_len_filter
+    kwargs:
+      upper_bound: 1000000
+

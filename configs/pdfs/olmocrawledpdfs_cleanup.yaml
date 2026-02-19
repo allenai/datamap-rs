@@ -1,0 +1,38 @@
+name: pdf_cleanup
+text_field: text
+pipeline:
+  - name: html_editor                                                                                                                                                                                                     
+    kwargs:                                                                                                                                                                                                               
+      tag: "table"                                                                                                                                                                                                        
+      action: "filter"                                                                                                                                                                                                    
+      max_text_ratio: 0.8
+  - name: html_editor                                                                                                                                                                                                     
+    kwargs:                                                                                                                                                                                                               
+      tag: "table"                                                                                                                                                                                                        
+      action: "filter"                                                                                                                                                                                                    
+      max_text_ratio: 0.7
+  - name: html_editor                                                                                                                                                                                                     
+    kwargs:                                                                                                                                                                                                               
+      tag: "table"                                                                                                                                                                                                        
+      action: "filter"                                                                                                                                                                                                    
+      max_text_ratio: 0.6
+  - name: html_editor                                                                                                                                                                                                     
+    kwargs:                                                                                                                                                                                                               
+      tag: "table"                                                                                                                                                                                                        
+      action: "filter"                                                                                                                                                                                                    
+      max_text_ratio: 0.5
+  - name: html_editor                                                                                                                                                                                                     
+    kwargs:                                                                                                                                                                                                               
+      tag: "table"                                                                                                                                                                                                        
+      action: "filter"                                                                                                                                                                                                    
+      max_text_ratio: 0.4
+  - name: html_editor                                                                                                                                                                                                     
+    kwargs:                                                                                                                                                                                                               
+      tag: "table"                                                                                                                                                                                                        
+      action: "filter"                                                                                                                                                                                                    
+      max_text_ratio: 0.3                              
+  - name: html_editor                                                                                                                                                                                                     
+    kwargs:                                                                                                                                                                                                               
+      tag: "table"                                                                                                                                                                                                        
+      action: "filter"                                                                                                                                                                                                    
+      max_text_ratio: 0.2

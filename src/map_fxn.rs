@@ -110,6 +110,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
             NotebookLinearizerAnnotator
         );
         register_processor!(m, "readibility_annotator", ReadabilityAnnotator);
+        register_processor!(m, "html_editor", HtmlEditor);
         m
     });
 
@@ -3922,5 +3923,130 @@ impl DataProcessor for ReadabilityAnnotator {
 
         json_set(&mut data, &self.output_field, output)?;
         Ok(Some(data))
+    }
+}
+
+/*================================================================================
+=                              HTML EDITOR                                        =
+================================================================================*/
+
+/// Edits HTML content by either removing specified tags or filtering documents
+/// based on content ratios within those tags.
+///
+/// Config options:
+/// - text_field: field containing text to process (default: "text")
+/// - tag: the HTML tag to target (e.g., "footnote", "table") - REQUIRED
+/// - action: either "remove" (remove tags and their content) or "filter" (drop doc if ratio exceeded)
+/// - max_text_ratio: for "filter" action, maximum ratio of text inside tag vs total text (default: 0.5)
+///
+/// Example usage in pipeline:
+/// ```yaml
+/// - name: html_editor
+///   kwargs:
+///     tag: "footnote"
+///     action: "remove"
+///
+/// - name: html_editor
+///   kwargs:
+///     tag: "table"
+///     action: "filter"
+///     max_text_ratio: 0.5
+/// ```
+#[derive(Serialize, Debug)]
+pub struct HtmlEditor {
+    pub text_field: String,
+    pub tag: String,
+    pub action: String,
+    pub max_text_ratio: f32,
+    #[serde(skip)]
+    pub tag_regex: Regex,
+}
+
+impl DataProcessor for HtmlEditor {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let text_field = get_default(config, "text_field", String::from("text"));
+        let tag = config
+            .get("tag")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("HtmlEditor requires 'tag' to be specified"))?
+            .to_string();
+        let action = get_default(config, "action", String::from("remove"));
+        let max_text_ratio = get_default(config, "max_text_ratio", 0.5_f64) as f32;
+
+        ensure!(
+            action == "remove" || action == "filter",
+            "HtmlEditor action must be 'remove' or 'filter', got '{}'",
+            action
+        );
+
+        // Build regex for the tag: matches <tag>...</tag> including nested content
+        // Case-insensitive and dotall (. matches newlines)
+        let tag_regex = Regex::new(&format!(r"(?is)<{tag}[^>]*>.*?</{tag}>"))
+            .map_err(|e| anyhow!("Failed to compile regex for tag '{}': {}", tag, e))?;
+
+        Ok(Self {
+            text_field,
+            tag,
+            action,
+            max_text_ratio,
+            tag_regex,
+        })
+    }
+
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+        let text = json_get(&data, &self.text_field)
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Text field '{}' not found or not a string", self.text_field))?
+            .to_string();
+
+        match self.action.as_str() {
+            "filter" => {
+                let tag_text_len = self.calculate_tag_text_length(&text);
+                let total_text_len = self.calculate_plain_text_length(&text);
+
+                if total_text_len > 0 {
+                    let ratio = tag_text_len as f32 / total_text_len as f32;
+                    if ratio > self.max_text_ratio {
+                        return Ok(None);
+                    }
+                }
+                Ok(Some(data))
+            }
+            "remove" | _ => {
+                let processed_text = self.tag_regex.replace_all(&text, "").to_string();
+                json_set(
+                    &mut data,
+                    &self.text_field,
+                    serde_json::Value::String(processed_text),
+                )?;
+                Ok(Some(data))
+            }
+        }
+    }
+}
+
+impl HtmlEditor {
+    /// Calculate the total character length of text inside the target tag.
+    fn calculate_tag_text_length(&self, html: &str) -> usize {
+        self.tag_regex
+            .captures_iter(html)
+            .map(|cap| {
+                let tag_content = cap.get(0).map(|m| m.as_str()).unwrap_or("");
+                self.strip_html_tags(tag_content).len()
+            })
+            .sum()
+    }
+
+    /// Calculate the total plain text length (stripping all HTML tags).
+    fn calculate_plain_text_length(&self, html: &str) -> usize {
+        self.strip_html_tags(html).len()
+    }
+
+    /// Strip all HTML tags from text, leaving only the text content.
+    fn strip_html_tags(&self, html: &str) -> String {
+        let tag_re = Regex::new(r"<[^>]+>").unwrap();
+        let text = tag_re.replace_all(html, "");
+        let ws_re = Regex::new(r"\s+").unwrap();
+        ws_re.replace_all(&text, " ").trim().to_string()
     }
 }
