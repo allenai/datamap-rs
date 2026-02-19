@@ -167,7 +167,7 @@ pipeline:
           bias: {bias}
           output_field: {output_field}
 
-    - name: ultrafineweb_annotator
+    - name: ultrafine_commit_annotator
       kwargs:
           text_field: message
           output_field: metadata.stack_edu_commit_message
