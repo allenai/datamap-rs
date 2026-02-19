@@ -186,7 +186,7 @@ pipeline:
 
     - name: jq_annotator
       kwargs:
-          expression: '((.old_contents // "") | gsub("^\\\\s+|\\\\s+$"; "")) + "\\n\\n\\n\\n" + ((.message // "") | gsub("^\\\\s+|\\\\s+$"; "")) + "\\n\\n\\n\\n" + ((.new_contents // "") | gsub("^\\\\s+|\\\\s+$"; ""))'
+          expression: '((.old_contents // "") | gsub("^\\\\s+|\\\\s+$"; "")) + "\\n\\n\\n" + ((.message // "") | gsub("^\\\\s+|\\\\s+$"; "")) + "\\n\\n\\n" + ((.new_contents // "") | gsub("^\\\\s+|\\\\s+$"; ""))'
           output_field: text
 """)
 
