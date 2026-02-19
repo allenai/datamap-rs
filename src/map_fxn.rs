@@ -154,12 +154,14 @@ impl PipelineProcessor {
                 .or(Some(&default_json))
                 .unwrap()
                 .clone();
-            json_set(
-                &mut subconfig_kwargs,
-                &String::from("text_field"),
-                serde_json::Value::String(text_field.clone()),
-            )
-            .unwrap();
+            if json_get(&subconfig_kwargs, "text_field").is_none() {
+                json_set(
+                    &mut subconfig_kwargs,
+                    &String::from("text_field"),
+                    serde_json::Value::String(text_field.clone()),
+                )
+                .unwrap();
+            }
             let constructor = PROCESSOR_CONSTRUCTORS[subconfig_name];
             pipeline.push(constructor(&subconfig_kwargs).unwrap());
 
@@ -2713,7 +2715,6 @@ impl DataProcessor for UltrafinewebAnnotator {
             "tokenizer_path",
             String::from("tokenizers/deepseek_v2.json"),
         );
-        println!("TOKENIZER PATH {:?}", tokenizer_path);
         let tokenizer = Tokenizer::from_file(&tokenizer_path).unwrap();
 
         let output_field = json_get(config, "output_field")
@@ -2880,7 +2881,6 @@ impl DataProcessor for UltrafineCommitAnnotator {
             "tokenizer_path",
             String::from("tokenizers/deepseek_v2.json"),
         );
-        println!("TOKENIZER PATH {:?}", tokenizer_path);
         let tokenizer = Tokenizer::from_file(&tokenizer_path).unwrap();
 
         let output_field = json_get(config, "output_field")
@@ -3022,17 +3022,28 @@ impl UltrafineCommitAnnotator {
         // 5. Collapse 3+ newlines -> \n\n
         let text = self.regexes[0].replace_all(&text, "\n\n").to_string();
 
-        // 6. Custom lowering: lowercase all tokens except placeholders
+        // 6. Custom lowering: lowercase all tokens except placeholders,
+        // while preserving the original whitespace separators.
+        let parts: Vec<&str> = self.re_whitespace.split(&text).collect();
+        let separators: Vec<&str> = self
+            .re_whitespace
+            .find_iter(&text)
+            .map(|m| m.as_str())
+            .collect();
         let mut lowered = String::with_capacity(text.len());
-        for part in self.re_whitespace.split(&text) {
-            if !lowered.is_empty() {
-                lowered.push(' ');
+
+        for (i, part) in parts.iter().enumerate() {
+            if !part.is_empty() {
+                match *part {
+                    "___CODE___" => lowered.push_str("CODE"),
+                    "___URL___" => lowered.push_str("URL"),
+                    "___ADDR___" => lowered.push_str("ADDR"),
+                    _ => lowered.push_str(&part.to_lowercase()),
+                }
             }
-            match part {
-                "___CODE___" => lowered.push_str("CODE"),
-                "___URL___" => lowered.push_str("URL"),
-                "___ADDR___" => lowered.push_str("ADDR"),
-                _ => lowered.push_str(&part.to_lowercase()),
+
+            if i < separators.len() {
+                lowered.push_str(separators[i]);
             }
         }
 

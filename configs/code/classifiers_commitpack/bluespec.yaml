@@ -1,5 +1,4 @@
 name: bluespec_commitpack_classifier
-text_field: new_contents
 pipeline:
     - name: gzip_annotator
       kwargs:
@@ -11,7 +10,7 @@ pipeline:
           text_field: new_contents
           output_field: metadata.stack_edu_redux
           max_text_length: 10000
-          fast_text_file: /mnt/raid0/ai2-llm/classifiers/code-quality/trained_models/fasttext/stack_edu_redux_ultrafine_bin5/Bluespec/model.bin
+          fast_text_file: /home/lucas/ai2-llm/classifiers/code-quality/trained_models/fasttext/stack_edu_redux_ultrafine_bin5/Bluespec/model.bin
     - name: linear_transform_annotator
       kwargs:
           features:
@@ -28,12 +27,12 @@ pipeline:
           bias: 0.040174
           output_field: metadata.stack_edu_redux_combined
 
-    - name: ultrafineweb_annotator
+    - name: ultrafine_commit_annotator
       kwargs:
           text_field: message
           output_field: metadata.stack_edu_commit_message
           max_text_length: 10000
-          fast_text_file: /mnt/raid0/ai2-llm/classifiers/code-quality/trained_models/fasttext/commitpack_commit_message_ultrafine_commits_bin5/model.bin
+          fast_text_file: /home/lucas/ai2-llm/classifiers/code-quality/trained_models/fasttext/commitpack_commit_message_ultrafine_commits_bin5/model.bin
     - name: linear_transform_annotator
       kwargs:
           features:

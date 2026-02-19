@@ -147,7 +147,6 @@ for commitpack_lang, (config_name, source_rel) in sorted(LANG_MAP.items()):
     with open(output_path, "w") as f:
         f.write(f"""\
 name: {config_name}_commitpack_classifier
-text_field: new_contents
 pipeline:
     - name: gzip_annotator
       kwargs:
