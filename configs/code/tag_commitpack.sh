@@ -134,11 +134,12 @@ for language in "${LANGUAGES[@]}"; do
     grep "fast_text_file:" "$config_file" | awk '{print $2}' | while read -r local_model_path; do
         local_model_dir=$(dirname "$local_model_path")
 
-        if [[ -n "${DOWNLOADED_MODELS[$local_model_dir]+_}" ]]; then
+        if [ -f "${local_model_dir}/model.bin" ]; then
+            echo "Model ${local_model_dir}/model.bin already exists"
+            echo "Skipping ${language}"
             continue
         fi
-        DOWNLOADED_MODELS["$local_model_dir"]=1
-
+        echo "Downloading model ${local_model_dir}/model.bin for ${language}"
         s3_model_dir="${local_model_dir/${LOCAL_DIR}/${REMOTE_DIR}}"
         s5cmd cp -sp "${s3_model_dir}/model.bin" "${local_model_dir}/model.bin"
     done
