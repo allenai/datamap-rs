@@ -73,8 +73,8 @@ for source in "${SOURCES[@]}"; do
         continue
     fi
 
-    input_dir="pretraining-data/sources/${source}_stack_edu_markdown_tagged"
-    output_dir="pretraining-data/sources/${source}_stack_edu_markdown_tagged_partitioned"
+    input_dir="pretraining-data/sources/${source}_code_prose_tagged"
+    output_dir="pretraining-data/sources/${source}_code_prose_tagged_partitioned"
 
     local_input_dir="${LOCAL_DIR}/${input_dir}"
     local_output_dir="${LOCAL_DIR}/${output_dir}"
@@ -116,7 +116,7 @@ done
 
 echo "Uploading results to S3..."
 for source in "${SOURCES[@]}"; do
-    output_dir="pretraining-data/sources/${source}_stack_edu_markdown_tagged_partitioned"
+    output_dir="pretraining-data/sources/${source}_code_prose_tagged_partitioned"
     local_dir="${LOCAL_DIR}/${output_dir}"
     s3_dir="${REMOTE_DIR}/${output_dir}"
 
