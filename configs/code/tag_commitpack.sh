@@ -139,7 +139,7 @@ for language in "${LANGUAGES[@]}"; do
         DOWNLOADED_MODELS["$local_model_dir"]=1
 
         s3_model_dir="${local_model_dir/${LOCAL_DIR}/${REMOTE_DIR}}"
-        s5cmd sync "${s3_model_dir}/*" "${local_model_dir}/"
+        s5cmd sync "${s3_model_dir}/model.bin" "${local_model_dir}/model.bin"
     done
 done
 
