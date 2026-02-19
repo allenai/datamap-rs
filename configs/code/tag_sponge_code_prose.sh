@@ -4,7 +4,7 @@ set -euox pipefail
 
 REMOTE_DIR="s3://ai2-llm"
 LOCAL_DIR="/mnt/raid0/ai2-llm"
-CONFIG_FILE="configs/code/classifiers_sponge_code_prose/markdown.yaml"
+CONFIG_FILE="configs/code/classifiers_sponge_code_prose/code_prose.yaml"
 
 # ============================================================================
 # Get instance rank and world size from EC2 metadata
@@ -65,10 +65,10 @@ echo "This instance (rank ${RANK}/${WORLD_SIZE}) will process: ${SOURCES[*]}"
 mkdir -p tokenizers
 curl -L -o tokenizers/deepseek_v2.json https://huggingface.co/deepseek-ai/DeepSeek-V2/raw/main/tokenizer.json
 
-# download the Markdown classifier
-CLASSIFIER_S3="s3://ai2-llm/classifiers/code-quality/trained_models/fasttext/stack_edu_redux_ultrafine_bin5"
-CLASSIFIER_LOCAL="/mnt/raid0/ai2-llm/classifiers/code-quality/trained_models/fasttext/stack_edu_redux_ultrafine_bin5"
-s5cmd sync "${CLASSIFIER_S3}/Markdown/*" "${CLASSIFIER_LOCAL}/Markdown/"
+# download the code prose classifier
+CLASSIFIER_S3="s3://ai2-llm/classifiers/code-quality/trained_models/fasttext/code_prose_ultrafine_bin5"
+CLASSIFIER_LOCAL="/mnt/raid0/ai2-llm/classifiers/code-quality/trained_models/fasttext/code_prose_ultrafine_bin5"
+s5cmd cp -sp "${CLASSIFIER_S3}/model.bin" "${CLASSIFIER_LOCAL}/model.bin"
 
 # ============================================================================
 # Process sources: tagging
@@ -76,7 +76,7 @@ s5cmd sync "${CLASSIFIER_S3}/Markdown/*" "${CLASSIFIER_LOCAL}/Markdown/"
 
 for source in "${SOURCES[@]}"; do
     input_dir="pretraining-data/sources/${source}"
-    output_dir="pretraining-data/sources/${source}_stack_edu_markdown_tagged"
+    output_dir="pretraining-data/sources/${source}_code_prose_tagged"
 
     local_input_dir="${LOCAL_DIR}/${input_dir}"
     local_output_dir="${LOCAL_DIR}/${output_dir}"
@@ -103,22 +103,34 @@ done
 # ============================================================================
 
 for source in "${SOURCES[@]}"; do
-    output_dir="pretraining-data/sources/${source}_stack_edu_markdown_tagged"
+    output_dir="pretraining-data/sources/${source}_code_prose_tagged"
     input_dir="${LOCAL_DIR}/${output_dir}/step_final/"
-    output_file="${LOCAL_DIR}/${output_dir}/code_quality_report.yaml"
+    code_quality_file="${LOCAL_DIR}/${output_dir}/code_quality_report.yaml"
+    gzip_report_file="${LOCAL_DIR}/${output_dir}/gzip_compression_report.yaml"
 
-    if [ -f "${output_file}" ]; then
-        echo "Output file ${output_file} already exists"
-        continue
+    if [  -f "${code_quality_file}" ]; then
+        echo "Output file ${code_quality_file} already exists"
+    else
+        echo "Determining vigintiles for ${source}..."
+        uv run python/percentile.py \
+            "${input_dir}" \
+            --output-file "${code_quality_file}" \
+            --expression ".metadata.code_prose_combined" \
+            --weight-by '.text | length' \
+            --num-samples 10000000   # 10M samples
     fi
 
-    echo "Determining vigintiles for ${source}..."
-    uv run python/percentile.py \
-        "${input_dir}" \
-        --output-file "${output_file}" \
-        --expression ".metadata.stack_edu_redux_combined" \
-        --weight-by '.text | length' \
-        --num-samples 10000000   # 10M samples
+    if [  -f "${gzip_report_file}" ]; then
+        echo "Output file ${gzip_report_file} already exists"
+    else
+        echo "Determining vigintiles for ${source}..."
+        uv run python/percentile.py \
+            "${input_dir}" \
+            --output-file "${gzip_report_file}" \
+            --expression ".metadata.gzip_compression_ratio" \
+            --weight-by '.new_contents | length' \
+            --num-samples 10000000   # 10M samples
+    fi
 done
 
 # ============================================================================
@@ -127,7 +139,7 @@ done
 
 echo "Uploading results to S3..."
 for source in "${SOURCES[@]}"; do
-    output_dir="pretraining-data/sources/${source}_stack_edu_markdown_tagged"
+    output_dir="pretraining-data/sources/${source}_code_prose_tagged"
     local_dir="${LOCAL_DIR}/${output_dir}"
     s3_dir="${REMOTE_DIR}/${output_dir}"
 
