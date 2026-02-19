@@ -184,20 +184,31 @@ done
 for language in "${LANGUAGES[@]}"; do
     config_name=$(get_config_name "$language")
     input_dir="${LOCAL_DIR}/${OUTPUT_DIR}/${language}/step_final/"
-    output_file="${LOCAL_DIR}/${OUTPUT_DIR}/${language}/code_quality_report.yaml"
+    quality_report_file="${LOCAL_DIR}/${OUTPUT_DIR}/${language}/code_quality_report.yaml"
+    gzip_report_file="${LOCAL_DIR}/${OUTPUT_DIR}/${language}/gzip_compression_report.yaml"
 
-    if [ -f "${output_file}" ]; then
-        echo "Output file ${output_file} already exists"
+    if [ -f "${quality_report_file}" ]; then
+        echo "Output file ${quality_report_file} already exists"
         continue
     fi
 
-    echo "Determining vigintiles for ${language}..."
+    echo "Determining vigintiles for ${language} quality score..."
     uv run python/percentile.py \
         "${input_dir}" \
-        --output-file "${output_file}" \
+        --output-file "${quality_report_file}" \
         --expression ".metadata.combined_quality_score" \
         --weight-by '.new_contents | length' \
         --num-samples 10000000   # 10M samples
+
+    echo "Determining vigintiles for ${language} gzip compression ratio..."
+    uv run python/percentile.py \
+        "${input_dir}" \
+        --output-file "${gzip_report_file}" \
+        --expression ".metadata.gzip_compression_ratio" \
+        --weight-by '.new_contents | length' \
+        --num-samples 10000000   # 10M samples
+
+    echo "Completed quality and gzip compression ratio reports for ${language}."
 done
 
 # ============================================================================
