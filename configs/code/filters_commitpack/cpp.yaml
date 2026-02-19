@@ -1,0 +1,113 @@
+name: commitpack_filter
+text_field: text
+pipeline:
+    - name: float_filter  # things that don't compress well
+      step: gzip_compression_p01
+      kwargs:
+          float_field: metadata.gzip_compression_ratio
+          lower_bound: 0.057204
+    - name: float_filter  # things that are super compressable
+      step: gzip_compression_p99
+      kwargs:
+          float_field: metadata.gzip_compression_ratio
+          upper_bound: 0.369917
+    - name: float_filter
+      step: quality_p00
+      kwargs:
+          float_field: metadata.combined_quality_score
+          lower_bound: 0.105784
+    - name: float_filter
+      step: quality_p05
+      kwargs:
+          float_field: metadata.combined_quality_score
+          lower_bound: 0.213726
+    - name: float_filter
+      step: quality_p10
+      kwargs:
+          float_field: metadata.combined_quality_score
+          lower_bound: 0.308241
+    - name: float_filter
+      step: quality_p15
+      kwargs:
+          float_field: metadata.combined_quality_score
+          lower_bound: 0.331463
+    - name: float_filter
+      step: quality_p20
+      kwargs:
+          float_field: metadata.combined_quality_score
+          lower_bound: 0.341627
+    - name: float_filter
+      step: quality_p25
+      kwargs:
+          float_field: metadata.combined_quality_score
+          lower_bound: 0.348362
+    - name: float_filter
+      step: quality_p30
+      kwargs:
+          float_field: metadata.combined_quality_score
+          lower_bound: 0.353748
+    - name: float_filter
+      step: quality_p35
+      kwargs:
+          float_field: metadata.combined_quality_score
+          lower_bound: 0.358392
+    - name: float_filter
+      step: quality_p40
+      kwargs:
+          float_field: metadata.combined_quality_score
+          lower_bound: 0.362855
+    - name: float_filter
+      step: quality_p45
+      kwargs:
+          float_field: metadata.combined_quality_score
+          lower_bound: 0.368238
+    - name: float_filter
+      step: quality_p50
+      kwargs:
+          float_field: metadata.combined_quality_score
+          lower_bound: 0.375128
+    - name: float_filter
+      step: quality_p55
+      kwargs:
+          float_field: metadata.combined_quality_score
+          lower_bound: 0.384472
+    - name: float_filter
+      step: quality_p60
+      kwargs:
+          float_field: metadata.combined_quality_score
+          lower_bound: 0.397924
+    - name: float_filter
+      step: quality_p65
+      kwargs:
+          float_field: metadata.combined_quality_score
+          lower_bound: 0.423608
+    - name: float_filter
+      step: quality_p70
+      kwargs:
+          float_field: metadata.combined_quality_score
+          lower_bound: 0.464647
+    - name: float_filter
+      step: quality_p75
+      kwargs:
+          float_field: metadata.combined_quality_score
+          lower_bound: 0.493552
+    - name: float_filter
+      step: quality_p80
+      kwargs:
+          float_field: metadata.combined_quality_score
+          lower_bound: 0.520806
+    - name: float_filter
+      step: quality_p85
+      kwargs:
+          float_field: metadata.combined_quality_score
+          lower_bound: 0.561899
+    - name: float_filter
+      step: quality_p90
+      kwargs:
+          float_field: metadata.combined_quality_score
+          lower_bound: 0.611435
+    - name: float_filter
+      step: quality_p95
+      kwargs:
+          float_field: metadata.combined_quality_score
+          lower_bound: 1000
