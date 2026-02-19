@@ -140,12 +140,12 @@ for language in "${LANGUAGES[@]}"; do
         DOWNLOADED_MODELS["$local_model_dir"]=1
 
         s3_model_dir="${local_model_dir/${LOCAL_DIR}/${REMOTE_DIR}}"
-        s5cmd sync "${s3_model_dir}/model.bin" "${local_model_dir}/model.bin"
+        s5cmd cp -sp "${s3_model_dir}/model.bin" "${local_model_dir}/model.bin"
     done
 done
 
 # Download the shared commit message classifier model
-s5cmd sync "${REMOTE_DIR}/${COMMIT_MSG_MODEL}" "${COMMIT_MSG_MODEL}"
+s5cmd cp -sp "${REMOTE_DIR}/${COMMIT_MSG_MODEL}" "${LOCAL_DIR}/${COMMIT_MSG_MODEL}"
 DOWNLOADED_MODELS["$COMMIT_MSG_MODEL"]=1
 
 # ============================================================================
