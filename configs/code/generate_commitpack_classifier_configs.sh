@@ -17,7 +17,7 @@ mkdir -p "$OUTPUT_DIR"
 
 export SCRIPT_DIR OUTPUT_DIR
 
-S3_COMMIT_MSG_BASE="s3://ai2-llm/classifiers/code-quality/trained_models/fasttext/commitpack_commit_message_ultrafine_bin5"
+S3_COMMIT_MSG_BASE="s3://ai2-llm/classifiers/code-quality/trained_models/fasttext/commitpack_commit_message_ultrafine_commits_bin5"
 
 echo "Fetching commit message classifier calibration from S3..."
 COMMIT_MSG_CALIBRATION=$(aws s3 cp "${S3_COMMIT_MSG_BASE}/calibration.yaml" - 2>/dev/null)
@@ -38,7 +38,7 @@ output_dir = os.environ['OUTPUT_DIR']
 
 COMMIT_MSG_MODEL = (
     "/mnt/raid0/ai2-llm/classifiers/code-quality/trained_models/fasttext/"
-    "commitpack_commit_message_ultrafine_bin5/model.bin"
+    "commitpack_commit_message_ultrafine_commits_bin5/model.bin"
 )
 
 # Parse commit message classifier calibration
@@ -182,7 +182,7 @@ pipeline:
 
     - name: jq_annotator
       kwargs:
-          expression: '((.metadata.stack_edu_redux_combined // 0) * (.metadata.stack_edu_commit_message_combined // 0)) | sqrt | [., 1] | min | [., 0] | max'
+          expression: '((.metadata.stack_edu_redux_combined // 0 | [., 1] | min | [., 0] | max) * (.metadata.stack_edu_commit_message_combined // 0 | [., 1] | min | [., 0] | max)) | sqrt'
           output_field: metadata.combined_quality_score
 
     - name: jq_annotator

@@ -33,26 +33,26 @@ pipeline:
           text_field: message
           output_field: metadata.stack_edu_commit_message
           max_text_length: 10000
-          fast_text_file: /mnt/raid0/ai2-llm/classifiers/code-quality/trained_models/fasttext/commitpack_commit_message_ultrafine_bin5/model.bin
+          fast_text_file: /mnt/raid0/ai2-llm/classifiers/code-quality/trained_models/fasttext/commitpack_commit_message_ultrafine_commits_bin5/model.bin
     - name: linear_transform_annotator
       kwargs:
           features:
               - field: metadata.stack_edu_commit_message.__label__bin1
-                weight: -0.463222
+                weight: -0.454059
               - field: metadata.stack_edu_commit_message.__label__bin2
-                weight: -0.230667
+                weight: -0.218452
               - field: metadata.stack_edu_commit_message.__label__bin3
-                weight: -0.008987
+                weight: 0.009999
               - field: metadata.stack_edu_commit_message.__label__bin4
-                weight: 0.251128
+                weight: 0.272796
               - field: metadata.stack_edu_commit_message.__label__bin5
-                weight: 0.451173
-          bias: 0.484604
+                weight: 0.390171
+          bias: 0.474003
           output_field: metadata.stack_edu_commit_message_combined
 
     - name: jq_annotator
       kwargs:
-          expression: '((.metadata.stack_edu_redux_combined // 0) * (.metadata.stack_edu_commit_message_combined // 0)) | sqrt | [., 1] | min | [., 0] | max'
+          expression: '((.metadata.stack_edu_redux_combined // 0 | [., 1] | min | [., 0] | max) * (.metadata.stack_edu_commit_message_combined // 0 | [., 1] | min | [., 0] | max)) | sqrt'
           output_field: metadata.combined_quality_score
 
     - name: jq_annotator
