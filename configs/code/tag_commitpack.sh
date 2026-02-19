@@ -7,6 +7,7 @@ LOCAL_DIR="/mnt/raid0/ai2-llm"
 INPUT_DIR="pretraining-data/sources/bigcode_commitpack/dolma-3_5-languages"
 OUTPUT_DIR="classifiers/code-quality/data/bigcode_commitpack/dolma-3_5-languages_tagged"
 CONFIGS_DIR="configs/code/classifiers_commitpack"
+COMMIT_MSG_MODEL="classifiers/code-quality/trained_models/fasttext/commitpack_commit_message_ultrafine_commits_bin5/model.bin"
 
 # ============================================================================
 # Get instance rank and world size from EC2 metadata
@@ -142,6 +143,10 @@ for language in "${LANGUAGES[@]}"; do
         s5cmd sync "${s3_model_dir}/model.bin" "${local_model_dir}/model.bin"
     done
 done
+
+# Download the shared commit message classifier model
+s5cmd sync "${REMOTE_DIR}/${COMMIT_MSG_MODEL}" "${COMMIT_MSG_MODEL}"
+DOWNLOADED_MODELS["$COMMIT_MSG_MODEL"]=1
 
 # ============================================================================
 # Process languages: tagging
