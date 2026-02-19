@@ -134,6 +134,13 @@ generate_filter_config() {
 name: commitpack_filter
 text_field: text
 pipeline:
+    - name: diff_annotator
+      step: combine_diff
+      kwargs:
+          before_field: old_contents
+          after_field: new_contents
+          message_field: message
+          output_field: text
     - name: float_filter  # things that don't compress well
       step: gzip_compression_p01
       kwargs:

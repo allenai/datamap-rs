@@ -36,6 +36,7 @@ use url::Url;
 use xxhash_rust::xxh3::{xxh3_128, xxh3_64};
 
 use jaq_core::{load, Compiler, Ctx, Filter, Native, RcIter};
+use similar::TextDiff;
 use jaq_json::Val;
 use load::{Arena, File, Loader};
 
@@ -115,6 +116,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         );
         register_processor!(m, "readibility_annotator", ReadabilityAnnotator);
         register_processor!(m, "jq_annotator", JqAnnotator);
+        register_processor!(m, "diff_annotator", DiffAnnotator);
         m
     });
 
@@ -4124,6 +4126,90 @@ impl DataProcessor for JqAnnotator {
         };
 
         json_set(&mut data, &self.output_field, output)?;
+        Ok(Some(data))
+    }
+}
+
+/*================================================================================
+=                         DIFF ANNOTATOR                                         =
+================================================================================*/
+
+#[derive(Serialize, Debug)]
+pub struct DiffAnnotator {
+    pub before_field: String,
+    pub after_field: String,
+    pub message_field: String,
+    pub output_field: String,
+    pub separator: String,
+    pub context_lines: usize,
+}
+
+impl DataProcessor for DiffAnnotator {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let before_field = json_get(config, "before_field")
+            .ok_or_else(|| anyhow!("DiffAnnotator requires 'before_field'"))?
+            .as_str()
+            .ok_or_else(|| anyhow!("'before_field' must be a string"))?
+            .to_string();
+        let after_field = json_get(config, "after_field")
+            .ok_or_else(|| anyhow!("DiffAnnotator requires 'after_field'"))?
+            .as_str()
+            .ok_or_else(|| anyhow!("'after_field' must be a string"))?
+            .to_string();
+        let message_field = json_get(config, "message_field")
+            .ok_or_else(|| anyhow!("DiffAnnotator requires 'message_field'"))?
+            .as_str()
+            .ok_or_else(|| anyhow!("'message_field' must be a string"))?
+            .to_string();
+        let output_field = json_get(config, "output_field")
+            .ok_or_else(|| anyhow!("DiffAnnotator requires 'output_field'"))?
+            .as_str()
+            .ok_or_else(|| anyhow!("'output_field' must be a string"))?
+            .to_string();
+        let separator = get_default(config, "separator", String::from("\n\n\n"));
+        let context_lines = get_default(config, "context_lines", 3_usize);
+
+        Ok(Self {
+            before_field,
+            after_field,
+            message_field,
+            output_field,
+            separator,
+            context_lines,
+        })
+    }
+
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+        let before = json_get(&data, &self.before_field)
+            .ok_or_else(|| anyhow!("Field '{}' not found", self.before_field))?
+            .as_str()
+            .ok_or_else(|| anyhow!("Field '{}' is not a string", self.before_field))?
+            .trim();
+        let after = json_get(&data, &self.after_field)
+            .ok_or_else(|| anyhow!("Field '{}' not found", self.after_field))?
+            .as_str()
+            .ok_or_else(|| anyhow!("Field '{}' is not a string", self.after_field))?
+            .trim();
+        let message = json_get(&data, &self.message_field)
+            .ok_or_else(|| anyhow!("Field '{}' not found", self.message_field))?
+            .as_str()
+            .ok_or_else(|| anyhow!("Field '{}' is not a string", self.message_field))?
+            .trim();
+
+        // Build unified diff
+        let diff = TextDiff::from_lines(before, after);
+        let mut diff_output = String::new();
+        for hunk in diff.unified_diff().context_radius(self.context_lines).iter_hunks() {
+            diff_output.push_str(&format!("{}", hunk));
+        }
+
+        // Combine: before + separator + message + separator + diff
+        let combined = format!(
+            "{}{}{}{}{}",
+            before, self.separator, message, self.separator, diff_output.trim()
+        );
+
+        json_set(&mut data, &self.output_field, Value::String(combined))?;
         Ok(Some(data))
     }
 }
