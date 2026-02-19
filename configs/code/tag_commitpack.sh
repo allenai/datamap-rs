@@ -5,7 +5,7 @@ set -euox pipefail
 REMOTE_DIR="s3://ai2-llm"
 LOCAL_DIR="/mnt/raid0/ai2-llm"
 INPUT_DIR="pretraining-data/sources/bigcode_commitpack/dolma-3_5-languages"
-OUTPUT_DIR="classifiers/code-quality/data/bigcode_commitpack/dolma-3_5-languages_tagged"
+OUTPUT_DIR="${INPUT_DIR}_tagged"
 CONFIGS_DIR="configs/code/classifiers_commitpack"
 COMMIT_MSG_MODEL="classifiers/code-quality/trained_models/fasttext/commitpack_commit_message_ultrafine_commits_bin5/model.bin"
 
@@ -152,6 +152,10 @@ if [ -f "${local_commit_msg_model}" ]; then
     continue
 fi
 s5cmd cp -sp "${remote_commit_msg_model}" "${local_commit_msg_model}"
+
+# download tokenizer
+mkdir -p tokenizers
+curl -L -o tokenizers/deepseek_v2.json https://huggingface.co/deepseek-ai/DeepSeek-V2/raw/main/tokenizer.json
 
 # ============================================================================
 # Process languages: tagging
