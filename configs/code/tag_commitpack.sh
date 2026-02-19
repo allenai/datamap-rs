@@ -145,8 +145,13 @@ for language in "${LANGUAGES[@]}"; do
 done
 
 # Download the shared commit message classifier model
-s5cmd cp -sp "${REMOTE_DIR}/${COMMIT_MSG_MODEL}" "${LOCAL_DIR}/${COMMIT_MSG_MODEL}"
-DOWNLOADED_MODELS["$COMMIT_MSG_MODEL"]=1
+remote_commit_msg_model="${REMOTE_DIR}/${COMMIT_MSG_MODEL}"
+local_commit_msg_model="${LOCAL_DIR}/${COMMIT_MSG_MODEL}"
+if [ -f "${local_commit_msg_model}" ]; then
+    echo "Commit message classifier model ${local_commit_msg_model} already exists"
+    continue
+fi
+s5cmd cp -sp "${remote_commit_msg_model}" "${local_commit_msg_model}"
 
 # ============================================================================
 # Process languages: tagging
