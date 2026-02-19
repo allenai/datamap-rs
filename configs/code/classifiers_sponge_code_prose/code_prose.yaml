@@ -16,14 +16,14 @@ pipeline:
       kwargs:
           features:
               - field: metadata.code_prose.__label__bin1
-                weight: -0.381869
+                weight: -0.510474
               - field: metadata.code_prose.__label__bin2
-                weight: -0.153159
+                weight: -0.260926
               - field: metadata.code_prose.__label__bin3
-                weight: 0.12977
+                weight: 0.003981
               - field: metadata.code_prose.__label__bin4
-                weight: 0.357361
+                weight: 0.254108
               - field: metadata.code_prose.__label__bin5
-                weight: 0.047803
-          bias: 0.392437
+                weight: 0.513035
+          bias: 0.503497
           output_field: metadata.code_prose_combined
