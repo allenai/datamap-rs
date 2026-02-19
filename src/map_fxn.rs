@@ -3936,8 +3936,13 @@ impl DataProcessor for ReadabilityAnnotator {
 /// Config options:
 /// - text_field: field containing text to process (default: "text")
 /// - tag: the HTML tag to target (e.g., "footnote", "table") - REQUIRED
-/// - action: either "remove" (remove tags and their content) or "filter" (drop doc if ratio exceeded)
-/// - max_text_ratio: for "filter" action, maximum ratio of text inside tag vs total text (default: 0.5)
+/// - action: one of:
+///   - "remove": remove tags and their content from the document
+///   - "filter_by_total_chars": drop doc if ratio of all chars inside tag (including inner HTML markup)
+///     vs total doc length exceeds max_ratio
+///   - "filter_by_html_chars": drop doc if ratio of HTML markup chars inside tag vs total doc length exceeds max_ratio
+///     (This penalizes tables with lots of empty <td></td> cells but not tables with substantial text content)
+/// - max_ratio: for filter actions, maximum allowed ratio (default: 0.5)
 ///
 /// Example usage in pipeline:
 /// ```yaml
@@ -3949,17 +3954,25 @@ impl DataProcessor for ReadabilityAnnotator {
 /// - name: html_editor
 ///   kwargs:
 ///     tag: "table"
-///     action: "filter"
-///     max_text_ratio: 0.5
+///     action: "filter_by_total_chars"
+///     max_ratio: 0.5
+///
+/// - name: html_editor
+///   kwargs:
+///     tag: "table"
+///     action: "filter_by_html_chars"
+///     max_ratio: 0.3
 /// ```
 #[derive(Serialize, Debug)]
 pub struct HtmlEditor {
     pub text_field: String,
     pub tag: String,
     pub action: String,
-    pub max_text_ratio: f32,
+    pub max_ratio: f32,
     #[serde(skip)]
     pub tag_regex: Regex,
+    #[serde(skip)]
+    pub html_tag_regex: Regex,
 }
 
 impl DataProcessor for HtmlEditor {
@@ -3971,11 +3984,11 @@ impl DataProcessor for HtmlEditor {
             .ok_or_else(|| anyhow!("HtmlEditor requires 'tag' to be specified"))?
             .to_string();
         let action = get_default(config, "action", String::from("remove"));
-        let max_text_ratio = get_default(config, "max_text_ratio", 0.5_f64) as f32;
+        let max_ratio = get_default(config, "max_ratio", 0.5_f64) as f32;
 
         ensure!(
-            action == "remove" || action == "filter",
-            "HtmlEditor action must be 'remove' or 'filter', got '{}'",
+            action == "remove" || action == "filter_by_total_chars" || action == "filter_by_html_chars",
+            "HtmlEditor action must be 'remove', 'filter_by_total_chars', or 'filter_by_html_chars', got '{}'",
             action
         );
 
@@ -3984,12 +3997,17 @@ impl DataProcessor for HtmlEditor {
         let tag_regex = Regex::new(&format!(r"(?is)<{tag}[^>]*>.*?</{tag}>"))
             .map_err(|e| anyhow!("Failed to compile regex for tag '{}': {}", tag, e))?;
 
+        // Regex to match any HTML tag (for counting markup chars)
+        let html_tag_regex = Regex::new(r"<[^>]+>")
+            .map_err(|e| anyhow!("Failed to compile HTML tag regex: {}", e))?;
+
         Ok(Self {
             text_field,
             tag,
             action,
-            max_text_ratio,
+            max_ratio,
             tag_regex,
+            html_tag_regex,
         })
     }
 
@@ -3999,14 +4017,29 @@ impl DataProcessor for HtmlEditor {
             .ok_or_else(|| anyhow!("Text field '{}' not found or not a string", self.text_field))?
             .to_string();
 
-        match self.action.as_str() {
-            "filter" => {
-                let tag_text_len = self.calculate_tag_text_length(&text);
-                let total_text_len = self.calculate_plain_text_length(&text);
+        let total_len = text.len();
 
-                if total_text_len > 0 {
-                    let ratio = tag_text_len as f32 / total_text_len as f32;
-                    if ratio > self.max_text_ratio {
+        match self.action.as_str() {
+            "filter_by_total_chars" => {
+                // Ratio of all chars inside target tags (including HTML markup) vs total doc length
+                let tag_total_len = self.calculate_tag_total_length(&text);
+
+                if total_len > 0 {
+                    let ratio = tag_total_len as f32 / total_len as f32;
+                    if ratio > self.max_ratio {
+                        return Ok(None);
+                    }
+                }
+                Ok(Some(data))
+            }
+            "filter_by_html_chars" => {
+                // Ratio of HTML markup chars inside target tags vs total doc length
+                // This penalizes tags with lots of markup but little actual text
+                let tag_html_chars = self.calculate_tag_html_chars(&text);
+
+                if total_len > 0 {
+                    let ratio = tag_html_chars as f32 / total_len as f32;
+                    if ratio > self.max_ratio {
                         return Ok(None);
                     }
                 }
@@ -4026,27 +4059,32 @@ impl DataProcessor for HtmlEditor {
 }
 
 impl HtmlEditor {
-    /// Calculate the total character length of text inside the target tag.
-    fn calculate_tag_text_length(&self, html: &str) -> usize {
+    /// Calculate the total character length of everything inside the target tag
+    /// (including HTML markup like <tr><td>).
+    fn calculate_tag_total_length(&self, html: &str) -> usize {
+        self.tag_regex
+            .find_iter(html)
+            .map(|m| m.as_str().len())
+            .sum()
+    }
+
+    /// Calculate the total character length of HTML markup inside the target tag.
+    /// This counts only the <tag> characters, not the text content.
+    fn calculate_tag_html_chars(&self, html: &str) -> usize {
         self.tag_regex
             .captures_iter(html)
             .map(|cap| {
                 let tag_content = cap.get(0).map(|m| m.as_str()).unwrap_or("");
-                self.strip_html_tags(tag_content).len()
+                self.count_html_markup_chars(tag_content)
             })
             .sum()
     }
 
-    /// Calculate the total plain text length (stripping all HTML tags).
-    fn calculate_plain_text_length(&self, html: &str) -> usize {
-        self.strip_html_tags(html).len()
-    }
-
-    /// Strip all HTML tags from text, leaving only the text content.
-    fn strip_html_tags(&self, html: &str) -> String {
-        let tag_re = Regex::new(r"<[^>]+>").unwrap();
-        let text = tag_re.replace_all(html, "");
-        let ws_re = Regex::new(r"\s+").unwrap();
-        ws_re.replace_all(&text, " ").trim().to_string()
+    /// Count the number of characters that are part of HTML tags (markup).
+    fn count_html_markup_chars(&self, html: &str) -> usize {
+        self.html_tag_regex
+            .find_iter(html)
+            .map(|m| m.as_str().len())
+            .sum()
     }
 }

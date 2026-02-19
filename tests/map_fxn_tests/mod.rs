@@ -4,6 +4,7 @@ pub mod bullet_filter_test;
 pub mod ellipsis_line_ratio_filter_test;
 pub mod fast_text_annotator_test;
 pub mod float_filter_test;
+pub mod html_editor_test;
 pub mod indentation_test;
 pub mod line_len_modifier_test;
 pub mod massive_repetition_filter_test;
