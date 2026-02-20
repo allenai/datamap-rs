@@ -1,9 +1,8 @@
 #!/bin/bash
 
-# Script to generate filter configs for sponge code prose subsets based on
-# code_quality_report.yaml and gzip_compression_report.yaml from S3
+# Script to generate filter configs for all languages based on code_quality_report.yaml from S3
 
-set -exou
+set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -25,125 +24,102 @@ print(val if val is not None else '')
 "
 }
 
-FILTERS_DIR="${SCRIPT_DIR}/filters_sponge_code_prose"
-S3_BASE="s3://ai2-llm/pretraining-data/sources"
+FILTERS_DIR="${SCRIPT_DIR}/filters"
+S3_BASE="s3://ai2-llm/pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_filter_v2_2026_stack_edu_redux_tagged"
 
-mkdir -p "${FILTERS_DIR}"
-
-# Mapping from S3 source name to config output filename
-declare -A SOURCE_MAP=(
-    ["sponge_211_code_prose_code_prose_tagged"]="sponge_211_code_prose"
-    ["sponge_211_non-software-development_code_prose_code_prose_tagged"]="sponge_211_non-software-development_code_prose"
+# Mapping from classifier name (lowercase) to S3 folder name
+declare -A LANG_MAP=(
+    ["c"]="C"
+    ["cpp"]="C++"
+    ["csharp"]="C-Sharp"
+    ["go"]="Go"
+    ["java"]="Java"
+    ["javascript"]="JavaScript"
+    ["markdown"]="Markdown"
+    ["php"]="PHP"
+    ["python"]="Python"
+    ["ruby"]="Ruby"
+    ["rust"]="Rust"
+    ["shell"]="Shell"
+    ["sql"]="SQL"
+    ["swift"]="Swift"
+    ["typescript"]="TypeScript"
 )
 
 # Percentile keys in order (p5 to p95 in increments of 5)
 PERCENTILES=(p5 p10 p15 p20 p25 p30 p35 p40 p45 p50 p55 p60 p65 p70 p75 p80 p85 p90 p95)
 
 generate_filter_config() {
-    local source_name="$1"
-    local config_name="$2"
-    local output_file="${FILTERS_DIR}/${config_name}.yaml"
+    local lang_key="$1"
+    local s3_name="$2"
+    local output_file="${FILTERS_DIR}/${lang_key}.yaml"
 
-    if [[ -f "$output_file" ]]; then
-        echo "Filter config for ${config_name} already exists"
-        return 0
-    fi
-
-    echo "Generating filter config for ${config_name} (S3: ${source_name})..."
+    echo "Generating filter config for ${lang_key} (S3: ${s3_name})..."
 
     # Fetch the code_quality_report.yaml from S3
-    local quality_report
-    quality_report=$(aws s3 cp "${S3_BASE}/${source_name}/code_quality_report.yaml" - 2>/dev/null)
+    local report
+    report=$(aws s3 cp "${S3_BASE}/${s3_name}/code_quality_report.yaml" - 2>/dev/null)
 
-    if [[ -z "$quality_report" ]]; then
-        echo "  ERROR: Could not fetch code_quality_report.yaml for ${source_name}"
+    if [[ -z "$report" ]]; then
+        echo "  ERROR: Could not fetch code_quality_report.yaml for ${s3_name}"
         return 1
     fi
 
-    # Fetch the gzip_compression_report.yaml from S3
-    local gzip_report
-    gzip_report=$(aws s3 cp "${S3_BASE}/${source_name}/gzip_compression_report.yaml" - 2>/dev/null)
+    # Extract length percentiles for text_len_filter bounds
+    local len_lower len_upper
+    len_lower=$(yaml_get "$report" "length.percentiles.p1")
+    len_upper=$(yaml_get "$report" "length.percentiles.p99")
 
-    if [[ -z "$gzip_report" ]]; then
-        echo "  ERROR: Could not fetch gzip_compression_report.yaml for ${source_name}"
-        return 1
+    if [[ -z "$len_lower" ]] || [[ -z "$len_upper" ]]; then
+        echo "  WARNING: Could not find length percentiles, using defaults"
+        len_lower=32
+        len_upper=262144
     fi
-
-    # Extract gzip compression percentiles for bounds
-    local gzip_lower gzip_upper
-    gzip_lower=$(yaml_get "$gzip_report" "value.percentiles.p1")
-    gzip_upper=$(yaml_get "$gzip_report" "value.percentiles.p99")
-
-    if [[ -z "$gzip_lower" ]] || [[ -z "$gzip_upper" ]]; then
-        echo "  ERROR: Could not find gzip compression percentiles for ${source_name}"
-        return 1
-    fi
-
-    # Format gzip values to 6 decimal places
-    gzip_lower=$(printf "%.6f" "$gzip_lower")
-    gzip_upper=$(printf "%.6f" "$gzip_upper")
 
     # Start building the config file
     cat > "$output_file" << EOF
 name: code_filter
 text_field: text
 pipeline:
-    - name: float_filter  # things that don't compress well
-      step: gzip_compression_p01
+    - name: text_len_filter  # p1-p99
       kwargs:
-          float_field: metadata.gzip_compression_ratio
-          lower_bound: ${gzip_lower}
-    - name: float_filter  # things that are super compressable
-      step: gzip_compression_p99
-      kwargs:
-          float_field: metadata.gzip_compression_ratio
-          upper_bound: ${gzip_upper}
+          text_field: text
+          lower_bound: ${len_lower}
+          upper_bound: ${len_upper}
 EOF
 
-    # Extract quality percentiles and add float_filter entries
+    # Extract percentiles and add float_filter entries
     for pct in "${PERCENTILES[@]}"; do
+        # Extract the percentile value from the nested YAML structure (value.percentiles.pXX)
         local value
-        value=$(yaml_get "$quality_report" "value.percentiles.${pct}")
+        value=$(yaml_get "$report" "value.percentiles.${pct}")
 
         if [[ -z "$value" ]]; then
-            echo "  WARNING: Could not find ${pct} in quality report for ${source_name}"
+            echo "  WARNING: Could not find ${pct} in report for ${s3_name}"
             continue
         fi
 
         # Format to 6 decimal places
         value=$(printf "%.6f" "$value")
 
-        # Subtract 5 from the percentile number and format as two digits with "quality_p" prefix
-        local pct_num="${pct#p}"
-        local adjusted_num=$((pct_num - 5))
-        display_pct=$(printf "quality_p%02d" "$adjusted_num")
-
         cat >> "$output_file" << EOF
-    - name: float_filter
-      step: ${display_pct}
+    - name: float_filter  # ${pct}
       kwargs:
-          float_field: metadata.code_prose_combined
+          float_field: metadata.stack_edu_redux_combined
           lower_bound: ${value}
 EOF
     done
 
-    # catches top bin of quality
-    cat >> "$output_file" << EOF
-    - name: float_filter
-      step: quality_p95
-      kwargs:
-          float_field: metadata.code_prose_combined
-          lower_bound: 1000
-EOF
-
     echo "  Created ${output_file}"
 }
 
-# Process all sources
-for source_name in "${!SOURCE_MAP[@]}"; do
-    echo "$source_name"
-    config_name="${SOURCE_MAP[$source_name]}"
-    generate_filter_config "$source_name" "$config_name"
+# Create filters directory if it doesn't exist
+mkdir -p "$FILTERS_DIR"
+
+# Process all languages
+for lang_key in "${!LANG_MAP[@]}"; do
+    s3_name="${LANG_MAP[$lang_key]}"
+    generate_filter_config "$lang_key" "$s3_name"
 done
 
-echo "Done! Generated filter configs for ${#SOURCE_MAP[@]} sources."
+echo "Done! Generated filter configs for ${#LANG_MAP[@]} languages."
