@@ -105,6 +105,10 @@ for source in "${SOURCES[@]}"; do
     fi
 
     for step_dir in $(ls --color=never "${local_input_dir}"); do
+        if [[ "${step_dir}" != quality_* ]]; then
+            echo "Skipping ${step_dir} as it does not start with quality_"
+            continue
+        fi
         num_processes=$(python3 -c "import multiprocessing; print(multiprocessing.cpu_count())")
         # Cap num_processes by directory size / 100MB
         dir_size_bytes=$(du -sb "${local_input_dir}/${step_dir}" | awk '{print $1}')
