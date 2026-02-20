@@ -49,43 +49,59 @@ generate_filter_config() {
     echo "Generating filter config for ${source}..."
 
     # Fetch the code_quality_report.yaml from S3
-    local report
-    report=$(aws s3 cp "${S3_BASE}/${source}_stack_edu_markdown_tagged/code_quality_report.yaml" - 2>/dev/null)
+    local quality_report
+    quality_report=$(aws s3 cp "${S3_BASE}/${source}_code_prose_tagged/code_quality_report.yaml" - 2>/dev/null)
 
-    if [[ -z "$report" ]]; then
+    if [[ -z "$quality_report" ]]; then
         echo "  ERROR: Could not fetch code_quality_report.yaml for ${source}"
         return 1
     fi
 
-    # Extract length percentiles for text_len_filter bounds
-    local len_lower len_upper
-    len_lower=$(yaml_get "$report" "length.percentiles.p1")
-    len_upper=$(yaml_get "$report" "length.percentiles.p99")
+    # Fetch the gzip_compression_report.yaml from S3
+    local gzip_report
+    gzip_report=$(aws s3 cp "${S3_BASE}/${source}_code_prose_tagged/gzip_compression_report.yaml" - 2>/dev/null)
 
-    if [[ -z "$len_lower" ]] || [[ -z "$len_upper" ]]; then
-        echo "  WARNING: Could not find length percentiles, using defaults"
-        len_lower=32
-        len_upper=262144
+    if [[ -z "$gzip_report" ]]; then
+        echo "  ERROR: Could not fetch gzip_compression_report.yaml for ${source}"
+        return 1
     fi
+
+    # Extract gzip compression percentiles for bounds
+    local gzip_lower gzip_upper
+    gzip_lower=$(yaml_get "$gzip_report" "value.percentiles.p1")
+    gzip_upper=$(yaml_get "$gzip_report" "value.percentiles.p99")
+
+    if [[ -z "$gzip_lower" ]] || [[ -z "$gzip_upper" ]]; then
+        echo "  ERROR: Could not find gzip compression percentiles for ${source}"
+        return 1
+    fi
+
+    # Format gzip values to 6 decimal places
+    gzip_lower=$(printf "%.6f" "$gzip_lower")
+    gzip_upper=$(printf "%.6f" "$gzip_upper")
 
     # Start building the config file
     cat > "$output_file" << EOF
 name: code_filter
 text_field: text
 pipeline:
-    - name: text_len_filter  # p1-p99
-      step: invalid_length
+    - name: float_filter  # things that don't compress well
+      step: gzip_compression_p01
       kwargs:
-          text_field: text
-          lower_bound: ${len_lower}
-          upper_bound: ${len_upper}
+          float_field: metadata.gzip_compression_ratio
+          lower_bound: ${gzip_lower}
+    - name: float_filter  # things that are super compressable
+      step: gzip_compression_p99
+      kwargs:
+          float_field: metadata.gzip_compression_ratio
+          upper_bound: ${gzip_upper}
 EOF
 
     # Extract percentiles and add float_filter entries
     for pct in "${PERCENTILES[@]}"; do
         # Extract the percentile value from the nested YAML structure (value.percentiles.pXX)
         local value
-        value=$(yaml_get "$report" "value.percentiles.${pct}")
+        value=$(yaml_get "$quality_report" "value.percentiles.${pct}")
 
         if [[ -z "$value" ]]; then
             echo "  WARNING: Could not find ${pct} in report for ${source}"
@@ -104,7 +120,7 @@ EOF
     - name: float_filter
       step: ${display_pct}
       kwargs:
-          float_field: metadata.stack_edu_redux_combined
+          float_field: metadata.code_prose_combined
           lower_bound: ${value}
 EOF
     done
@@ -114,7 +130,7 @@ EOF
     - name: float_filter
       step: quality_p95
       kwargs:
-          float_field: metadata.stack_edu_redux_combined
+          float_field: metadata.code_prose_combined
           lower_bound: 1000
 EOF
 
