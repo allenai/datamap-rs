@@ -1,107 +1,111 @@
 name: code_filter
 text_field: text
 pipeline:
-    - name: text_len_filter  # p1-p99
-      step: invalid_length
+    - name: float_filter # things that don't compress well
+      step: gzip_compression_p01
       kwargs:
-          text_field: text
-          lower_bound: 290
-          upper_bound: 93816
+          float_field: metadata.gzip_compression_ratio
+          lower_bound: 0.003481
+    - name: float_filter # things that are super compressable
+      step: gzip_compression_p99
+      kwargs:
+          float_field: metadata.gzip_compression_ratio
+          upper_bound: 0.003481
     - name: float_filter
       step: quality_p00
       kwargs:
           float_field: metadata.code_prose_combined
-          lower_bound: 0.133482
+          lower_bound: 0.270835
     - name: float_filter
       step: quality_p05
       kwargs:
           float_field: metadata.code_prose_combined
-          lower_bound: 0.162949
+          lower_bound: 0.330890
     - name: float_filter
       step: quality_p10
       kwargs:
           float_field: metadata.code_prose_combined
-          lower_bound: 0.179828
+          lower_bound: 0.369867
     - name: float_filter
       step: quality_p15
       kwargs:
           float_field: metadata.code_prose_combined
-          lower_bound: 0.192012
+          lower_bound: 0.403893
     - name: float_filter
       step: quality_p20
       kwargs:
           float_field: metadata.code_prose_combined
-          lower_bound: 0.201592
+          lower_bound: 0.436375
     - name: float_filter
       step: quality_p25
       kwargs:
           float_field: metadata.code_prose_combined
-          lower_bound: 0.208627
+          lower_bound: 0.465958
     - name: float_filter
       step: quality_p30
       kwargs:
           float_field: metadata.code_prose_combined
-          lower_bound: 0.214198
+          lower_bound: 0.488464
     - name: float_filter
       step: quality_p35
       kwargs:
           float_field: metadata.code_prose_combined
-          lower_bound: 0.219470
+          lower_bound: 0.504572
     - name: float_filter
       step: quality_p40
       kwargs:
           float_field: metadata.code_prose_combined
-          lower_bound: 0.225070
+          lower_bound: 0.518639
     - name: float_filter
       step: quality_p45
       kwargs:
           float_field: metadata.code_prose_combined
-          lower_bound: 0.230754
+          lower_bound: 0.531872
     - name: float_filter
       step: quality_p50
       kwargs:
           float_field: metadata.code_prose_combined
-          lower_bound: 0.236662
+          lower_bound: 0.549758
     - name: float_filter
       step: quality_p55
       kwargs:
           float_field: metadata.code_prose_combined
-          lower_bound: 0.242866
+          lower_bound: 0.571547
     - name: float_filter
       step: quality_p60
       kwargs:
           float_field: metadata.code_prose_combined
-          lower_bound: 0.249028
+          lower_bound: 0.596265
     - name: float_filter
       step: quality_p65
       kwargs:
           float_field: metadata.code_prose_combined
-          lower_bound: 0.255239
+          lower_bound: 0.622459
     - name: float_filter
       step: quality_p70
       kwargs:
           float_field: metadata.code_prose_combined
-          lower_bound: 0.261856
+          lower_bound: 0.650999
     - name: float_filter
       step: quality_p75
       kwargs:
           float_field: metadata.code_prose_combined
-          lower_bound: 0.269242
+          lower_bound: 0.683926
     - name: float_filter
       step: quality_p80
       kwargs:
           float_field: metadata.code_prose_combined
-          lower_bound: 0.277609
+          lower_bound: 0.721773
     - name: float_filter
       step: quality_p85
       kwargs:
           float_field: metadata.code_prose_combined
-          lower_bound: 0.287817
+          lower_bound: 0.762796
     - name: float_filter
       step: quality_p90
       kwargs:
           float_field: metadata.code_prose_combined
-          lower_bound: 0.303023
+          lower_bound: 0.811696
     - name: float_filter
       step: quality_p95
       kwargs:
