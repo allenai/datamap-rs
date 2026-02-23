@@ -3169,15 +3169,16 @@ impl DataProcessor for SARangeClassifier {
         if sa_field_opt.is_none() {
             return Ok(Some(data));
         }
-        let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
+        let text_bytes = json_get(&data, &self.text_field).unwrap().as_str().unwrap().as_bytes();
         let sa_ranges: Vec<(usize, usize)> = sa_field_opt.unwrap().as_array().unwrap().into_iter().map(|el| {
             let start = el[0].as_u64().unwrap() as usize;
-            let end = std::cmp::min(el[1].as_u64().unwrap() as usize, text.len());
+            let end = std::cmp::min(el[1].as_u64().unwrap() as usize, text_bytes.len());
             (start, end)
         }).collect();
 
         let classes: Vec<Value> = sa_ranges.into_iter().map(|(a,b)| {
-            let text_slice = &text[a..b];
+            
+            let text_slice = &String::from_utf8_lossy(&text_bytes[a..b]).into_owned();
             let preproc_text = if let Some(preproc) = &self.preprocessor {
                 preproc.preprocess(text_slice).unwrap()
             } else {
