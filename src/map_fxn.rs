@@ -2587,6 +2587,7 @@ struct SaRules {
     remaining_bytes: usize,
     coherent_interval_mods: usize,
     actual_remove_ranges: Vec<(usize, usize)>,
+    actual_remove_texts: Vec<String>,
 }
 
 #[derive(Serialize, Debug)]
@@ -2605,6 +2606,7 @@ pub struct SAByteModifier {
     pub doc_min_length: usize,    
     pub range_label_field: Option<String>,
     pub omitted_labels: HashSet<String>,
+    pub save_removed_substrings: bool
 }
 
 impl DataProcessor for SAByteModifier {
@@ -2647,6 +2649,7 @@ impl DataProcessor for SAByteModifier {
             vec!()
         };
         let omitted_labels: HashSet<String> = omitted_labels.into_iter().map(|el| el).collect();
+        let save_removed_substrings = get_default(config, "save_removed_substrings", false);
 
         Ok(Self {
             suffix_array_key,
@@ -2662,7 +2665,8 @@ impl DataProcessor for SAByteModifier {
             proportion_removal,
             doc_min_length,
             range_label_field,
-            omitted_labels
+            omitted_labels,
+            save_removed_substrings
         })
     }
 
@@ -2747,6 +2751,12 @@ impl DataProcessor for SAByteModifier {
         let bytes_to_remove_after: usize = sa_intervals.iter().map(|(s, e)| e - s).sum();        
         rules.bytes_to_remove_after = bytes_to_remove_after;
         rules.actual_remove_ranges = sa_intervals.clone();
+        if self.save_removed_substrings {
+            for (a,b) in &sa_intervals {
+                rules.actual_remove_texts.push(String::from_utf8_lossy(&text_bytes[*a..*b]).into_owned());
+            }
+        }
+
         // Check if the document meets minimum length requirements after removal
         if (original_length - bytes_to_remove_after < self.doc_min_length) || 
            ((original_length - bytes_to_remove_after) as f64 / (original_length as f64) < self.proportion_removal) {
