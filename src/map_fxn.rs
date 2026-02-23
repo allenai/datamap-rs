@@ -3179,6 +3179,7 @@ impl DataProcessor for SARangeClassifier {
             match self.save_entity.as_str() {
                 "label" => {
                     let max_label = predictions.iter().max_by(|a,b| a.prob.partial_cmp(&b.prob).unwrap_or(std::cmp::Ordering::Less)).unwrap().label.clone();
+                    let max_label = max_label.strip_prefix("__label__").unwrap_or(&max_label).to_string();
                     json!(max_label)
                 }
                 "prediction" => {
