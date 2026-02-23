@@ -94,6 +94,7 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "sa_byte_modifier", SAByteModifier);
         register_processor!(m, "gzip_annotator", GzipAnnotator);
         register_processor!(m, "ultrafineweb_annotator", UltrafinewebAnnotator);
+        register_processor!(m, "sa_range_classifier", SARangeClassifier);
         m
     });
 
@@ -133,12 +134,10 @@ impl PipelineProcessor {
                 .or(Some(&default_json))
                 .unwrap()
                 .clone();
-            json_set(
-                &mut subconfig_kwargs,
-                &String::from("text_field"),
-                serde_json::Value::String(text_field.clone()),
-            )
-            .unwrap();
+            if json_get(&subconfig_kwargs, "text_field").is_none() {
+                json_set(&mut subconfig_kwargs, &String::from("text_field"), serde_json::Value::String(text_field.clone())).unwrap();
+            }
+
             let constructor = PROCESSOR_CONSTRUCTORS[subconfig_name];
             pipeline.push(constructor(&subconfig_kwargs).unwrap());
 
@@ -2604,6 +2603,8 @@ pub struct SAByteModifier {
     pub gap_width: usize,
     pub proportion_removal: f64,
     pub doc_min_length: usize,    
+    pub range_label_field: Option<String>,
+    pub omitted_labels: HashSet<String>,
 }
 
 impl DataProcessor for SAByteModifier {
@@ -2631,6 +2632,22 @@ impl DataProcessor for SAByteModifier {
         let proportion_removal = get_default(config, "proportion_removal", 0.0); 
         let doc_min_length = get_default(config, "doc_min_length", 0);
 
+        let range_label_field = if let Some(range_label_field) = json_get(config, "range_label_field") {
+            Some(range_label_field.as_str().unwrap().to_string())
+        } else {
+            None
+        };
+
+        let omitted_labels = if let Some(omitted_labels) = json_get(config, "omitted_labels") {            
+            let omitted_labels: Vec<String> = omitted_labels.as_array().unwrap().into_iter().map(|el|{ 
+                el.as_str().unwrap().to_string() 
+            }).collect();
+            omitted_labels
+        } else {
+            vec!()
+        };
+        let omitted_labels: HashSet<String> = omitted_labels.into_iter().map(|el| el).collect();
+
         Ok(Self {
             suffix_array_key,
             input_text_key,
@@ -2644,6 +2661,8 @@ impl DataProcessor for SAByteModifier {
             gap_width,
             proportion_removal,
             doc_min_length,
+            range_label_field,
+            omitted_labels
         })
     }
 
@@ -2672,6 +2691,34 @@ impl DataProcessor for SAByteModifier {
         if sa_intervals.is_empty() {
             return Ok(Some(data));
         }
+
+        // Modify for omitted labels
+        let sa_intervals = if let Some(range_label_field) = &self.range_label_field {
+            let labels: Vec<Value> = json_get(&data, range_label_field).unwrap().as_array().unwrap().to_vec();
+
+            sa_intervals.into_iter().enumerate().filter_map(|(i, el)| {
+                let label_val = &labels[i];
+                let max_label = match label_val {
+                    serde_json::Value::String(s) => s.clone(),
+                    serde_json::Value::Object(m) => {
+                        m.iter()
+                            .filter_map(|(k, v)| v.as_f64().map(|f| (k, f)))
+                            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+                            .map(|(k, _)| k.clone()).unwrap()
+                    },
+                    _ => panic!("Weird format for labels"),        
+                };
+                if self.omitted_labels.contains(&max_label) {
+                    None
+                } else {
+                    Some(el)
+                }
+            }).collect()
+
+            
+        } else {
+            sa_intervals
+        };
 
         // Initialize tracking metrics for the modification process
         let mut rules = SaRules {
@@ -2896,8 +2943,7 @@ impl DataProcessor for GzipAnnotator {
 #[derive(Derivative)]
 #[derivative(Debug)]
 #[derive(Serialize)]
-pub struct UltrafinewebAnnotator {
-    pub text_field: String,
+pub struct UltrafinewebPreprocessor {
     pub tokenizer_path: String,
     #[derivative(Debug = "ignore")]
     #[serde(skip)]
@@ -2905,104 +2951,28 @@ pub struct UltrafinewebAnnotator {
     #[derivative(Debug = "ignore")]
     #[serde(skip)]
     pub regexes: [Regex; 5],
-    pub output_field: String,
-    pub fast_text_file: String,
-    #[derivative(Debug = "ignore")]
-    #[serde(skip)]
-    pub model: FastText,
-    pub max_text_length: usize,
 }
 
-impl DataProcessor for UltrafinewebAnnotator {
-    fn new(config: &Value) -> Result<Self, Error> {
-        let text_field = json_get(config, "text_field")
-            .unwrap()
-            .as_str()
-            .unwrap()
-            .to_string();
-        let tokenizer_path = get_default(
-            config,
-            "tokenizer_path",
-            String::from("tokenizers/deepseek_v2.json"),
-        );
-        println!("TOKENIZER PATH {:?}", tokenizer_path);
+impl UltrafinewebPreprocessor {
+    pub fn new(tokenizer_path: String) -> Result<Self, Error> {
         let tokenizer = Tokenizer::from_file(&tokenizer_path).unwrap();
 
-        let output_field = json_get(config, "output_field")
-            .unwrap()
-            .as_str()
-            .unwrap()
-            .to_string();
-        let re_multinewline = Regex::new(r"\n{3,}").unwrap();
-        let re_newline = Regex::new(r"\n").unwrap();
-        let re_carriage = Regex::new(r"\r").unwrap();
-        let re_tab = Regex::new(r"\t").unwrap();
-        let re_spaces = Regex::new(r" +").unwrap();
-        let regexes: [Regex; 5] = [re_multinewline, re_newline, re_carriage, re_tab, re_spaces];
-
-        let fast_text_file = get_default(
-            config,
-            "fast_text_file",
-            String::from("ft_classifiers/ultrafineweb.bin"),
-        );
-        let mut model = FastText::new();
-        model.load_model(&fast_text_file).unwrap();
-        let max_text_length: usize = get_default(config, "max_text_length", 0);
+        let regexes: [Regex; 5] = [
+            Regex::new(r"\n{3,}").unwrap(),
+            Regex::new(r"\n").unwrap(),
+            Regex::new(r"\r").unwrap(),
+            Regex::new(r"\t").unwrap(),
+            Regex::new(r" +").unwrap(),
+        ];
 
         Ok(Self {
-            text_field,
             tokenizer_path,
             tokenizer,
             regexes,
-            output_field,
-            fast_text_file,
-            model,
-            max_text_length,
         })
     }
 
-    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
-        let mut text = json_get(&data, &self.text_field)
-            .unwrap()
-            .as_str()
-            .unwrap()
-            .to_string();
-
-        // Trim text if max_text_length is set, avoiding cutting on multi-byte characters
-        if self.max_text_length > 0 && text.len() > self.max_text_length {
-            let mut end = self.max_text_length;
-            while end > 0 && !text.is_char_boundary(end) {
-                end -= 1;
-            }
-            text.truncate(end);
-        }
-
-        // apply preprocessing
-        let mut preproc = self.preprocess(&text).unwrap();
-
-        // you need to push newline character at the end to match fasttext binaries/python bindings
-        preproc.push_str("\n");
-
-        let predictions = match self.model.predict(&preproc, 10, 0.0) {
-            Ok(preds) => preds,
-            Err(_e) => {
-                // If prediction fails, drop this document by returning None, this can happen for some bad utf bytes etc that happen very rarely
-                return Ok(None);
-            }
-        };
-
-        let mut map = serde_json::Map::new();
-        for pred in predictions {
-            map.insert(pred.label.clone(), json!(pred.prob));
-        }
-        let pred_json = Value::Object(map);
-        json_set(&mut data, &self.output_field, pred_json).unwrap();
-        Ok(Some(data))
-    }
-}
-
-impl UltrafinewebAnnotator {
-    fn preprocess(&self, text: &String) -> Result<String, Error> {
+    pub fn preprocess(&self, text: &str) -> Result<String, Error> {
         // 1. Remove multiple newlines -> Replace with just two newlines
         let mut text = self.regexes[0].replace_all(text, "\n\n").to_string();
 
@@ -3028,15 +2998,201 @@ impl UltrafinewebAnnotator {
             .collect();
         text = single_text_list.join(" ");
 
-        // 5. keep escape chars, \n, \t, \r -> \\n, \\t, \\r
+        // 5. Keep escape chars: \n, \t, \r -> \\n, \\t, \\r
         text = self.regexes[1].replace_all(&text, r"\n").to_string();
-
         text = self.regexes[2].replace_all(&text, r"\r").to_string();
-
         text = self.regexes[3].replace_all(&text, r"\t").to_string();
-
         text = self.regexes[4].replace_all(&text, " ").to_string();
 
         Ok(text.trim().to_string())
     }
 }
+
+#[derive(Derivative)]
+#[derivative(Debug)]
+#[derive(Serialize)]
+pub struct UltrafinewebAnnotator {
+    pub text_field: String,
+    pub preprocessor: UltrafinewebPreprocessor,
+    pub output_field: String,
+    pub fast_text_file: String,
+    #[derivative(Debug = "ignore")]
+    #[serde(skip)]
+    pub model: FastText,
+    pub max_text_length: usize,
+}
+
+impl DataProcessor for UltrafinewebAnnotator {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let text_field = json_get(config, "text_field")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let tokenizer_path = get_default(
+            config,
+            "tokenizer_path",
+            String::from("tokenizers/deepseek_v2.json"),
+        );
+        println!("TOKENIZER PATH {:?}", tokenizer_path);
+
+        let preprocessor = UltrafinewebPreprocessor::new(tokenizer_path)?;
+
+        let output_field = json_get(config, "output_field")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let fast_text_file = get_default(
+            config,
+            "fast_text_file",
+            String::from("ft_classifiers/ultrafineweb.bin"),
+        );
+        let mut model = FastText::new();
+        model.load_model(&fast_text_file).unwrap();
+
+        let max_text_length: usize = get_default(config, "max_text_length", 0);
+
+        Ok(Self {
+            text_field,
+            preprocessor,
+            output_field,
+            fast_text_file,
+            model,
+            max_text_length,
+        })
+    }
+
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+        let mut text = json_get(&data, &self.text_field)
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        // Trim text if max_text_length is set, avoiding cutting on multi-byte characters
+        if self.max_text_length > 0 && text.len() > self.max_text_length {
+            let mut end = self.max_text_length;
+            while end > 0 && !text.is_char_boundary(end) {
+                end -= 1;
+            }
+            text.truncate(end);
+        }
+
+        // Apply preprocessing
+        let mut preproc = self.preprocessor.preprocess(&text)?;
+
+        // You need to push newline character at the end to match fasttext binaries/python bindings
+        preproc.push('\n');
+
+        let predictions = match self.model.predict(&preproc, 10, 0.0) {
+            Ok(preds) => preds,
+            Err(_e) => {
+                // If prediction fails, drop this document by returning None
+                return Ok(None);
+            }
+        };
+
+        let mut map = serde_json::Map::new();
+        for pred in predictions {
+            map.insert(pred.label.clone(), json!(pred.prob));
+        }
+        let pred_json = Value::Object(map);
+        json_set(&mut data, &self.output_field, pred_json).unwrap();
+        Ok(Some(data))
+    }
+}
+
+
+#[derive(Derivative)]
+#[derivative(Debug)]
+#[derive(Serialize)]
+pub struct SARangeClassifier {
+    pub text_field: String,
+    pub sa_field: String,
+    pub label_field: String,
+    pub fast_text_file: String,
+    #[derivative(Debug = "ignore")]
+    #[serde(skip)]    
+    pub model: FastText,
+    pub use_ultrafineweb: bool,
+    pub preprocessor: Option<UltrafinewebPreprocessor>,
+    pub save_entity: String, // Must be "label" or "prediction"
+}
+
+impl DataProcessor for SARangeClassifier {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let text_field = json_get(config, "text_field").unwrap().as_str().unwrap().to_string();
+        let sa_field = json_get(config, "sa_field").unwrap().as_str().unwrap().to_string();
+        let label_field = json_get(config, "label_field").unwrap().as_str().unwrap().to_string();
+        let fast_text_file = json_get(config, "fast_text_file").unwrap().as_str().unwrap().to_string();
+        let mut model = FastText::new();
+        model.load_model(&fast_text_file).unwrap();
+
+        let use_ultrafineweb = json_get(config, "use_ultrafineweb").unwrap().as_bool().unwrap();
+
+        let preprocessor = if use_ultrafineweb {
+            Some(UltrafinewebPreprocessor::new(String::from("tokenizers/deepseek_v2.json")).unwrap())
+        } else {
+            None
+        };
+
+        let save_entity = json_get(config, "save_entity").unwrap().as_str().unwrap().to_string();
+        Ok(Self {
+            text_field,
+            sa_field,
+            label_field,
+            fast_text_file,
+            model,
+            use_ultrafineweb,
+            preprocessor,
+            save_entity: save_entity
+        })
+    }    
+
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+
+
+        let sa_field_opt = json_get(&data, &self.sa_field);
+        if sa_field_opt.is_none() {
+            return Ok(Some(data));
+        }
+        let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
+        let sa_ranges: Vec<(usize, usize)> = sa_field_opt.unwrap().as_array().unwrap().into_iter().map(|el| {
+            let start = el[0].as_u64().unwrap() as usize;
+            let end = std::cmp::min(el[1].as_u64().unwrap() as usize, text.len());
+            (start, end)
+        }).collect();
+
+        let classes: Vec<Value> = sa_ranges.into_iter().map(|(a,b)| {
+            let text_slice = &text[a..b];
+            let preproc_text = if let Some(preproc) = &self.preprocessor {
+                preproc.preprocess(text_slice).unwrap()
+            } else {
+                text_slice.to_string()
+            };
+
+            let predictions = self.model.predict(&preproc_text, 10, 0.0).unwrap();
+
+            match self.save_entity.as_str() {
+                "label" => {
+                    let max_label = predictions.iter().max_by(|a,b| a.prob.partial_cmp(&b.prob).unwrap_or(std::cmp::Ordering::Less)).unwrap().label.clone();
+                    json!(max_label)
+                }
+                "prediction" => {
+                    let pred_map: HashMap<String, f32> = predictions.iter().map(|p| (p.label.clone(), p.prob)).collect();
+                    json!(pred_map)
+                }
+                _ => panic!("Must save either 'label' on 'prediction' in .save_entity field")
+            }
+        }).collect();   
+        json_set(&mut data, &self.label_field, serde_json::Value::Array(classes)).unwrap();
+        Ok(Some(data))
+    }
+}
+
+
+
+
