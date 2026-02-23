@@ -3175,9 +3175,8 @@ impl DataProcessor for SARangeClassifier {
             let end = std::cmp::min(el[1].as_u64().unwrap() as usize, text_bytes.len());
             (start, end)
         }).collect();
-
-        let classes: Vec<Value> = sa_ranges.into_iter().map(|(a,b)| {
-            
+        let mut new_sa_ranges: Vec<(usize, usize)> = Vec::new();
+        let classes: Vec<Value> = sa_ranges.into_iter().filter_map(|(a,b)| {            
             let text_slice = &String::from_utf8_lossy(&text_bytes[a..b]).into_owned();
             let preproc_text = if let Some(preproc) = &self.preprocessor {
                 preproc.preprocess(text_slice).unwrap()
@@ -3186,20 +3185,25 @@ impl DataProcessor for SARangeClassifier {
             };
 
             let predictions = self.model.predict(&preproc_text, 10, 0.0).unwrap();
-
-            match self.save_entity.as_str() {
-                "label" => {
-                    let max_label = predictions.iter().max_by(|a,b| a.prob.partial_cmp(&b.prob).unwrap_or(std::cmp::Ordering::Less)).unwrap().label.clone();
-                    let max_label = max_label.strip_prefix("__label__").unwrap_or(&max_label).to_string();
-                    json!(max_label)
+            if predictions.len() == 0 {
+                None
+            } else {
+                new_sa_ranges.push((a,b));
+                match self.save_entity.as_str() {
+                    "label" => {                
+                        let max_label = predictions.iter().max_by(|a,b| a.prob.partial_cmp(&b.prob).unwrap_or(std::cmp::Ordering::Less)).unwrap().label.clone();
+                        let max_label = max_label.strip_prefix("__label__").unwrap_or(&max_label).to_string();
+                        Some(json!(max_label))
+                    }
+                    "prediction" => {
+                        let pred_map: HashMap<String, f32> = predictions.iter().map(|p| (p.label.clone(), p.prob)).collect();
+                        Some(json!(pred_map))
+                    }
+                    _ => panic!("Must save either 'label' on 'prediction' in .save_entity field")
                 }
-                "prediction" => {
-                    let pred_map: HashMap<String, f32> = predictions.iter().map(|p| (p.label.clone(), p.prob)).collect();
-                    json!(pred_map)
-                }
-                _ => panic!("Must save either 'label' on 'prediction' in .save_entity field")
             }
-        }).collect();   
+        }).collect();  
+        json_set(&mut data, &self.sa_field, json!(new_sa_ranges)).unwrap();
         json_set(&mut data, &self.label_field, serde_json::Value::Array(classes)).unwrap();
         Ok(Some(data))
     }
