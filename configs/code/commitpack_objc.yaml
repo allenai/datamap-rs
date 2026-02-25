@@ -1,0 +1,7 @@
+name: commitpack_objc
+text_field: new_contents
+pipeline:
+    - name: float_filter
+      kwargs:
+          float_field: metadata.stack_edu_commit_message.__label__bin1
+          upper_bound: 0.8
