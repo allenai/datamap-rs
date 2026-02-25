@@ -3,5 +3,9 @@ text_field: new_contents
 pipeline:
     - name: float_filter
       kwargs:
-          float_field: metadata.stack_edu_commit_message.__label__bin1
-          upper_bound: 0.8
+          float_field: metadata.stack_edu_redux_combined
+          upper_bound: 0.2
+    - name: float_filter
+      kwargs:
+          float_field: metadata.stack_edu_commit_message_combined
+          upper_bound: 0.2
