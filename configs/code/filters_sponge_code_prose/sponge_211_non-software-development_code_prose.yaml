@@ -5,12 +5,12 @@ pipeline:
       step: gzip_compression_p01
       kwargs:
           float_field: metadata.gzip_compression_ratio
-          lower_bound: 0.005403
+          lower_bound: 0.075968
     - name: float_filter  # things that are super compressable
       step: gzip_compression_p99
       kwargs:
           float_field: metadata.gzip_compression_ratio
-          upper_bound: 0.005403
+          upper_bound: 0.813182
     - name: float_filter
       step: quality_p00
       kwargs:

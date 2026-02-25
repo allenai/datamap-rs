@@ -128,7 +128,7 @@ for source in "${SOURCES[@]}"; do
             "${input_dir}" \
             --output-file "${gzip_report_file}" \
             --expression ".metadata.gzip_compression_ratio" \
-            --weight-by '.new_contents | length' \
+            --weight-by '.text | length' \
             --num-samples 10000000   # 10M samples
     fi
 done
