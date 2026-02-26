@@ -2554,20 +2554,31 @@ pub struct RenameModifier {
     // Renames a field in the json
     pub old_field: String, // old field name
     pub new_field: String, // new field name
+    pub keep_old: bool
 }
 
 impl DataProcessor for RenameModifier {
-    fn new(config: &Value) -> Result<Self, Error> {
+    fn new(config: &Value) -> Result<Self, Error> {        
         let old_field = json_get(config, "old_field").unwrap().as_str().unwrap().to_string();
         let new_field = json_get(config, "new_field").unwrap().as_str().unwrap().to_string();
-
-        Ok(Self { old_field, new_field })
+        let keep_old = json_get(config, "keep_old").unwrap().as_bool().unwrap();
+        Ok(Self { old_field, new_field, keep_old})
     }
 
     fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
-        let old_val = json_get(&data, &self.old_field).unwrap().clone();
-        json_set(&mut data, &self.new_field, old_val).unwrap();
-        json_remove(&mut data, &self.old_field).unwrap();
+        let old_val = json_get(&mut data, &self.old_field);
+        let contents: Option<Value> = if let Some(contents) = old_val {
+            Some(contents.clone())
+        } else {
+            None
+        };
+        if let Some(contents) = contents {
+            json_set(&mut data, &self.new_field, contents).unwrap();
+        }
+        
+        if !&self.keep_old {
+            json_remove(&mut data, &self.old_field).unwrap();
+        }
 
         Ok(Some(data))
     }
