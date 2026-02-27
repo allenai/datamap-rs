@@ -36,9 +36,9 @@ use url::Url;
 use xxhash_rust::xxh3::{xxh3_128, xxh3_64};
 
 use jaq_core::{load, Compiler, Ctx, Filter, Native, RcIter};
-use similar::TextDiff;
 use jaq_json::Val;
 use load::{Arena, File, Loader};
+use similar::TextDiff;
 
 /*================================================================================
 =                            PIPELINE PROCESSING                                 =
@@ -2910,10 +2910,9 @@ impl DataProcessor for UltrafineCommitAnnotator {
         let max_text_length: usize = get_default(config, "max_text_length", 0);
 
         let re_hex = Regex::new(r"(?i)[0-9a-f][0-9a-f\-]{15,}(?:@[0-9]+)?").unwrap();
-        let re_email = Regex::new(
-            r"(?i)\b[a-z0-9]+(?:[._%+\-][a-z0-9]+)*@(?:[a-z0-9\-]+\.)+[a-z]{2,63}\b",
-        )
-        .unwrap();
+        let re_email =
+            Regex::new(r"(?i)\b[a-z0-9]+(?:[._%+\-][a-z0-9]+)*@(?:[a-z0-9\-]+\.)+[a-z]{2,63}\b")
+                .unwrap();
         let re_url = Regex::new(
             r#"(?i)\b(?:https?://)?(?:www\.)?[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?)+(?::\d{2,5})?(?:/[^\s<>"'()\{\}\[\]]*)?\b"#,
         )
@@ -4087,13 +4086,19 @@ impl DataProcessor for JqAnnotator {
         };
         let loader = Loader::new(jaq_std::defs().chain(jaq_json::defs()));
         let arena = Arena::default();
-        let modules = loader
-            .load(&arena, program)
-            .map_err(|errs| anyhow!("Failed to parse jq expression '{}': {:?}", expression, errs))?;
+        let modules = loader.load(&arena, program).map_err(|errs| {
+            anyhow!("Failed to parse jq expression '{}': {:?}", expression, errs)
+        })?;
         let filter = Compiler::default()
             .with_funs(jaq_std::funs().chain(jaq_json::funs()))
             .compile(modules)
-            .map_err(|errs| anyhow!("Failed to compile jq expression '{}': {:?}", expression, errs))?;
+            .map_err(|errs| {
+                anyhow!(
+                    "Failed to compile jq expression '{}': {:?}",
+                    expression,
+                    errs
+                )
+            })?;
 
         Ok(Self {
             expression,
@@ -4104,7 +4109,9 @@ impl DataProcessor for JqAnnotator {
 
     fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
         let inputs = RcIter::new(core::iter::empty());
-        let out = self.filter.run((Ctx::new([], &inputs), Val::from(data.clone())));
+        let out = self
+            .filter
+            .run((Ctx::new([], &inputs), Val::from(data.clone())));
 
         // Collect results: if single value, use it directly; if multiple, collect into array
         let mut results: Vec<Value> = Vec::new();
@@ -4201,14 +4208,22 @@ impl DataProcessor for DiffAnnotator {
         // Build unified diff
         let diff = TextDiff::from_lines(before, after);
         let mut diff_output = String::new();
-        for hunk in diff.unified_diff().context_radius(self.context_lines).iter_hunks() {
+        for hunk in diff
+            .unified_diff()
+            .context_radius(self.context_lines)
+            .iter_hunks()
+        {
             diff_output.push_str(&format!("{}", hunk));
         }
 
         // Combine: before + separator + message + separator + diff
         let combined = format!(
             "{}{}{}{}{}",
-            before, self.separator, message, self.separator, diff_output.trim()
+            before,
+            self.separator,
+            message,
+            self.separator,
+            diff_output.trim()
         );
 
         json_set(&mut data, &self.output_field, Value::String(combined))?;
