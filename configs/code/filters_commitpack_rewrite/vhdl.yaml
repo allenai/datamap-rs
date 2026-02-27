@@ -9,10 +9,11 @@ pipeline:
           message_field: commit_to_request_short.feature_request
           output_field: text
     - name: string_eq_filter # cannot make commits into feature requests
-      str_field: commit_to_request_short.feature_request
-      keep_matches: false
-      eq: "N/A"
       step: invalid_request
+      kwargs:
+        str_field: commit_to_request_short.feature_request
+        keep_matches: false
+        eq: "N/A"
     - name: float_filter  # things that don't compress well
       step: gzip_compression_p01
       kwargs:
