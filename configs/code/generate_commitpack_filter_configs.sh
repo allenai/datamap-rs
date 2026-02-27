@@ -25,7 +25,7 @@ print(val if val is not None else '')
 "
 }
 
-FILTERS_DIR="${SCRIPT_DIR}/filters_commitpack"
+FILTERS_DIR="${SCRIPT_DIR}/filters_commitpack_rewrite"
 S3_BASE="s3://ai2-llm/pretraining-data/sources/bigcode_commitpack/dolma-3_5-languages_tagged"
 
 mkdir -p "${FILTERS_DIR}"
@@ -139,8 +139,13 @@ pipeline:
       kwargs:
           before_field: old_contents
           after_field: new_contents
-          message_field: message
+          message_field: commit_to_request_short.feature_request
           output_field: text
+    - name: string_eq_filter # cannot make commits into feature requests
+      text_field: commit_to_request_short.feature_request
+      keep_matches: false
+      eq: "N/A"
+      step: invalid_request
     - name: float_filter  # things that don't compress well
       step: gzip_compression_p01
       kwargs:

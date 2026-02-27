@@ -4167,7 +4167,7 @@ impl DataProcessor for DiffAnnotator {
             .ok_or_else(|| anyhow!("'output_field' must be a string"))?
             .to_string();
         let separator = get_default(config, "separator", String::from("\n\n\n"));
-        let context_lines = get_default(config, "context_lines", 3_usize);
+        let context_lines = get_default(config, "context_lines", 5_usize);
 
         Ok(Self {
             before_field,
