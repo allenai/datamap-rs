@@ -4,9 +4,9 @@ set -euox pipefail
 
 REMOTE_DIR="s3://ai2-llm"
 LOCAL_DIR="/mnt/raid0/ai2-llm"
-INPUT_DIR="pretraining-data/sources/bigcode_commitpack/dolma-3_5-languages_tagged"
-OUTPUT_DIR="pretraining-data/sources/bigcode_commitpack/dolma-3_5-languages_tagged_partitioned"
-CONFIGS_DIR="configs/code/filters_commitpack"
+INPUT_DIR="pretraining-data/sources/bigcode_commitpack/dolma-3_5-languages_tagged_resharded_rewritten"
+OUTPUT_DIR="pretraining-data/sources/bigcode_commitpack/dolma-3_5-languages_tagged_resharded_rewritten_partitioned"
+CONFIGS_DIR="configs/code/filters_commitpack_rewrite"
 
 # ============================================================================
 # Get instance rank and world size from EC2 metadata
