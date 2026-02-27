@@ -142,7 +142,7 @@ pipeline:
           message_field: commit_to_request_short.feature_request
           output_field: text
     - name: string_eq_filter # cannot make commits into feature requests
-      text_field: commit_to_request_short.feature_request
+      str_field: commit_to_request_short.feature_request
       keep_matches: false
       eq: "N/A"
       step: invalid_request
