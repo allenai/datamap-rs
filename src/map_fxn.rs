@@ -189,11 +189,11 @@ impl PipelineProcessor {
             else, the thing that gets output passes the map and should be included in outputs
         */
 
+        let og_copy = data.clone();
         let mut current_data = data;
 
         let mut filter_step = 0;
         for processor in &self.pipeline {
-            let step_input = current_data.clone();
             let start_step = Instant::now();
             let proc_result = processor.process(current_data)?;
             *_timing_info.entry(filter_step).or_insert(0 as u128) +=
@@ -203,9 +203,7 @@ impl PipelineProcessor {
                 Some(data_value) => current_data = data_value,
                 None => {
                     *_filter_info.entry(filter_step).or_insert(0 as usize) += 1;
-                    // Preserve any annotations/modifications from earlier pipeline steps
-                    // when emitting documents filtered out at this step.
-                    return Ok((filter_step, Some(step_input)));
+                    return Ok((filter_step, Some(og_copy)));
                 }
             }
 
