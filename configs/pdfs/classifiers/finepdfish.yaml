@@ -1,0 +1,56 @@
+name: finepdfish_pdf_classifier
+text_field: text
+pipeline:
+    - name: gzip_annotator
+      kwargs:
+          text_field: text
+          anno_field: metadata.gzip_compression_ratio
+
+    - name: ultrafineweb_annotator
+      kwargs:
+          text_field: text
+          output_field: metadata.finepdfish_dclm
+          max_text_length: 10000
+          fast_text_file: /mnt/raid0/ai2-llm/classifiers/pdf-quality/trained_models/fasttext/finepdfish_dclm_ultrafine_bin5/model.bin
+    - name: linear_transform_annotator
+      kwargs:
+          features:
+              - field: metadata.finepdfish_dclm.__label__bin1
+                weight: -0.383829
+              - field: metadata.finepdfish_dclm.__label__bin2
+                weight: -0.19884
+              - field: metadata.finepdfish_dclm.__label__bin3
+                weight: 0.00668
+              - field: metadata.finepdfish_dclm.__label__bin4
+                weight: 0.207892
+              - field: metadata.finepdfish_dclm.__label__bin5
+                weight: 0.368213
+          bias: 0.594128
+          output_field: metadata.finepdfish_dclm_combined
+
+    - name: ultrafineweb_annotator
+      kwargs:
+          text_field: text
+          output_field: metadata.finepdfish_edu
+          max_text_length: 10000
+          fast_text_file: /mnt/raid0/ai2-llm/classifiers/pdf-quality/trained_models/fasttext/finepdfish_edu_ultrafine_bin5/model.bin
+    - name: linear_transform_annotator
+      kwargs:
+          features:
+              - field: metadata.finepdfish_edu.__label__bin1
+                weight: -0.470883
+              - field: metadata.finepdfish_edu.__label__bin2
+                weight: -0.221024
+              - field: metadata.finepdfish_edu.__label__bin3
+                weight: 0.036878
+              - field: metadata.finepdfish_edu.__label__bin4
+                weight: 0.291174
+              - field: metadata.finepdfish_edu.__label__bin5
+                weight: 0.363685
+          bias: 0.463522
+          output_field: metadata.finepdfish_edu_combined
+
+    - name: jq_annotator
+      kwargs:
+          expression: '((.metadata.finepdfish_dclm_combined // 0 | [., 1] | min | [., 0] | max) * (.metadata.finepdfish_edu_combined // 0 | [., 1] | min | [., 0] | max)) | sqrt'
+          output_field: metadata.combined_quality_score
