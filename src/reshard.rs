@@ -9,7 +9,7 @@ use std::cmp::max;
 use std::collections::HashMap;
 use std::fs;
 use std::fs::{create_dir_all, File, OpenOptions};
-use std::io::{BufRead, BufWriter, Write};
+use std::io::{BufWriter, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -21,7 +21,7 @@ use rayon::prelude::*;
 
 use indicatif::ProgressBar;
 use mj_io::{
-    build_pbar, expand_dirs, get_output_filename, read_pathbuf_to_mem,
+    build_pbar, expand_dirs, get_output_filename, read_pathbuf
 };
 
 pub fn reshard(
@@ -145,7 +145,7 @@ fn reshard_chunk(
     let mut cur_lines = 0;
     let mut cur_size = 0;
     for path in chunk {
-        let data = match panic::catch_unwind(|| read_pathbuf_to_mem(path)) {
+        let data = match panic::catch_unwind(|| read_pathbuf(path, true)) {
             Ok(Ok(data)) => data,
             Ok(Err(e)) => {
                 eprintln!("Error reading file {:?}: {}", path, e);
@@ -155,7 +155,7 @@ fn reshard_chunk(
                 eprintln!("Panic occurred while reading file {:?}", path);
                 continue;
             }
-        };        
+        };                
         for line in data.lines() {
             if subsample == 0.0 || (subsample > 0.0 && rng.random::<f32>() < subsample) {
                 let line = line.unwrap();
