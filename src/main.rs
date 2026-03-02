@@ -563,14 +563,16 @@ pub fn corruption_check(input_dir: &PathBuf, output_file: Option<PathBuf>) -> Re
 
     all_files.par_iter().for_each(|p| {
         let result = (|| -> Result<(), Error> {
-            let contents = read_pathbuf_to_mem(p)?;
+            let contents = read_pathbuf_to_mem(p).unwrap();
             for line in contents.lines() {
                 let line = line?;
-                let _: () = serde_json::from_str(&line)?;
+                let _: serde_json::Value = serde_json::from_str(&line)?;
             }
             Ok(())        
         })();
-        if let Err(_e) = result {
+        if let Err(e) = result {
+            eprintln!("Failed to process path {:?}: {}", p, e);
+
             corrupt_path_count.fetch_add(1, Ordering::SeqCst);
             corrupt_path_list.lock().unwrap().push(p.clone());
         } 
@@ -579,13 +581,14 @@ pub fn corruption_check(input_dir: &PathBuf, output_file: Option<PathBuf>) -> Re
         
     let corrupt_path_list = Arc::try_unwrap(corrupt_path_list).unwrap().into_inner().unwrap();
     if let Some(output_file) = output_file {
+
         let corrupt_path_list = json!(&corrupt_path_list);
         write_mem_to_pathbuf(&serde_json::to_vec(&corrupt_path_list).unwrap(), &output_file).unwrap();
     }
 
     println!("Saw {:?} corrupt files of {:?} checked in {:?} seconds:", corrupt_path_count.into_inner(), all_files.len(), start_main.elapsed().as_secs());
     for file in corrupt_path_list.iter() {
-        println!("\t{:?}", file);
+        println!("\t{:}", file.as_os_str().to_str().unwrap());
     }
 
     Ok(())
