@@ -1,5 +1,6 @@
 // External crates
 
+use std::sync::{Arc, Mutex};
 use serde_json::json;
 use std::fs;
 use serde_json::Value;
@@ -245,6 +246,15 @@ enum Commands {
         #[arg(long, default_value_t=false)]
         count_per_doc: bool
     },
+
+    CorruptionCheck {
+        /// Checks files and records which, if any, are "corrupt" jsonl files
+        #[arg(required=true, long)]
+        input_dir: PathBuf,
+
+        #[arg(long)]
+        output_file: Option<PathBuf>
+    }
 
 
 
@@ -543,6 +553,44 @@ pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<Str
     Ok(())
 }
 
+pub fn corruption_check(input_dir: &PathBuf, output_file: Option<PathBuf>) -> Result<(), Error> {
+    let start_main = Instant::now();
+    let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
+
+    let corrupt_path_count = AtomicUsize::new(0);
+    let corrupt_path_list: Arc<Mutex<Vec<PathBuf>>> = Arc::new(Mutex::new(Vec::new()));
+    let pbar = build_pbar(all_files.len(), "Paths");
+
+    all_files.par_iter().for_each(|p| {
+        let result = (|| -> Result<(), Error> {
+            let contents = read_pathbuf_to_mem(p)?;
+            for line in contents.lines() {
+                let line = line?;
+                let _: () = serde_json::from_str(&line)?;
+            }
+            Ok(())        
+        })();
+        if let Err(_e) = result {
+            corrupt_path_count.fetch_add(1, Ordering::SeqCst);
+            corrupt_path_list.lock().unwrap().push(p.clone());
+        } 
+        pbar.inc(1);
+    });
+        
+    let corrupt_path_list = Arc::try_unwrap(corrupt_path_list).unwrap().into_inner().unwrap();
+    if let Some(output_file) = output_file {
+        let corrupt_path_list = json!(&corrupt_path_list);
+        write_mem_to_pathbuf(&serde_json::to_vec(&corrupt_path_list).unwrap(), &output_file).unwrap();
+    }
+
+    println!("Saw {:?} corrupt files of {:?} checked in {:?} seconds:", corrupt_path_count.into_inner(), all_files.len(), start_main.elapsed().as_secs());
+    for file in corrupt_path_list.iter() {
+        println!("\t{:?}", file);
+    }
+
+    Ok(())
+}
+
 
 /*============================================================
 =                            MAIN                            =
@@ -634,6 +682,10 @@ fn main() {
         Commands::Count {
             input_dir, output_file, count_bytes, count_per_doc
         } => count(input_dir, output_file, count_bytes.clone(), *count_per_doc),
+
+        Commands::CorruptionCheck {
+            input_dir, output_file 
+        } => corruption_check(input_dir, output_file.clone()),
         _ => Ok(()),
     };
     result.unwrap();
