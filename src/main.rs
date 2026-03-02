@@ -253,7 +253,10 @@ enum Commands {
         input_dir: PathBuf,
 
         #[arg(long)]
-        output_file: Option<PathBuf>
+        output_file: Option<PathBuf>,
+
+        #[arg(long, default_value_t=false)]
+        check_json: bool
     }
 
 
@@ -553,7 +556,7 @@ pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<Str
     Ok(())
 }
 
-pub fn corruption_check(input_dir: &PathBuf, output_file: Option<PathBuf>) -> Result<(), Error> {
+pub fn corruption_check(input_dir: &PathBuf, output_file: Option<PathBuf>, check_json: bool) -> Result<(), Error> {
     let start_main = Instant::now();
     let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
 
@@ -564,9 +567,11 @@ pub fn corruption_check(input_dir: &PathBuf, output_file: Option<PathBuf>) -> Re
     all_files.par_iter().for_each(|p| {
         let result = (|| -> Result<(), Error> {
             let contents = read_pathbuf_to_mem(p)?;
-            for line in contents.lines() {
-                let line = line?;
-                let _: serde_json::Value = serde_json::from_str(&line)?;
+            if check_json {
+                for line in contents.lines() {
+                    let line = line?;
+                    let _: serde_json::Value = serde_json::from_str(&line)?;
+                }
             }
             Ok(())        
         })();
@@ -687,8 +692,8 @@ fn main() {
         } => count(input_dir, output_file, count_bytes.clone(), *count_per_doc),
 
         Commands::CorruptionCheck {
-            input_dir, output_file 
-        } => corruption_check(input_dir, output_file.clone()),
+            input_dir, output_file, check_json
+        } => corruption_check(input_dir, output_file.clone(), *check_json),
         _ => Ok(()),
     };
     result.unwrap();
