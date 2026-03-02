@@ -565,7 +565,7 @@ pub fn corruption_check(input_dir: &PathBuf, output_file: Option<PathBuf>, check
     let pbar = build_pbar(all_files.len(), "Paths");
 
     all_files.par_iter().for_each(|p| {
-        let result = (|| -> Result<(), Error> {
+        let result = std::panic::catch_unwind(|| -> Result<(), Box<dyn std::error::Error>> {
             let contents = read_pathbuf_to_mem(p)?;
             if check_json {
                 for line in contents.lines() {
@@ -573,14 +573,22 @@ pub fn corruption_check(input_dir: &PathBuf, output_file: Option<PathBuf>, check
                     let _: serde_json::Value = serde_json::from_str(&line)?;
                 }
             }
-            Ok(())        
-        })();
-        if let Err(e) = result {
-            eprintln!("Failed to process path {:?}: {}", p, e);
+            Ok(())
+        });
 
-            corrupt_path_count.fetch_add(1, Ordering::SeqCst);
-            corrupt_path_list.lock().unwrap().push(p.clone());
-        } 
+        match result {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => { 
+                eprintln!("Error on {:?}: {}", p, e);
+                corrupt_path_count.fetch_add(1, Ordering::SeqCst);
+                corrupt_path_list.lock().unwrap().push(p.clone());             
+            },
+            Err(_panic) => {
+                eprintln!("Panic on {:?}", p);
+                corrupt_path_count.fetch_add(1, Ordering::SeqCst);
+                corrupt_path_list.lock().unwrap().push(p.clone());                  
+            }
+        }
         pbar.inc(1);
     });
         
