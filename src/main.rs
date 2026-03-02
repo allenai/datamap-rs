@@ -563,7 +563,7 @@ pub fn corruption_check(input_dir: &PathBuf, output_file: Option<PathBuf>) -> Re
 
     all_files.par_iter().for_each(|p| {
         let result = (|| -> Result<(), Error> {
-            let contents = read_pathbuf_to_mem(p).unwrap();
+            let contents = read_pathbuf_to_mem(p)?;
             for line in contents.lines() {
                 let line = line?;
                 let _: serde_json::Value = serde_json::from_str(&line)?;
