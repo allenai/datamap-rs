@@ -189,7 +189,7 @@ done
 
 echo "Uploading results to S3..."
 for source in "${SOURCES[@]}"; do
-    output_dir=$(echo "pretraining-data/sources/${source}_code_prose_tagged_partitioned" | sed 's|^pretraining-data/sources|preprocessed|')
+    output_dir=$(echo "pretraining-data/sources/${source}" | sed 's|^pretraining-data/sources|preprocessed|')
     local_dir="${LOCAL_DIR}/${output_dir}"
     s3_dir="${REMOTE_DIR}/${output_dir}"
 
