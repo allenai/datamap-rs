@@ -1,5 +1,5 @@
 name: pdf_dedup
-group_keys: ["metadata.cc_id"]
+group_keys: ["metadata.minhash.cc_id"]
 sort_keys: [["metadata.dedupe_priority"]]
 num_buckets: 16384
 keep_idx: 0
