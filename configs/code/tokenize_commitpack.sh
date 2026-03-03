@@ -181,14 +181,7 @@ for source in "${SOURCES[@]}"; do
             --sample_ring_prop \
             --dtype uint32
     done
-done
 
-# ============================================================================
-# Upload results to S3
-# ============================================================================
-
-echo "Uploading results to S3..."
-for source in "${SOURCES[@]}"; do
     output_dir=$(echo "pretraining-data/sources/${source}" | sed 's|^pretraining-data/sources|preprocessed|')
     local_dir="${LOCAL_DIR}/${output_dir}"
     s3_dir="${REMOTE_DIR}/${output_dir}"
@@ -198,5 +191,3 @@ for source in "${SOURCES[@]}"; do
         s5cmd cp -sp "${local_dir}/*" "${s3_dir}/"
     fi
 done
-
-echo "Done!"
