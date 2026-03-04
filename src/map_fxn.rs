@@ -2917,6 +2917,7 @@ pub struct NgramRepetitionFilter {
     pub period_lb: usize, // defaults to 1
     pub period_ub: usize, // defaults to 13
     pub rep_count: usize, // defaults to 32,
+    pub skip_offsets: bool, // defaults to false
     #[derivative(Debug = "ignore")]    
     #[serde(skip)]      
     pub tokenizer: CoreBPE, 
@@ -2929,13 +2930,14 @@ impl DataProcessor for NgramRepetitionFilter {
         let period_lb = get_default(config, "period_lb", 1);
         let period_ub = get_default(config, "period_ub", 13);
         let rep_count = get_default(config, "rep_count", 32);
+        let skip_offsets = get_default(config, "skip_offsets", false);
 
         let tokenizer = match tokenizer_name.as_str() {
             "cl100k" => cl100k_base().unwrap(),
             "p50k" => p50k_base().unwrap(),
             _ => panic!("Unsupported tokenizer: {}", tokenizer_name)
         };
-        Ok(Self { text_field, tokenizer_name, period_lb, period_ub, rep_count, tokenizer})
+        Ok(Self { text_field, tokenizer_name, period_lb, period_ub, rep_count, tokenizer, skip_offsets})
     }
 
     fn process(&self, data: Value) -> Result<Option<Value>, Error> {
@@ -2945,7 +2947,7 @@ impl DataProcessor for NgramRepetitionFilter {
             .unwrap()
             .to_string(); 
         let tokens = self.tokenizer.encode_with_special_tokens(&text);
-        if NgramRepetitionFilter::exceeds_repetition_threshold(&tokens, self.period_lb, self.period_ub, self.rep_count).unwrap() {
+        if self.exceeds_repetition_threshold(&tokens, self.period_lb, self.period_ub, self.rep_count).unwrap() {
             Ok(None)
         } else {
             Ok(Some(data))            
@@ -3015,7 +3017,7 @@ impl NgramRepetitionFilter {
     ///
     /// Returns true as soon as any pattern meets the threshold, allowing early termination.
     pub fn exceeds_repetition_threshold(
-        tokens: &[u32],
+        &self, tokens: &[u32],
         k_lo: usize,
         k_hi: usize,
         min_repetitions: usize,
@@ -3089,6 +3091,7 @@ impl NgramRepetitionFilter {
             // window [w+o .. w+o+k] and is ready to roll forward to [w+k+o .. w+2k+o].
             // -------------------------------------------------------------------------        
             let mut window_start = 0;
+            let offset_ub = if self.skip_offsets { 1 } else { k };
             while window_start + k <= n {
                 let mut cur_seed = 0;
                 let mut outgoing_val = 0;
