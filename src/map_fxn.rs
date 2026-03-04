@@ -3095,7 +3095,7 @@ impl NgramRepetitionFilter {
             while window_start + k <= n {
                 let mut cur_seed = 0;
                 let mut outgoing_val = 0;
-                for o in 0..k {
+                for o in 0..offset_ub {
                     if window_start + k + o > n {
                         continue;
                     }
