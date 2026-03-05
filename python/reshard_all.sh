@@ -1,44 +1,55 @@
 #!/usr/bin/env bash
-set -euo pipefail
 
-INPUT_BASE="/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned"
-OUTPUT_BASE="/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded"
-DATAMAP_DIR="/home/ec2-user/datamap-rs"
-MAX_SIZE=256000000
+# finepdfs
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/finepdfs" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/finepdfs" --max-size 256000000
 
-# Find all leaf directories (ones that contain .jsonl.zst files directly)
-LEAF_DIRS=()
-while IFS= read -r dir; do
-    LEAF_DIRS+=("$dir")
-done < <(find "$INPUT_BASE" -name '*.jsonl.zst' -printf '%h\n' | sort -u)
+# olmo-crawled-pdfs
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/olmo-crawled-pdfs/__label__adult_content" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/olmo-crawled-pdfs/__label__adult_content" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/olmo-crawled-pdfs/__label__art_and_design" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/olmo-crawled-pdfs/__label__art_and_design" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/olmo-crawled-pdfs/__label__crime_and_law" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/olmo-crawled-pdfs/__label__crime_and_law" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/olmo-crawled-pdfs/__label__education_and_jobs" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/olmo-crawled-pdfs/__label__education_and_jobs" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/olmo-crawled-pdfs/__label__electronics_and_hardare" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/olmo-crawled-pdfs/__label__electronics_and_hardare" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/olmo-crawled-pdfs/__label__entertainment" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/olmo-crawled-pdfs/__label__entertainment" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/olmo-crawled-pdfs/__label__fashion_and_beauty" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/olmo-crawled-pdfs/__label__fashion_and_beauty" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/olmo-crawled-pdfs/__label__finance_and_business" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/olmo-crawled-pdfs/__label__finance_and_business" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/olmo-crawled-pdfs/__label__food_and_dining" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/olmo-crawled-pdfs/__label__food_and_dining" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/olmo-crawled-pdfs/__label__games" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/olmo-crawled-pdfs/__label__games" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/olmo-crawled-pdfs/__label__health" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/olmo-crawled-pdfs/__label__health" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/olmo-crawled-pdfs/__label__history_and_geography" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/olmo-crawled-pdfs/__label__history_and_geography" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/olmo-crawled-pdfs/__label__home_and_hobbies" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/olmo-crawled-pdfs/__label__home_and_hobbies" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/olmo-crawled-pdfs/__label__industrial" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/olmo-crawled-pdfs/__label__industrial" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/olmo-crawled-pdfs/__label__literature" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/olmo-crawled-pdfs/__label__literature" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/olmo-crawled-pdfs/__label__politics" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/olmo-crawled-pdfs/__label__politics" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/olmo-crawled-pdfs/__label__religion" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/olmo-crawled-pdfs/__label__religion" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/olmo-crawled-pdfs/__label__science_math_and_technology" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/olmo-crawled-pdfs/__label__science_math_and_technology" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/olmo-crawled-pdfs/__label__social_life" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/olmo-crawled-pdfs/__label__social_life" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/olmo-crawled-pdfs/__label__software" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/olmo-crawled-pdfs/__label__software" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/olmo-crawled-pdfs/__label__software_development" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/olmo-crawled-pdfs/__label__software_development" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/olmo-crawled-pdfs/__label__sports_and_fitness" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/olmo-crawled-pdfs/__label__sports_and_fitness" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/olmo-crawled-pdfs/__label__transportation" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/olmo-crawled-pdfs/__label__transportation" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/olmo-crawled-pdfs/__label__travel_and_tourism" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/olmo-crawled-pdfs/__label__travel_and_tourism" --max-size 256000000
 
-echo "Found ${#LEAF_DIRS[@]} directories to reshard"
-echo "Output base: $OUTPUT_BASE"
-echo ""
-
-FAILED=0
-SUCCEEDED=0
-
-for dir in "${LEAF_DIRS[@]}"; do
-    rel="${dir#$INPUT_BASE/}"
-    out_dir="$OUTPUT_BASE/$rel"
-
-    n_files=$(ls "$dir"/*.jsonl.zst 2>/dev/null | wc -l)
-    echo "=== [$((SUCCEEDED + FAILED + 1))/${#LEAF_DIRS[@]}] $rel ($n_files files) ==="
-
-    mkdir -p "$out_dir"
-
-    if cargo run --release -- reshard \
-        --input-dir "$dir" \
-        --output-dir "$out_dir" \
-        --max-size "$MAX_SIZE"; then
-        SUCCEEDED=$((SUCCEEDED + 1))
-        echo "  -> OK"
-    else
-        FAILED=$((FAILED + 1))
-        echo "  -> FAILED"
-    fi
-    echo ""
-done
-
-echo "Done. $SUCCEEDED succeeded, $FAILED failed out of ${#LEAF_DIRS[@]} directories."
+# s2orcforolmo
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/s2orcforolmo/__label__agricultural-and-food-sciences" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/s2orcforolmo/__label__agricultural-and-food-sciences" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/s2orcforolmo/__label__art" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/s2orcforolmo/__label__art" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/s2orcforolmo/__label__biology" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/s2orcforolmo/__label__biology" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/s2orcforolmo/__label__business" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/s2orcforolmo/__label__business" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/s2orcforolmo/__label__chemistry" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/s2orcforolmo/__label__chemistry" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/s2orcforolmo/__label__computer-science" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/s2orcforolmo/__label__computer-science" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/s2orcforolmo/__label__economics" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/s2orcforolmo/__label__economics" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/s2orcforolmo/__label__education" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/s2orcforolmo/__label__education" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/s2orcforolmo/__label__engineering" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/s2orcforolmo/__label__engineering" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/s2orcforolmo/__label__environmental-science" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/s2orcforolmo/__label__environmental-science" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/s2orcforolmo/__label__geography" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/s2orcforolmo/__label__geography" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/s2orcforolmo/__label__geology" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/s2orcforolmo/__label__geology" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/s2orcforolmo/__label__history" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/s2orcforolmo/__label__history" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/s2orcforolmo/__label__law" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/s2orcforolmo/__label__law" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/s2orcforolmo/__label__linguistics" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/s2orcforolmo/__label__linguistics" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/s2orcforolmo/__label__materials-science" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/s2orcforolmo/__label__materials-science" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/s2orcforolmo/__label__mathematics" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/s2orcforolmo/__label__mathematics" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/s2orcforolmo/__label__medicine" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/s2orcforolmo/__label__medicine" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/s2orcforolmo/__label__philosophy" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/s2orcforolmo/__label__philosophy" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/s2orcforolmo/__label__physics" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/s2orcforolmo/__label__physics" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/s2orcforolmo/__label__political-science" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/s2orcforolmo/__label__political-science" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/s2orcforolmo/__label__psychology" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/s2orcforolmo/__label__psychology" --max-size 256000000
+cargo run --release -- reshard --input-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned/s2orcforolmo/__label__sociology" --output-dir "/mnt/raid0/url_and_mh_grouped_priority_filtered_partitioned_resharded/s2orcforolmo/__label__sociology" --max-size 256000000
