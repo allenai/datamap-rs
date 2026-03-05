@@ -164,9 +164,15 @@ for source in "${SOURCES[@]}"; do
         size_based_procs=$(python3 -c "import math; print(max(1, math.floor(${dir_size_bytes} / (100 * 1024 * 1024))))")
         num_processes=$(( num_processes < size_based_procs ? num_processes : size_based_procs ))
         current_destination="${local_output_dir}/${step_dir}/${TOKENIZER_NAME}"
+        current_remote_destination="${REMOTE_DIR}/${output_dir}/${step_dir}/${TOKENIZER_NAME}"
+        remote_exists=false
 
-        if [ -d "${current_destination}" ]; then
-            echo "Output directory ${current_destination} already exists... Skipping ${source}"
+        if s5cmd ls "${current_remote_destination}/*" >/dev/null 2>&1; then
+            remote_exists=true
+        fi
+
+        if [ -d "${current_destination}" ] || [ "${remote_exists}" = true ]; then
+            echo "Output already exists at ${current_destination} or ${current_remote_destination}... Skipping ${source}/${step_dir}"
             continue
         fi
 
