@@ -11,7 +11,7 @@ use rayon::prelude::*;
 use rand::prelude::*;
 use tiktoken_rs::{cl100k_base};
 
-pub fn percentile_finder(input_dir: &PathBuf, output_file: &PathBuf, score_key: &String, text_key: &String, tokenizer: &String, num_buckets: usize, subsample_rate: f32) -> Result<(), Error> {
+pub fn percentile_finder(input_dir: &Vec<PathBuf>, output_file: &PathBuf, score_key: &String, text_key: &String, tokenizer: &String, num_buckets: usize, subsample_rate: f32) -> Result<(), Error> {
     let mut docs: Vec<(usize, f32)> = match tokenizer.as_str() {
         "cl100k" => {
             let tokenizer = cl100k_base().unwrap();
@@ -66,7 +66,7 @@ pub fn percentile_finder(input_dir: &PathBuf, output_file: &PathBuf, score_key: 
 }
 
 fn gather_counts<F>(
-    input_dir: &PathBuf, 
+    input_dir: &Vec<PathBuf>, 
     score_key: &String, 
     text_key: &String, 
     subsample_rate: f32,
@@ -75,7 +75,7 @@ fn gather_counts<F>(
 where
     F: Fn(&str) -> usize + Sync + Send,
 {
-    let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
+    let all_files = expand_dirs(input_dir.clone(), None).unwrap();
     let pbar = build_pbar(all_files.len(), "Paths");
     let output: Vec<(usize, f32)> = all_files.into_par_iter().flat_map(|p| {
         let mut rng = rand::rng();
