@@ -122,8 +122,8 @@ enum Commands {
     },
 
     PercentileFinder {
-        #[arg(required=true, long)]
-        input_dir: PathBuf,
+        #[arg(required=true, long, num_args = 1..)]
+        input_dir: Vec<PathBuf>,
 
         #[arg(required=true, long)]
         output_file: PathBuf,
