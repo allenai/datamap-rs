@@ -4,7 +4,7 @@ set -euox pipefail
 
 REMOTE_DIR="s3://ai2-llm"
 LOCAL_DIR="/mnt/raid0/ai2-llm"
-BASE_DIR="pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_filter_v2_2026_stack_edu_redux_tagged_partitioned_gzip"
+BASE_DIR="pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_filter_v2_2026_stack_edu_redux_tagged_decon_reshard_partitioned_gzip"
 
 EXTENSION="*.zst"
 TOKENIZER_NAME="allenai/dolma2-tokenizer"
