@@ -542,12 +542,12 @@ pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<Str
             }
         }
         for (k, v) in sum_key_path_counter.iter() {
-            this_sum_key.alter(k, |_, og_v| og_v + v);
+            this_sum_key.entry(k.clone()).and_modify(|og_v| *og_v += v).or_insert(*v);
         }
     
-        total_doc_count.alter(&dirname, |_, og_v| og_v + file_len);
-        total_file_sizes.alter(&dirname, |_, og_v| og_v + file_size);
-        total_text_bytes.alter(&dirname, |_, og_v| og_v + text_bytes);
+        total_doc_count.entry(dirname.clone()).and_modify(|og_v| *og_v += file_len).or_insert(file_len);
+        total_file_sizes.entry(dirname.clone()).and_modify(|og_v| *og_v += file_size).or_insert(file_size);
+        total_text_bytes.entry(dirname.clone()).and_modify(|og_v| *og_v += text_bytes).or_insert(text_bytes);
         if let Some(doc_counts) = &count_per_doc_opt {
             doc_counts.entry(dirname).or_default().entry(p).or_insert(text_bytes);
         }
@@ -589,7 +589,6 @@ pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<Str
             }
             acc
         });
-
     let output_json = if let Some(doc_counts) = count_per_doc_opt {
         let doc_counts: HashMap<PathBuf, usize> = doc_counts
             .into_iter()
