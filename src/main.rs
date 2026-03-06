@@ -249,7 +249,10 @@ enum Commands {
         sum_keys: Option<Vec<String>>,
 
         #[arg(long, default_value_t=false)]
-        count_per_doc: bool
+        count_per_doc: bool,
+
+        #[arg(long, default_value_t=false)]
+        split_by_dir: bool,
     },
 
 
@@ -481,35 +484,36 @@ fn gen_map_single(
     Ok(())
 }
 
-
-pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<String>, count_per_doc: bool, sum_keys_opt: Option<Vec<String>>) -> Result<(), Error> {
+pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<String>, count_per_doc: bool, sum_keys_opt: Option<Vec<String>>, split_by_dir: bool) -> Result<(), Error> {
     let start_main = Instant::now();
     let all_files = expand_dirs(vec![input_dir.clone()], None).unwrap();
 
-    let total_doc_count = AtomicUsize::new(0);
-    let total_file_sizes = AtomicUsize::new(0); // uncompressed file sizes
-    let total_text_bytes = AtomicUsize::new(0);
+    let total_doc_count : DashMap<String, usize> = DashMap::new();
+    let total_file_sizes : DashMap<String, usize> = DashMap::new();  // uncompressed file sizes
+    let total_text_bytes : DashMap<String, usize> = DashMap::new(); 
     let text_key: String = if let Some(text_key) = count_bytes {
         text_key
     } else {
         String::from("")
     };
 
-    let sum_key_counter : DashMap<String, usize> = if let Some(ref sum_keys) = sum_keys_opt {
-        sum_keys.iter().map(|el| (el.clone(), 0)).collect()
-    } else {
-        DashMap::new()
-    };
-    let count_per_doc_opt: Option<DashMap<PathBuf, usize>> = if count_per_doc {
+    let sum_key_counter : DashMap<String, DashMap<String, usize>> = DashMap::new();
+    let count_per_doc_opt: Option<DashMap<String, DashMap<PathBuf, usize>>> = if count_per_doc {
         Some(DashMap::new())
     } else {
         None
     };
 
-
     let pbar = build_pbar(all_files.len(), "files");
 
     all_files.into_par_iter().for_each(|p| {
+        let dirname = if let Some(dir) = p.parent() {
+            dir.to_str().unwrap()
+        } else {
+            ""
+        }.to_string();
+        let this_sum_key = sum_key_counter.entry(dirname.clone()).or_default();
+
         let contents = read_pathbuf_to_mem(&p).unwrap();
         let mut file_len = 0;
         let mut file_size = 0;
@@ -537,35 +541,86 @@ pub fn count(input_dir: &PathBuf, output_file: &PathBuf, count_bytes: Option<Str
                 }
             }
         }
-        for (k,v) in sum_key_path_counter.iter() {
-            sum_key_counter.alter(k, |_, og_v| og_v + v);
+        for (k, v) in sum_key_path_counter.iter() {
+            this_sum_key.alter(k, |_, og_v| og_v + v);
         }
     
-        total_doc_count.fetch_add(file_len, Ordering::SeqCst);
-        total_file_sizes.fetch_add(file_size, Ordering::SeqCst);
-        total_text_bytes.fetch_add(text_bytes, Ordering::SeqCst);
+        total_doc_count.alter(&dirname, |_, og_v| og_v + file_len);
+        total_file_sizes.alter(&dirname, |_, og_v| og_v + file_size);
+        total_text_bytes.alter(&dirname, |_, og_v| og_v + text_bytes);
         if let Some(doc_counts) = &count_per_doc_opt {
-            doc_counts.entry(p).or_insert(text_bytes);
+            doc_counts.entry(dirname).or_default().entry(p).or_insert(text_bytes);
         }
         pbar.inc(1);
     });
-    let total_doc_count = total_doc_count.into_inner();
-    let total_file_sizes = total_file_sizes.into_inner();
-    let total_text_bytes = total_text_bytes.into_inner();
-    let sum_key_counter: HashMap<String, usize> = sum_key_counter.into_iter().map(|(k,v)| (k, v)).collect();
-    let output_json = if let Some(doc_counts) = count_per_doc_opt {
-        let doc_counts: HashMap<PathBuf, usize> = doc_counts.into_par_iter().map(|(k, v)| (k,v)).collect();
-        json!({"total_docs": total_doc_count, "total_file_size": total_file_sizes, "total_text_bytes": total_text_bytes, "per_file_text_bytes": doc_counts, "sum_keys": sum_key_counter})
 
-    } else {
-        json!({"total_docs": total_doc_count, "total_file_size": total_file_sizes, "total_text_bytes": total_text_bytes, "sum_keys": sum_key_counter})
+    // aggregate step: aggregate based on dir name (or collapse all if split_by_dir == false)
+    let agg_key = |dirname: String| -> String {
+        if split_by_dir { dirname } else { String::from("") }
     };
+
+    let total_doc_count: HashMap<String, usize> = total_doc_count
+        .into_iter()
+        .fold(HashMap::new(), |mut acc, (k, v)| {
+            *acc.entry(agg_key(k)).or_insert(0) += v;
+            acc
+        });
+
+    let total_file_sizes: HashMap<String, usize> = total_file_sizes
+        .into_iter()
+        .fold(HashMap::new(), |mut acc, (k, v)| {
+            *acc.entry(agg_key(k)).or_insert(0) += v;
+            acc
+        });
+
+    let total_text_bytes: HashMap<String, usize> = total_text_bytes
+        .into_iter()
+        .fold(HashMap::new(), |mut acc, (k, v)| {
+            *acc.entry(agg_key(k)).or_insert(0) += v;
+            acc
+        });
+
+    let sum_key_counter: HashMap<String, HashMap<String, usize>> = sum_key_counter
+        .into_iter()
+        .fold(HashMap::new(), |mut acc, (dirname, inner)| {
+            let entry = acc.entry(agg_key(dirname)).or_insert_with(HashMap::new);
+            for (sum_key, count) in inner.into_iter() {
+                *entry.entry(sum_key).or_insert(0) += count;
+            }
+            acc
+        });
+
+    let output_json = if let Some(doc_counts) = count_per_doc_opt {
+        let doc_counts: HashMap<PathBuf, usize> = doc_counts
+            .into_iter()
+            .flat_map(|(_, inner)| inner.into_iter())
+            .collect();
+        json!({
+            "total_docs": total_doc_count,
+            "total_file_size": total_file_sizes,
+            "total_text_bytes": total_text_bytes,
+            "per_file_text_bytes": doc_counts,
+            "sum_keys": sum_key_counter
+        })
+    } else {
+        json!({
+            "total_docs": total_doc_count,
+            "total_file_size": total_file_sizes,
+            "total_text_bytes": total_text_bytes,
+            "sum_keys": sum_key_counter
+        })
+    };
+
     let output_contents = serde_json::to_vec(&output_json).unwrap();
-
-
     write_mem_to_pathbuf(&output_contents, output_file).unwrap();
 
-    println!("Saw {:?} docs ({:?} bytes)| {:?} text bytes | {:?} sum keys | in {:?} secs", total_doc_count, total_file_sizes, total_text_bytes, sum_key_counter, start_main.elapsed().as_secs());
+    let total_docs: usize = total_doc_count.values().sum();
+    let total_bytes: usize = total_file_sizes.values().sum();
+    let total_text: usize = total_text_bytes.values().sum();
+    println!(
+        "Saw {:?} docs ({:?} bytes) | {:?} text bytes | {:?} sum keys | in {:?} secs",
+        total_docs, total_bytes, total_text, sum_key_counter, start_main.elapsed().as_secs()
+    );
 
     Ok(())
 }
@@ -660,8 +715,8 @@ fn main() {
         } => shuffle(input_dir, output_dir, *num_outputs, *max_len, *delete_after_read),
 
         Commands::Count {
-            input_dir, output_file, count_bytes, count_per_doc, sum_keys,
-        } => count(input_dir, output_file, count_bytes.clone(), *count_per_doc, sum_keys.clone()),
+            input_dir, output_file, count_bytes, count_per_doc, sum_keys, split_by_dir,
+        } => count(input_dir, output_file, count_bytes.clone(), *count_per_doc, sum_keys.clone(), *split_by_dir),
 
         _ => Ok(()),
     };
