@@ -4,7 +4,7 @@ set -euox pipefail
 
 REMOTE_DIR=${REMOTE_DIR:-"s3://ai2-llm"}
 LOCAL_DIR=${LOCAL_DIR:-"/mnt/raid0/ai2-llm"}
-INPUT_DIR="${INPUT_DIR:-"pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_filter_v2_2026_stack_edu_redux_tagged"}
+INPUT_DIR=${INPUT_DIR:-"pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_filter_v2_2026_stack_edu_redux_tagged"}
 OUTPUT_DIR=${OUTPUT_DIR:-"${INPUT_DIR}_partitioned_gzip"}
 CONFIGS_DIR=${CONFIGS_DIR:-"configs/code/filters_gzip"}
 
