@@ -285,10 +285,9 @@ fn f64_to_bucket(bucket_bounds: &Vec<f64>, value: f64) -> usize {
 	if value < bucket_bounds[0] {
 		return 0;
 	}
-	match bucket_bounds.binary_search_by(|x| x.partial_cmp(&value).unwrap()) {
-		Ok(index) => index,
-		Err(index) => index
-	}
+    bucket_bounds.partition_point(|&x| x <= value)
+
+    
 
 }
 
