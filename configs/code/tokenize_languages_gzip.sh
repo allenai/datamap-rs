@@ -186,7 +186,7 @@ for source in "${SOURCES[@]}"; do
             --fields.id_field_name "${FIELD_ID}" \
             --no-tokenizer.segment_before_tokenization \
             --tokenizer.encode_special_tokens \
-            --processes ${num_processes} \
+            --processes $(nproc) \
             --max_size 4_000_000_000 \
             --sample_ring_prop \
             --dtype uint32
