@@ -2,11 +2,17 @@
 
 set -euox pipefail
 
-REMOTE_DIR="s3://ai2-llm"
-LOCAL_DIR="/mnt/raid0/ai2-llm"
-INPUT_DIR="pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_filter_v2_2026_stack_edu_redux_tagged"
-OUTPUT_DIR="${INPUT_DIR}_partitioned_gzip"
-CONFIGS_DIR="configs/code/filters_gzip"
+REMOTE_DIR=${REMOTE_DIR:-"s3://ai2-llm"}
+LOCAL_DIR=${LOCAL_DIR:-"/mnt/raid0/ai2-llm"}
+INPUT_DIR="${INPUT_DIR:-"pretraining-data/sources/the-stack-v2/spring2code_v2/minhash_filter_v2_2026_stack_edu_redux_tagged"}
+OUTPUT_DIR=${OUTPUT_DIR:"${INPUT_DIR}_partitioned_gzip"}
+CONFIGS_DIR=${CONFIGS_DIR:-"configs/code/filters_gzip"}
+
+USE_S3=1
+if [ -z "${REMOTE_DIR}" ]; then
+    USE_S3=0
+    echo "REMOTE_DIR is empty; S3 download/upload disabled"
+fi
 
 # ============================================================================
 # Get instance rank and world size from EC2 metadata
@@ -150,6 +156,11 @@ for language in "${LANGUAGES[@]}"; do
     fi
 
     if [ ! -d "${local_input_dir}" ]; then
+        if [ "${USE_S3}" -eq 0 ]; then
+            echo "Input directory ${local_input_dir} not found and REMOTE_DIR is empty... Skipping ${language}"
+            continue
+        fi
+
         remote_input_dir="${REMOTE_DIR}/${INPUT_DIR}/${language}"
         mkdir -p "${local_input_dir}"
         if ! s5cmd cp -sp "${remote_input_dir}/*" "${local_input_dir}/"; then
@@ -173,9 +184,13 @@ for language in "${LANGUAGES[@]}"; do
         --output-dir "${local_output_dir}" \
         --config "${config_file}"
 
-    s3_output_dir="${REMOTE_DIR}/${OUTPUT_DIR}/${language}"
-    echo "Uploading ${language} to ${s3_output_dir}..."
-    s5cmd cp -sp "${local_output_dir}/*" "${s3_output_dir}/"
+    if [ "${USE_S3}" -eq 1 ]; then
+        s3_output_dir="${REMOTE_DIR}/${OUTPUT_DIR}/${language}"
+        echo "Uploading ${language} to ${s3_output_dir}..."
+        s5cmd cp -sp "${local_output_dir}/*" "${s3_output_dir}/"
+    else
+        echo "Skipping upload for ${language} because REMOTE_DIR is empty"
+    fi
 done
 
 echo "Done!"
