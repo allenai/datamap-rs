@@ -178,7 +178,7 @@ enum Commands {
         range_groups: Option<Vec<f64>>,
 
         #[arg(long)]
-        reservoir_path: Option<PathBuf>,
+        range_groups_json: Option<PathBuf>,
 
         #[arg(long)]
         num_buckets: Option<usize>,
@@ -693,9 +693,9 @@ fn main() {
             input_dir,
             output_dir,
             config,
-            value, default_value, range_groups, reservoir_path, num_buckets, max_file_size, bucket_name
+            value, default_value, range_groups, range_groups_json, num_buckets, max_file_size, bucket_name
 
-        } => range_partition(input_dir, output_dir, config, value, default_value, range_groups, reservoir_path, num_buckets, max_file_size, bucket_name),
+        } => range_partition(input_dir, output_dir, config, value, default_value, range_groups, range_groups_json, num_buckets, max_file_size, bucket_name),
         Commands::Group {
             input_dir,
             group_dir,
