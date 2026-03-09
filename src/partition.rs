@@ -53,6 +53,8 @@ struct DiscretePartitionConfig {
 	choices: Option<Vec<String>>,
 	#[serde(default="default_max_file_size")]
 	max_file_size: usize,
+	#[serde(default="default_no_ft_label")]
+	no_ft_label: bool,
 }
 
 
@@ -60,23 +62,31 @@ fn default_max_file_size() -> usize {
 	256_000_000
 }
 
+fn default_no_ft_label() -> bool {
+	false
+}
 
 
 
-pub fn discrete_partition(input_dir: &PathBuf, output_dir: &PathBuf, config_opt: &Option<PathBuf>, partition_key: &Option<String>) -> Result<(), Error> {
+pub fn discrete_partition(input_dir: &PathBuf, output_dir: &PathBuf, config_opt: &Option<PathBuf>, partition_key: &Option<String>, no_ft_label: bool) -> Result<(), Error> {
 	let start_main = Instant::now();
 	println!("Starting partition operation");
 	let input_paths = expand_dirs(vec![input_dir.clone()], None).unwrap();
 
-	let config: DiscretePartitionConfig = if let Some(config_path) = config_opt {
+	let mut config: DiscretePartitionConfig = if let Some(config_path) = config_opt {
 		let config_contents = read_pathbuf_to_mem(config_path).unwrap();
 		serde_yaml::from_reader(config_contents).unwrap()
 	} else {
 		DiscretePartitionConfig {name: String::from("Discrete partition"),
 							     partition_key: partition_key.clone().unwrap(), 
 							     choices: None,
-							 	 max_file_size: default_max_file_size()}
+							 	 max_file_size: default_max_file_size(),
+							 	 no_ft_label: default_no_ft_label()}
 	};
+
+	if no_ft_label {
+		config.no_ft_label = no_ft_label;
+	}
 
 
 	let writer = GenWriter::new_category_writer(output_dir, &config.choices, config.max_file_size);
@@ -129,6 +139,11 @@ fn partition_single_path(path: &PathBuf, config: &DiscretePartitionConfig, write
 			_ => {
 
 				let str_key = partition_value.as_str().unwrap().to_string();
+				let str_key = if config.no_ft_label {
+					str_key.strip_prefix("__label__").unwrap_or(&str_key).to_string()
+				} else {
+					str_key
+				};
 				&if let Some(valid_choices) = &config.choices {
 					if valid_choices.contains(&str_key) {
 						Some(str_key)
