@@ -1,4 +1,5 @@
 pub mod add_id_modifier_test;
+pub mod allow_deny_list_filter_test;
 pub mod alphabetic_word_ratio_filter_test;
 pub mod bullet_filter_test;
 pub mod ellipsis_line_ratio_filter_test;
