@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 import time
+from datetime import datetime
 from tempfile import NamedTemporaryFile
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
@@ -257,6 +258,9 @@ class S5CMD:
                 filename = " ".join(parts[3:])
                 files.append(
                     {
+                        "ts": datetime.strptime(
+                            f"{parts[0]} {parts[1]}", "%Y/%m/%d %H:%M:%S"
+                        ).isoformat(),
                         "size": size,
                         "name": os.path.join(path, filename),
                     }

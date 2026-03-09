@@ -1,3 +1,5 @@
+use regex::Regex;
+use std::collections::HashMap;
 use std::hash::BuildHasher;
 use ahash::RandomState;
 use std::sync::atomic;
@@ -204,23 +206,27 @@ fn get_group_hash(value: &serde_json::Value, group_keys: &Vec<String>) -> Result
 
 
 
-pub fn group_filter(input_dir: &PathBuf, output_dir: &PathBuf, config_path: &PathBuf) -> Result<(), Error> {
+pub fn group_filter(input_dir: &PathBuf, output_dir: &PathBuf, config_path: &PathBuf, prev_sorted: bool) -> Result<(), Error> {
 	let start_main = Instant::now();
 	println!("Starting filter operation");	
 	let input_paths = expand_dirs(vec![input_dir.clone()], None).unwrap();
 	let config_contents = read_pathbuf_to_mem(config_path).unwrap();
 	let config: GroupFilterConfig = serde_yaml::from_reader(config_contents).unwrap();	
 	let pbar = build_pbar(input_paths.len(), "Paths");
-
+	let input_chunks = chunk_groups(input_paths).unwrap();
 	let docs_seen = AtomicUsize::new(0);
 	let docs_kept = AtomicUsize::new(0);
 
-	input_paths.into_par_iter().for_each(|p| {
-		let output_path = get_output_filename(&p, input_dir, output_dir).unwrap();	
-		let (path_seen, path_kept) = group_filter_path(&p, &output_path, &config).unwrap();
+	input_chunks.into_par_iter().for_each(|chunk| {
+		let output_path = get_output_filename(&chunk[0], input_dir, output_dir).unwrap();	
+		let (path_seen, path_kept) = if prev_sorted {
+			group_filter_path(&chunk, &output_path, &config).unwrap()	
+		} else {
+			group_filter_path_unsorted(&chunk, &output_path, &config).unwrap()
+		};
 		docs_seen.fetch_add(path_seen, atomic::Ordering::SeqCst);
 		docs_kept.fetch_add(path_kept, atomic::Ordering::SeqCst);
-		pbar.inc(1);
+		pbar.inc(chunk.len().try_into().unwrap());
 	});
 
 	println!("Finished filtering in {:?} secs", start_main.elapsed().as_secs());
@@ -230,20 +236,47 @@ pub fn group_filter(input_dir: &PathBuf, output_dir: &PathBuf, config_path: &Pat
 }
 
 
+fn chunk_groups(input_paths: Vec<PathBuf>) -> Result<Vec<Vec<PathBuf>>, Error> {
+    let re = Regex::new(r"^(chunk_\d{8})\.")?;
+    
+    let mut groups: HashMap<String, Vec<PathBuf>> = HashMap::new();
+    
+    for path in input_paths {
+        let filename = match path.file_name().and_then(|n| n.to_str()) {
+            Some(f) => f,
+            None => continue,
+        };
+        
+        if let Some(caps) = re.captures(filename) {
+            let prefix = caps[1].to_string();
+            groups.entry(prefix).or_default().push(path);
+        }
+    }
+    
+    Ok(groups.into_values().collect())
+}
 
-fn group_filter_path(input_path: &PathBuf, output_path: &PathBuf, config: &GroupFilterConfig) -> Result<(usize, usize), Error> {
+
+fn group_filter_path(input_path_chunk: &Vec<PathBuf>, output_path: &PathBuf, config: &GroupFilterConfig) -> Result<(usize, usize), Error> {
 	let mut docs_seen = 0;
 	let mut docs_kept = 0;
-	let contents = read_pathbuf_to_mem(input_path).unwrap();
+	let all_lines: Vec<String> = input_path_chunk.iter().flat_map(|p| {
+		let path_contents = read_pathbuf_to_mem(p).unwrap();
+		let values: Vec<String> = path_contents.lines().map(|line| {
+			let line = line.unwrap();
+			line
+		}).collect();	
+		values
+	}).collect();
+
 	let keep_idx = config.keep_idx;
 	let mut prev_hash : Option<usize> = None;
 	let mut prev_line : Option<String> = None;
 	
 	let mut output_bytes: Vec<u8> = Vec::new();
-	for line in contents.lines() {
+	for line in all_lines {
 		docs_seen += 1;
-		let line = line.unwrap();
-		let line_value: Value = serde_json::from_str(&line).unwrap();
+		let line_value = serde_json::from_str(&line).unwrap();		
 		let group_hash = get_group_hash(&line_value, &config.group_keys).unwrap();
 
 		// always keep the things without groups
@@ -281,7 +314,9 @@ fn group_filter_path(input_path: &PathBuf, output_path: &PathBuf, config: &Group
 		output_bytes.push(b'\n');
 	}	
 	if config.delete_after_read {
-		remove_file(input_path).unwrap();
+		for p in input_path_chunk {
+			remove_file(p).unwrap();
+		}
 	}
 
 	write_mem_to_pathbuf(&output_bytes, output_path).unwrap();
@@ -289,6 +324,82 @@ fn group_filter_path(input_path: &PathBuf, output_path: &PathBuf, config: &Group
 
 }
 
+
+fn group_filter_path_unsorted(input_path_chunk: &Vec<PathBuf>, output_path: &PathBuf, config: &GroupFilterConfig) -> Result<(usize, usize), Error> {
+	let mut docs_seen = 0;
+	let mut docs_kept = 0;	
+	let all_lines: Vec<String> = input_path_chunk.iter().flat_map(|p| {
+		let path_contents = read_pathbuf_to_mem(p).unwrap();
+		let values: Vec<String> = path_contents.lines().map(|line| {
+			let line = line.unwrap();
+			line
+		}).collect();	
+		values
+	}).collect();	
+	let keep_idx = config.keep_idx;
+	let mut output_bytes: Vec<u8> = Vec::new();
+
+	// Assume this file contains the entire group, but is unsorted
+	let mut groups: HashMap<usize, Vec<Value>> = HashMap::new();
+	for line in all_lines {
+		docs_seen += 1;
+		let line_value: Value = serde_json::from_str(&line).unwrap();
+		let group_hash_opt = get_group_hash(&line_value, &config.group_keys).unwrap();
+
+		if let Some(group_hash) = group_hash_opt {
+			groups.entry(group_hash).or_default().push(line_value);			
+		} else {
+			docs_kept += 1;
+			output_bytes.extend(line.as_bytes());
+			output_bytes.push(b'\n');
+		}
+	}
+	docs_kept += groups.len();
+
+	groups.into_iter().for_each(|(_k, mut v)| {
+		v.sort_by_key(|el| extract_sortkey(el, &config.sort_keys).unwrap());
+		let keep_doc = if keep_idx == 0 {
+			v.first().unwrap()
+		} else {
+			v.last().unwrap()
+		};
+		let keep_bytes = serde_json::to_vec(keep_doc).unwrap();		
+		output_bytes.extend(keep_bytes);
+		output_bytes.push(b'\n');
+	
+	});
+	if config.delete_after_read {
+		for p in input_path_chunk {
+			remove_file(p).unwrap();
+		}
+	}
+
+	write_mem_to_pathbuf(&output_bytes, output_path).unwrap();
+
+	Ok((docs_seen, docs_kept))
+}
+
+fn extract_sortkey(obj: &Value, sort_keys: &[Vec<String>]) -> Result<Vec<String>, Error> {
+    Ok(sort_keys
+        .iter()
+        .map(|key_group| {
+            // Find the first available key in this group
+            let value = key_group
+                .iter()
+                .find_map(|key| json_get(&obj, &key))
+                .expect(&format!("No keys from group {:?} found in object", key_group));
+            
+            // Convert the value to a string, handling both String and Number types
+            match value {
+                Value::String(s) => s.clone(),
+                Value::Number(n) => n.to_string(),
+                Value::Bool(b) => b.to_string(),
+                Value::Null => "null".to_string(),
+                _ => panic!("Unexpected value type for key group {:?}", key_group),
+            }                        
+        })
+        .collect())
+}
 
 /*==========================================================
 =                        GEN WRITER STUFF                  =

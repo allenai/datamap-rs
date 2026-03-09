@@ -29,8 +29,10 @@ use once_cell::sync::OnceCell;
 use derivative::Derivative;
 use flate2::write::GzEncoder;
 use flate2::Compression;
+use tiktoken_rs::{cl100k_base, p50k_base, CoreBPE};
 use tokenizers::Tokenizer;
 use unicode_normalization::UnicodeNormalization;
+
 
 
 /*================================================================================
@@ -93,6 +95,8 @@ static PROCESSOR_CONSTRUCTORS: Lazy<HashMap<&'static str, ProcessorConstructor>>
         register_processor!(m, "rename_modifier", RenameModifier);
         register_processor!(m, "sa_byte_modifier", SAByteModifier);
         register_processor!(m, "gzip_annotator", GzipAnnotator);
+        register_processor!(m, "token_count_annotator", TokenCountAnnotator);
+        register_processor!(m, "ngram_repetition_filter", NgramRepetitionFilter);
         register_processor!(m, "ultrafineweb_annotator", UltrafinewebAnnotator);
         m
     });
@@ -133,12 +137,14 @@ impl PipelineProcessor {
                 .or(Some(&default_json))
                 .unwrap()
                 .clone();
-            json_set(
-                &mut subconfig_kwargs,
-                &String::from("text_field"),
-                serde_json::Value::String(text_field.clone()),
-            )
-            .unwrap();
+            if json_get(&mut subconfig_kwargs, &String::from("text_field")).is_none() {
+                json_set(
+                    &mut subconfig_kwargs,
+                    &String::from("text_field"),
+                    serde_json::Value::String(text_field.clone()),
+                )
+                .unwrap();
+            }
             let constructor = PROCESSOR_CONSTRUCTORS[subconfig_name];
             pipeline.push(constructor(&subconfig_kwargs).unwrap());
 
@@ -2909,6 +2915,261 @@ impl DataProcessor for GzipAnnotator {
 #[derive(Derivative)]
 #[derivative(Debug)]
 #[derive(Serialize)]
+pub struct NgramRepetitionFilter {
+    pub text_field: String, // defaults to text
+    pub tokenizer_name: String, // Name of tokenizer
+    pub period_lb: usize, // defaults to 1
+    pub period_ub: usize, // defaults to 13
+    pub rep_count: usize, // defaults to 32,
+    pub skip_offsets: bool, // defaults to false
+    #[derivative(Debug = "ignore")]    
+    #[serde(skip)]      
+    pub tokenizer: CoreBPE, 
+}
+
+impl DataProcessor for NgramRepetitionFilter {
+    fn new(config: &Value) -> Result<Self, Error> {
+        let text_field = get_default(config, "text_field", String::from("text"));        
+        let tokenizer_name = get_default(config, "tokenizer_name", String::from("cl100k"));
+        let period_lb = get_default(config, "period_lb", 1);
+        let period_ub = get_default(config, "period_ub", 13);
+        let rep_count = get_default(config, "rep_count", 32);
+        let skip_offsets = get_default(config, "skip_offsets", false);
+
+        let tokenizer = match tokenizer_name.as_str() {
+            "cl100k" => cl100k_base().unwrap(),
+            "p50k" => p50k_base().unwrap(),
+            _ => panic!("Unsupported tokenizer: {}", tokenizer_name)
+        };
+        Ok(Self { text_field, tokenizer_name, period_lb, period_ub, rep_count, tokenizer, skip_offsets})
+    }
+
+    fn process(&self, data: Value) -> Result<Option<Value>, Error> {
+        let text = json_get(&data, &self.text_field)
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string(); 
+        let tokens = self.tokenizer.encode_with_special_tokens(&text);
+        if self.exceeds_repetition_threshold(&tokens, self.period_lb, self.period_ub, self.rep_count).unwrap() {
+            Ok(None)
+        } else {
+            Ok(Some(data))            
+        }
+    }
+}
+
+fn mod_pow(mut base: u128, mut exp: u128, modulus: u128) -> u128 {
+    if modulus == 1 {
+        return 0;
+    }
+    
+    let mut result = 1u128;
+    base %= modulus;
+    
+    while exp > 0 {
+        if exp & 1 == 1 {
+            result = (result * base) % modulus;
+        }
+        exp >>= 1;
+        base = (base * base) % modulus;
+    }
+    
+    result
+}
+
+
+/// Check if any K-length pattern (k_lo <= K <= k_hi) repeats at least `min_repetitions`
+/// times consecutively within the token sequence.
+///
+/// # Algorithm
+///
+/// For a fixed K, note that two K-grams can only be "consecutive K-apart repeats" if they
+/// share the same offset modulo K. For example with K=3:
+///
+///   offset 0: [0..3], [3..6], [6..9], ...
+///   offset 1: [1..4], [4..7], [7..10], ...
+///   offset 2: [2..5], [5..8], [8..11], ...
+///
+/// This partitions the problem into K independent streams. Within each stream, we just
+/// need to detect a streak of `min_repetitions` identical consecutive entries.
+///
+/// For each stream we maintain only:
+///   - The current rolling hash
+///   - The last hash seen in this stream
+///   - The current streak count
+///
+/// This is O(n * num_k) time and O(k) memory per k value — much cheaper on memory
+/// than maintaining a circular buffer of the last (L-1)*k hashes.
+///
+/// # Rolling Hash
+///
+/// For a window [t_0, t_1, ..., t_{k-1}] we define:
+///
+///   H = t_0 * B^0 + t_1 * B^1 + ... + t_{k-1} * B^{k-1}  (mod M)
+///
+/// where B = 110_017 and M = 2^61 - 1 (Mersenne prime).
+///
+/// When the window slides by 1 (drops t_0, gains t_k):
+///
+///   H_new = (H - t_0) * B^{-1} + t_k * B^{k-1}  (mod M)
+///
+/// B^{-1} is computed once via Fermat's Little Theorem: B^{-1} = B^{M-2} mod M.
+
+impl NgramRepetitionFilter {
+    /// Check if any K-length pattern (k_lo <= K <= k_hi) repeats at least L times consecutively.
+    ///
+    /// Returns true as soon as any pattern meets the threshold, allowing early termination.
+    pub fn exceeds_repetition_threshold(
+        &self, tokens: &[u32],
+        k_lo: usize,
+        k_hi: usize,
+        min_repetitions: usize,
+    ) -> Result<bool, Error> {
+        let n = tokens.len();
+
+        // A sequence of length n cannot contain min_repetitions consecutive copies of any
+        // k-gram unless n >= min_repetitions * k_lo.
+        if n < min_repetitions * k_lo {
+            return Ok(false);
+        }
+
+        // -------------------------------------------------------------------------
+        // HASH PARAMETERS
+        // B = 110_017: polynomial base, larger than any token value
+        // M = 2^61 - 1: Mersenne prime, chosen for fast modular reduction
+        // -------------------------------------------------------------------------
+        const BASE: u128 = 110_017;
+        const MOD: u128 = (1u128 << 61) - 1;
+
+        // B^{-1} mod M via Fermat's Little Theorem (B^{M-2} mod M).
+        // Used in the rolling hash update to shift weights down by one power.
+        let base_inv = mod_pow(BASE, MOD - 2, MOD);
+
+        // -------------------------------------------------------------------------
+        // OUTER LOOP: try each pattern length K independently
+        // -------------------------------------------------------------------------
+        for k in k_lo..=k_hi {
+            // Sequence must be long enough to even contain min_repetitions copies of this k
+            if n < min_repetitions * k {
+                continue;
+            }
+
+            // Precompute B^0, B^1, ..., B^{k-1} mod M for initial hash computation
+            // and for adding the incoming token at weight B^{k-1} during rolling updates.
+            let mut powers = Vec::with_capacity(k);
+            let mut p = 1u128;
+            for _ in 0..k {
+                powers.push(p);
+                p = (p * BASE) % MOD;
+            }
+            // powers[j] = B^j mod M
+
+            // -------------------------------------------------------------------------
+            // Per-offset stream state.
+            //
+            // For offset o, the stream visits windows:
+            //   [o..o+k], [o+k..o+2k], [o+2k..o+3k], ...
+            //
+            // Between consecutive entries in this stream, the window shifts exactly by k,
+            // so we apply the rolling hash update k times to move from one to the next.
+            //
+            // State per offset:
+            //   current_hash: rolling hash of the current window in this stream
+            //   streak:       how many consecutive identical windows we've seen so far
+            // -------------------------------------------------------------------------
+            struct OffsetState {
+                current_hash: Option<u128>,
+                streak: usize,
+            }
+            // Initialize each offset stream with the hash of its first window [o..o+k].
+            let mut streams: Vec<OffsetState> = (0..k).map(|_o| OffsetState{ current_hash: None, streak: 0}).collect();
+
+            // -------------------------------------------------------------------------
+            // SLIDING WINDOW LOOP: stride through windows of size k
+            //
+            // window_start iterates over [0, k, 2k, 3k, ...] — the start of each
+            // "stride block". Within each block, we process all k offsets.
+            //
+            // After processing offset o in block starting at w, the stream has consumed
+            // window [w+o .. w+o+k] and is ready to roll forward to [w+k+o .. w+2k+o].
+            // -------------------------------------------------------------------------        
+            let mut window_start = 0;
+            let offset_ub = if self.skip_offsets { 1 } else { k };
+            while window_start + k <= n {
+                let mut cur_seed = 0;
+                let mut outgoing_val = 0;
+                for o in 0..offset_ub {
+                    if window_start + k + o > n {
+                        continue;
+                    }
+                    if o == 0 { // Case 0: Build full hash and set outgoing val to be the first element used here
+                        cur_seed = (0..k).fold(0u128, |acc, j| {
+                            (acc + (tokens[j + window_start] as u128 * powers[j]) % MOD) % MOD
+                        });
+                    } else { // Case >0: do a rolling hash, and step the outgoing_val
+                        cur_seed = (cur_seed + MOD - outgoing_val) % MOD;
+                        cur_seed = (cur_seed * base_inv) % MOD;
+                        cur_seed = (cur_seed + tokens[window_start + k + o - 1] as u128 * powers[k-1]) % MOD;
+                    }
+                    outgoing_val = tokens[window_start + o] as u128;
+                    let cur_streak = if streams[o].current_hash.is_some() && streams[o].current_hash.unwrap() == cur_seed {
+                        streams[o].streak + 1
+                    } else {
+                        1
+                    };
+                    streams[o] = OffsetState{current_hash: Some(cur_seed), streak: cur_streak};
+                    if streams[o].streak >= min_repetitions {
+                        return Ok(true);
+                    }
+                }
+                window_start += k;
+            }
+        }
+
+        Ok(false)
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Debug)]
+#[derive(Serialize)]
+pub struct TokenCountAnnotator {
+    pub text_field: String,
+    pub tokenizer_name: String,
+    pub output_field: String,
+    #[derivative(Debug = "ignore")]    
+    #[serde(skip)]    
+    pub tokenizer: CoreBPE,
+}
+
+impl DataProcessor for TokenCountAnnotator {
+    fn new(config: &Value) -> Result<Self, Error> {
+
+        let text_field = json_get(config, "text_field").unwrap().as_str().unwrap().to_string();
+        let tokenizer_name = json_get(config, "tokenizer_name").unwrap().as_str().unwrap();
+        let tokenizer = match tokenizer_name {
+            "cl100k" => cl100k_base().unwrap(),
+            "p50k" => p50k_base().unwrap(),
+            _ => panic!("Unsupported tokenizer: {}", tokenizer_name)
+        };
+        let output_field = json_get(config, "output_field").unwrap().as_str().unwrap().to_string();
+
+        Ok(Self { text_field, tokenizer_name: tokenizer_name.to_string(), output_field, tokenizer})
+    }
+
+    fn process(&self, mut data: Value) -> Result<Option<Value>, Error> {
+        let text = json_get(&data, &self.text_field).unwrap().as_str().unwrap().to_string();
+        let token_count = self.tokenizer.encode_with_special_tokens(&text).len();
+        json_set(&mut data, &self.output_field, token_count.into()).unwrap();
+        Ok(Some(data))
+    }
+}
+
+
+#[derive(Derivative)]
+#[derivative(Debug)]
+#[derive(Serialize)]
 pub struct UltrafinewebAnnotator {
     pub text_field: String,
     pub tokenizer_path: String,
@@ -3011,8 +3272,9 @@ impl DataProcessor for UltrafinewebAnnotator {
         let pred_json = Value::Object(map);
         json_set(&mut data, &self.output_field, pred_json).unwrap();
         Ok(Some(data))
-    }
+    }        
 }
+
 
 impl UltrafinewebAnnotator {
     fn preprocess(&self, text: &String) -> Result<String, Error> {
