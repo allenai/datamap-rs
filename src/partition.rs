@@ -186,7 +186,13 @@ pub fn range_partition(input_dir: &PathBuf, output_dir: &PathBuf, config_opt: &O
 
 	let config: PercentilePartitionConfig = if let Some(config_path) = config_opt {
 		let config_contents = read_pathbuf_to_mem(config_path).unwrap();
-		let config: PercentilePartitionConfig = serde_yaml::from_reader(config_contents).unwrap();
+		let mut config: PercentilePartitionConfig = serde_yaml::from_reader(config_contents).unwrap();
+		if let Some(range_groups_real) = range_groups {
+			config.range_groups = Some(range_groups_real.clone());
+		}
+		if let Some(range_group_json_real) = range_group_json {
+			config.range_group_json = Some(range_group_json_real.clone());
+		}
 		config
 	} else {
 		PercentilePartitionConfig {name: "Range Partition".to_string(), 
