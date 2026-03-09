@@ -8,8 +8,6 @@ INPUT_DIR=${INPUT_DIR:-"pretraining-data/sources/the-stack-v2/spring2code_v2/min
 OUTPUT_DIR=${OUTPUT_DIR:-"${INPUT_DIR}_ngram_filtered"}
 
 
-
-
 USE_S3=1
 if [ -z "${REMOTE_DIR}" ]; then
     USE_S3=0
@@ -139,6 +137,8 @@ config_name_for_language() {
 # ============================================================================
 # Make config file
 # ============================================================================
+cd $HOME/datamap-rs
+git pull
 
     # Start building the config file with gzip quality guards.
     cat > "ngram_filter.yaml" << EOF
