@@ -162,7 +162,7 @@ struct PercentilePartitionConfig {
 	value: String,
 	default_value: Option<f64>, // defaults to 0	
 	range_groups: Option<Vec<f64>>, // e.g. [0.25, 0.50, 0.75] -> splits into [[0.0, 0.25), [0.25, 0.5), [0.5, 0.75), [0.75, 1]]
-	reservoir_path: Option<PathBuf>,
+	range_group_json: Option<PathBuf>,
 	num_buckets: Option<usize>,
 	#[serde(default="default_max_file_size")]
 	max_file_size: usize,
@@ -179,7 +179,7 @@ fn default_bucket_name() -> String {
 
 
 pub fn range_partition(input_dir: &PathBuf, output_dir: &PathBuf, config_opt: &Option<PathBuf>,
-					  value: &Option<String>, default_value: &Option<f64>, range_groups: &Option<Vec<f64>>, reservoir_path: &Option<PathBuf>, num_buckets: &Option<usize>, 
+					  value: &Option<String>, default_value: &Option<f64>, range_groups: &Option<Vec<f64>>, range_group_json: &Option<PathBuf>, num_buckets: &Option<usize>, 
 					  max_file_size: &Option<usize>, bucket_name: &Option<String>) -> Result<(), Error> {
 	println!("Starting partition...");
 	let start_time = Instant::now();
@@ -193,7 +193,7 @@ pub fn range_partition(input_dir: &PathBuf, output_dir: &PathBuf, config_opt: &O
 							       value: value.clone().unwrap(),
 							   	   default_value: default_value.clone(),
 							   	   range_groups: range_groups.clone(),
-							   	   reservoir_path: reservoir_path.clone(), 
+							   	   range_group_json: range_group_json.clone(),
 							   	   num_buckets: num_buckets.clone(),
 							   	   max_file_size: max_file_size.clone().unwrap_or(default_max_file_size()),
 							   	   bucket_name: bucket_name.clone().unwrap_or(default_bucket_name())}
@@ -203,20 +203,10 @@ pub fn range_partition(input_dir: &PathBuf, output_dir: &PathBuf, config_opt: &O
 
 	let ranges: Vec<f64> = if let Some(ref range_groups) = config.range_groups {
 		range_groups.to_vec()
-	} else if let Some(ref res_path) = config.reservoir_path {
-		let reservoir_content = read_pathbuf_to_mem(&res_path).unwrap().into_inner().into_inner();
-		let mut reservoir_data: Vec<f64> = serde_json::from_slice(&reservoir_content).unwrap();
-		reservoir_data.sort_unstable_by(|a,b| a.total_cmp(b));
-		let num_buckets = config.num_buckets.unwrap();
-		(1..num_buckets).map(|i| {
-			let index = (i * reservoir_data.len()) / num_buckets;
-			if index < reservoir_data.len() {
-				reservoir_data[index] 				
-			} else {
-				reservoir_data[reservoir_data.len() - 1]
-			}
-		})
-		.collect()
+	} else if let Some(ref range_group_json_path) = config.range_group_json {
+		let range_group_contents = read_pathbuf_to_mem(&range_group_json_path).unwrap().into_inner().into_inner();
+		let ranges: Vec<f64> = serde_json::from_slice(&range_group_contents).unwrap();
+		ranges
 	} else {
 		panic!("Need either range groups or a reservoir");
 	};
