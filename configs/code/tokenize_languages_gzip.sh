@@ -130,6 +130,15 @@ uv run --with=huggingface-hub \
     hf download ${TOKENIZER_NAME} \
     --local-dir ${LOCAL_DIR}/huggingface/${TOKENIZER_NAME}
 
+# setup up compactor
+current_dir=$(pwd)
+cd $HOME
+git clone https://github.com/soldni/reshard-tokenized.git
+cd reshard-tokenized
+cargo build --release
+RESHARDER_BIN="$(pwd)/target/release/reshard-tokenized"
+cd $current_dir
+
 # ============================================================================
 # Process sources: tokenization
 # ============================================================================
@@ -176,10 +185,13 @@ for source in "${SOURCES[@]}"; do
             continue
         fi
 
+        temp_location="${local_output_dir}/${step_dir}_temp/${TOKENIZER_NAME}"
+        final_location="${local_output_dir}/${step_dir}_temp/${TOKENIZER_NAME}"
+
         # tokenizing the source
         uv run dolma tokens \
             --documents "${local_input_dir}/${step_dir}/${EXTENSION}" \
-            --destination "${local_output_dir}/${step_dir}/${TOKENIZER_NAME}" \
+            --destination "${temp_location}" \
             --tokenizer.name_or_path ${TOKENIZER_NAME} \
             --tokenizer.eos_token_id 100257 \
             --tokenizer.pad_token_id 100277 \
@@ -190,6 +202,14 @@ for source in "${SOURCES[@]}"; do
             --max_size 4_000_000_000 \
             --sample_ring_prop \
             --dtype uint32
+
+        # reshard to just one file
+        $RESHARDER_BIN \
+            --input-path "${temp_location}" \
+            --output-path "${final_location}" \
+            --num-files 1
+
+        rm
     done
 
     output_dir=$(echo "${BASE_DIR}/${source}" | sed 's|^pretraining-data/sources|preprocessed|')
