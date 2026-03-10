@@ -50,12 +50,11 @@ fi
 # ============================================================================
 
 ALL_SOURCES=(
-    "Python"
     "Blade"
     "Bluespec"
     "C"
-    "C-Sharp"
     "C++"
+    "C-Sharp"
     "Clojure"
     "Common_Lisp"
     "CSS"
@@ -83,6 +82,7 @@ ALL_SOURCES=(
     "Pascal"
     "Perl"
     "PHP"
+    "Python"
     "R"
     "reStructuredText"
     "RMarkdown"
