@@ -55,12 +55,11 @@ fi
 # ============================================================================
 
 ALL_LANGUAGES=(
-    "Python"
     "Blade"
     "Bluespec"
     "C"
-    "C-Sharp"
     "C++"
+    "C-Sharp"
     "Clojure"
     "Common_Lisp"
     "CSS"
@@ -88,6 +87,7 @@ ALL_LANGUAGES=(
     "Pascal"
     "Perl"
     "PHP"
+    "Python"
     "R"
     "reStructuredText"
     "RMarkdown"
@@ -137,11 +137,9 @@ config_name_for_language() {
 # ============================================================================
 # Make config file
 # ============================================================================
-cd $HOME/datamap-rs
-git pull
 
-    # Start building the config file with gzip quality guards.
-    cat > "ngram_filter.yaml" << EOF
+# Start building the config file with gzip quality guards.
+cat > "ngram_filter.yaml" << EOF
 name: ngram_filter
 text_field: text
 pipeline:
@@ -153,19 +151,16 @@ pipeline:
 EOF
 
 
+# switch dir
+cd $HOME/datamap-rs
+git pull
+
+
 # ============================================================================
 # Process languages: filtering
 # ============================================================================
 
 for language in "${LANGUAGES[@]}"; do
-    config_name="$(config_name_for_language "${language}")"
-    config_file="${CONFIGS_DIR}/${config_name}"
-
-    if [ ! -f "${config_file}" ]; then
-        echo "Config file ${config_file} not found... Skipping ${language}"
-        continue
-    fi
-
     local_input_dir="${LOCAL_DIR}/${INPUT_DIR}/${language}"
     local_output_dir="${LOCAL_DIR}/${OUTPUT_DIR}/${language}"
 
@@ -195,19 +190,20 @@ for language in "${LANGUAGES[@]}"; do
 
 
         echo "Filtering ${language}/${partition} for ngrams..."
-        partition_input_dir="${local_input_dir}/${quality}"
-        partition_output_dir="${local_output_dir}/${quality}"
+        partition_input_dir="${local_input_dir}/${partition}"
+        partition_output_dir="${local_output_dir}/${partition}"
         mkdir -p $partition_output_dir
 
         cargo run --release map \
             --input-dir "${partition_input_dir}" \
             --output-dir "${partition_output_dir}" \
-            --config "ngram_filter.yaml"
+            --config "${HOME}/ngram_filter.yaml" | tee -a ${partition_output_dir}/datamap.log
 
         if [ "${USE_S3}" -eq 1 ]; then
-            s3_output_dir="${REMOTE_DIR}/${OUTPUT_DIR}/${language}/${quality}"
+            s3_output_dir="${REMOTE_DIR}/${OUTPUT_DIR}/${language}/${partition}"
             echo "Uploading ${language} to ${s3_output_dir}..."
             s5cmd cp -sp "${partition_output_dir}/step_final/*" "${s3_output_dir}/"
+            s5cmd cp -sp "${partition_output_dir}/datamap.log" "${s3_output_dir}/datamap.log"
         else
             echo "Skipping upload for ${language}/${quality} because REMOTE_DIR is empty"
         fi
