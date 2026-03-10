@@ -2949,8 +2949,18 @@ impl DataProcessor for NgramRepetitionFilter {
             .unwrap()
             .as_str()
             .unwrap()
-            .to_string(); 
-        let tokens = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.tokenizer.encode_with_special_tokens(&text))) {
+            .to_string();
+        // Spawn a thread with a large stack to avoid stack overflow in the
+        // regex engine used by tiktoken. If encoding still panics, the
+        // thread's join() safely returns Err and we filter the document.
+        let tokens = std::thread::scope(|s| {
+            std::thread::Builder::new()
+                .stack_size(64 * 1024 * 1024)
+                .spawn_scoped(s, || self.tokenizer.encode_with_special_tokens(&text))
+                .unwrap()
+                .join()
+        });
+        let tokens = match tokens {
             Ok(tokens) => tokens,
             Err(_) => return Ok(None),
         };
