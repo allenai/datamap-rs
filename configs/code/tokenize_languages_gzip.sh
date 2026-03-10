@@ -189,8 +189,8 @@ for source in "${SOURCES[@]}"; do
             continue
         fi
 
-        temp_location="${local_output_dir}/${step_dir}_temp/${TOKENIZER_NAME}"
-        final_location="${local_output_dir}/${step_dir}_temp/${TOKENIZER_NAME}"
+        temp_location="${local_output_dir}/${step_dir}_temp"
+        final_location="${local_output_dir}/${step_dir}/${TOKENIZER_NAME}/0000"
 
         # tokenizing the source
         uv run dolma tokens \
