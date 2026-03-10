@@ -6,5 +6,5 @@ pipeline:
       lower_bound: 256
   - name: text_len_filter
     kwargs:
-      upper_bound: 1000000
+      upper_bound: 50000000
 

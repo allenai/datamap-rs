@@ -1,0 +1,12 @@
+name: decon_filter
+text_field: text
+pipeline:
+  - name: deny_list_filter
+    kwargs:
+      attribute_field: id
+      deny_list_file: /mnt/raid0/decontam_ids.txt
+      on_null: keep
+  - name: page_len_filter
+    kwargs:
+      length_type: char
+      upper_bound: 50000000
