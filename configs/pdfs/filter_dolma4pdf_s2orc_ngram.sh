@@ -51,20 +51,31 @@ fi
 # Define all sources and compute subset for this instance
 # ============================================================================
 
-BASE_SOURCES="pretraining-data/sources"
+BASE_SOURCES="pretraining-data/sources/dolma4pdfs/dolma4pdfs_full_deduped_partitioned_resharded_qualitytagged_partitioned_decon/s2orcforolmo"
 ALL_SOURCES=(
-    "common-pile_codetextish/v0/common-pile_github_archive_filtered_decon"
-    "common-pile_codetextish/v0/common-pile_stackexchange_decon"
-    "common-pile_codetextish/v0/common-pile_ubuntu_irc_filtered_decon"
-    "common-pile_texbookish/v0/common-pile_biodiversity_heritage_library_filtered_decon"
-    "common-pile_texbookish/v0/common-pile_libretexts_filtered_decon"
-    "common-pile_texbookish/v0/common-pile_news_filtered_decon"
-    "common-pile_texbookish/v0/common-pile_oercommons_filtered_decon"
-    "common-pile_texbookish/v0/common-pile_pressbooks_filtered_decon"
-    "common-pile_texbookish/v0/common-pile_public_domain_review_filtered_decon"
-    "common-pile_texbookish/v0/common-pile_youtube_filtered_decon"
-    "common-pile_wikish/v0/common-pile_wikimedia_filtered_decon"
-    "common-pile_wikish/v0/common-pile_wikiteam_filtered_decon"
+    "__label__agricultural-and-food-sciences"
+    "__label__art"
+    "__label__biology"
+    "__label__business"
+    "__label__chemistry"
+    "__label__computer-science"
+    "__label__economics"
+    "__label__education"
+    "__label__engineering"
+    "__label__environmental-science"
+    "__label__geography"
+    "__label__geology"
+    "__label__history"
+    "__label__law"
+    "__label__linguistics"
+    "__label__materials-science"
+    "__label__mathematics"
+    "__label__medicine"
+    "__label__philosophy"
+    "__label__physics"
+    "__label__political-science"
+    "__label__psychology"
+    "__label__sociology"
 )
 
 SOURCES=()
@@ -105,7 +116,7 @@ git pull
 for source in "${SOURCES[@]}"; do
 
     input_dir="${BASE_SOURCES}/${source}"
-    output_dir="${BASE_SOURCES}/${source}_ngram_filtered"
+    output_dir="${BASE_SOURCES}_ngram_filtered/${source}"
 
     local_input_dir="${LOCAL_DIR}/${input_dir}"
     local_output_dir="${LOCAL_DIR}/${output_dir}"
@@ -134,22 +145,30 @@ for source in "${SOURCES[@]}"; do
         local_input_dir="${local_input_dir}/step_final"
     done
 
-    echo "Filtering ${source} for ngrams..."
-    mkdir -p "${local_output_dir}"
+    for partition in $(ls --color=never "${local_input_dir}"); do
+        if [[ ! "${partition}" =~ ^qual_([0-9]{4})$ ]]; then
+            continue
+        fi
 
-    cargo run --release map \
-        --input-dir "${local_input_dir}" \
-        --output-dir "${local_output_dir}" \
-        --config "${HOME}/ngram_filter.yaml" | tee -a ${local_output_dir}/datamap.log
+        echo "Filtering ${source}/${partition} for ngrams..."
+        partition_input_dir="${local_input_dir}/${partition}"
+        partition_output_dir="${local_output_dir}/${partition}"
+        mkdir -p $partition_output_dir
 
-    if [ "${USE_S3}" -eq 1 ]; then
-        s3_output_dir="${REMOTE_DIR}/${output_dir}"
-        echo "Uploading ${source} to ${s3_output_dir}..."
-        s5cmd cp -sp "${local_output_dir}/step_final/*" "${s3_output_dir}/"
-        s5cmd cp -sp "${local_output_dir}/datamap.log" "${s3_output_dir}/datamap.log"
-    else
-        echo "Skipping upload for ${source} because REMOTE_DIR is empty"
-    fi
+        cargo run --release map \
+            --input-dir "${partition_input_dir}" \
+            --output-dir "${partition_output_dir}" \
+            --config "${HOME}/ngram_filter.yaml" | tee -a ${partition_output_dir}/datamap.log
+
+        if [ "${USE_S3}" -eq 1 ]; then
+            s3_output_dir="${REMOTE_DIR}/${output_dir}/${partition}"
+            echo "Uploading ${source}/${partition} to ${s3_output_dir}..."
+            s5cmd cp -sp "${partition_output_dir}/step_final/*" "${s3_output_dir}/"
+            s5cmd cp -sp "${partition_output_dir}/datamap.log" "${s3_output_dir}/datamap.log"
+        else
+            echo "Skipping upload for ${source}/${partition} because REMOTE_DIR is empty"
+        fi
+    done
 done
 
 echo "Done!"
