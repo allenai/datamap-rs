@@ -213,7 +213,7 @@ for source in "${SOURCES[@]}"; do
             --output-path "${final_location}" \
             --num-files 1
 
-        rm
+        rm -rf $temp_location
     done
 
     output_dir=$(echo "${BASE_DIR}/${source}" | sed 's|^pretraining-data/sources|preprocessed|')
