@@ -227,6 +227,7 @@ impl PipelineProcessor {
         let mut filter_info = FilterInfo::new();
         let mut output_lines: HashMap<usize, Vec<Value>> = HashMap::new();
         let mut err_lines: Vec<String> = Vec::new();
+        println!("Processing file {:?} with {} lines", filename, lines.len());
         for (line_num, line) in lines.into_iter().enumerate() {
             let json_parse_result = serde_json::from_str(&line);
             match json_parse_result {
@@ -2607,7 +2608,7 @@ pub struct SAByteModifier {
     pub metadata_key: Option<String>,
     pub gap_width: usize,
     pub proportion_removal: f64,
-    pub doc_min_length: usize,    
+    pub doc_min_length: usize,
 }
 
 impl DataProcessor for SAByteModifier {
@@ -2618,19 +2619,19 @@ impl DataProcessor for SAByteModifier {
         let old_text_key = config.get("old_text_key")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
-        
+
         // Configure coherence checking options
         let check_paragraph = get_default(config, "check_paragraph", true);
         let check_newline = get_default(config, "check_newline", true);
         let check_sentences = get_default(config, "check_sentences", true);
         let check_width = get_default(config, "check_width", 50);
-        
+
         // Configure output and filtering options
         let metadata_key = config.get("metadata_key")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
-        let gap_width = get_default(config, "gap_width", 50); 
-        let proportion_removal = get_default(config, "proportion_removal", 0.0); 
+        let gap_width = get_default(config, "gap_width", 50);
+        let proportion_removal = get_default(config, "proportion_removal", 0.0);
         let doc_min_length = get_default(config, "doc_min_length", 0);
 
         Ok(Self {
@@ -2657,7 +2658,7 @@ impl DataProcessor for SAByteModifier {
         } else {
             return Ok(Some(data));
         };
-        
+
         // Get the original text as bytes for processing
         let og_text = json_get(&data, &self.text_key).unwrap().clone();
         let text_bytes = og_text.as_str().unwrap().as_bytes();
@@ -2669,7 +2670,7 @@ impl DataProcessor for SAByteModifier {
             .iter()
             .map(|v| (v[0].as_u64().unwrap() as usize,  std::cmp::min(v[1].as_u64().unwrap() as usize, original_length)))
             .collect();
-        
+
         if sa_intervals.is_empty() {
             return Ok(Some(data));
         }
@@ -2692,17 +2693,17 @@ impl DataProcessor for SAByteModifier {
         // Apply coherence checks to adjust interval boundaries to natural break points
 
         let sa_intervals = if self.check_paragraph || self.check_newline || self.check_sentences {
-            self.apply_coherence_checks(text_bytes, sa_intervals, &mut rules)        
+            self.apply_coherence_checks(text_bytes, sa_intervals, &mut rules)
         } else {
             sa_intervals
         };
 
         // Calculate final bytes to remove and update metrics
-        let bytes_to_remove_after: usize = sa_intervals.iter().map(|(s, e)| e - s).sum();        
+        let bytes_to_remove_after: usize = sa_intervals.iter().map(|(s, e)| e - s).sum();
         rules.bytes_to_remove_after = bytes_to_remove_after;
 
         // Check if the document meets minimum length requirements after removal
-        if (original_length - bytes_to_remove_after < self.doc_min_length) || 
+        if (original_length - bytes_to_remove_after < self.doc_min_length) ||
            ((original_length - bytes_to_remove_after) as f64 / (original_length as f64) < self.proportion_removal) {
             return Ok(None);
         }
@@ -2719,7 +2720,7 @@ impl DataProcessor for SAByteModifier {
         if last_end < text_bytes.len() {
             kept_segments.push(&text_bytes[last_end..]);
         }
- 
+
         // Write metadata about the modification process if configured
         if let Some(metadata) = &self.metadata_key {
             let rule_json: serde_json::Value = serde_json::to_value(rules).unwrap();
@@ -2732,7 +2733,7 @@ impl DataProcessor for SAByteModifier {
         }
 
         // Combine kept segments and update the document with modified text
-        let combined = kept_segments.concat();  
+        let combined = kept_segments.concat();
         let combined_str = Value::String(String::from_utf8_lossy(&combined).into_owned());
         json_set(&mut data, &self.text_key, combined_str).unwrap();
 
@@ -2742,7 +2743,7 @@ impl DataProcessor for SAByteModifier {
 
 impl SAByteModifier {
     /// Merge intervals that are separated by gaps smaller than gap_width to reduce fragmentation.
-    fn merge_gaps(&self, intervals: Vec<(usize, usize)>) -> Vec<(usize, usize)> {        
+    fn merge_gaps(&self, intervals: Vec<(usize, usize)>) -> Vec<(usize, usize)> {
         if intervals.is_empty() {
             return intervals;
         }
@@ -2763,7 +2764,7 @@ impl SAByteModifier {
             }
         }
 
-        merged            
+        merged
     }
 
     /// Adjust interval boundaries to align with natural text boundaries (paragraphs, sentences, newlines)
@@ -2838,7 +2839,7 @@ impl SAByteModifier {
     /// Find positions of natural text boundaries (periods, newlines, double newlines) within a byte slice.
     fn find_boundaries(&self, text: &[u8], idx_before_punct: bool, prepend_zero: bool, postpend_len: bool) -> Vec<usize> {
         let mut results = Vec::new();
-        
+
         // Optionally include the start of the text as a boundary
         if prepend_zero {
             results.push(0);
@@ -2860,13 +2861,13 @@ impl SAByteModifier {
                 b'\n' => {
                     // Check for paragraph boundary (double newline) first
                     if self.check_paragraph
-                        && i + 1 < text.len() 
-                        && text[i + 1] == b'\n' 
+                        && i + 1 < text.len()
+                        && text[i + 1] == b'\n'
                     {
                         results.push(i + offset);
                         i += 1;
                         results.push(i + offset);
-                    } 
+                    }
                     // Otherwise check for single newline boundary
                     else if self.check_newline {
                         results.push(i + offset);
@@ -2876,12 +2877,12 @@ impl SAByteModifier {
             }
             i += 1;
         }
-        
+
         // Optionally include the end of the text as a boundary
         if postpend_len {
             results.push(text.len());
         }
-        results        
+        results
     }
 }
 #[derive(Serialize, Debug)]
@@ -2922,14 +2923,14 @@ pub struct NgramRepetitionFilter {
     pub period_ub: usize, // defaults to 13
     pub rep_count: usize, // defaults to 32,
     pub skip_offsets: bool, // defaults to false
-    #[derivative(Debug = "ignore")]    
-    #[serde(skip)]      
-    pub tokenizer: CoreBPE, 
+    #[derivative(Debug = "ignore")]
+    #[serde(skip)]
+    pub tokenizer: CoreBPE,
 }
 
 impl DataProcessor for NgramRepetitionFilter {
     fn new(config: &Value) -> Result<Self, Error> {
-        let text_field = get_default(config, "text_field", String::from("text"));        
+        let text_field = get_default(config, "text_field", String::from("text"));
         let tokenizer_name = get_default(config, "tokenizer_name", String::from("cl100k"));
         let period_lb = get_default(config, "period_lb", 1);
         let period_ub = get_default(config, "period_ub", 13);
@@ -2950,20 +2951,7 @@ impl DataProcessor for NgramRepetitionFilter {
             .as_str()
             .unwrap()
             .to_string();
-        // Spawn a thread with a large stack to avoid stack overflow in the
-        // regex engine used by tiktoken. If encoding still panics, the
-        // thread's join() safely returns Err and we filter the document.
-        let tokens = std::thread::scope(|s| {
-            std::thread::Builder::new()
-                .stack_size(64 * 1024 * 1024)
-                .spawn_scoped(s, || self.tokenizer.encode_with_special_tokens(&text))
-                .unwrap()
-                .join()
-        });
-        let tokens = match tokens {
-            Ok(tokens) => tokens,
-            Err(_) => return Ok(None),
-        };
+        let tokens = self.tokenizer.encode_with_special_tokens(&text);
         if self.exceeds_repetition_threshold(&tokens, self.period_lb, self.period_ub, self.rep_count).unwrap() {
             Ok(None)
         } else {
@@ -2976,10 +2964,10 @@ fn mod_pow(mut base: u128, mut exp: u128, modulus: u128) -> u128 {
     if modulus == 1 {
         return 0;
     }
-    
+
     let mut result = 1u128;
     base %= modulus;
-    
+
     while exp > 0 {
         if exp & 1 == 1 {
             result = (result * base) % modulus;
@@ -2987,7 +2975,7 @@ fn mod_pow(mut base: u128, mut exp: u128, modulus: u128) -> u128 {
         exp >>= 1;
         base = (base * base) % modulus;
     }
-    
+
     result
 }
 
@@ -3106,7 +3094,7 @@ impl NgramRepetitionFilter {
             //
             // After processing offset o in block starting at w, the stream has consumed
             // window [w+o .. w+o+k] and is ready to roll forward to [w+k+o .. w+2k+o].
-            // -------------------------------------------------------------------------        
+            // -------------------------------------------------------------------------
             let mut window_start = 0;
             let offset_ub = if self.skip_offsets { 1 } else { k };
             while window_start + k <= n {
@@ -3151,8 +3139,8 @@ pub struct TokenCountAnnotator {
     pub text_field: String,
     pub tokenizer_name: String,
     pub output_field: String,
-    #[derivative(Debug = "ignore")]    
-    #[serde(skip)]    
+    #[derivative(Debug = "ignore")]
+    #[serde(skip)]
     pub tokenizer: CoreBPE,
 }
 
@@ -3285,7 +3273,7 @@ impl DataProcessor for UltrafinewebAnnotator {
         let pred_json = Value::Object(map);
         json_set(&mut data, &self.output_field, pred_json).unwrap();
         Ok(Some(data))
-    }        
+    }
 }
 
 
