@@ -133,8 +133,12 @@ uv run --with=huggingface-hub \
 # setup up compactor
 current_dir=$(pwd)
 cd $HOME
-git clone https://github.com/soldni/reshard-tokenized.git
+if [ ! -d "reshard-tokenized" ]; then
+    git clone https://github.com/soldni/reshard-tokenized.git
+fi
+
 cd reshard-tokenized
+git pull
 cargo build --release
 RESHARDER_BIN="$(pwd)/target/release/reshard-tokenized"
 cd $current_dir
