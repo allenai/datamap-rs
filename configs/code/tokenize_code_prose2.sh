@@ -6,7 +6,7 @@ REMOTE_DIR="s3://ai2-llm"
 LOCAL_DIR="/mnt/raid0/ai2-llm"
 BASE_DIR="pretraining-data/sources"
 
-EXTENSION="*.gz"
+EXTENSION="*.zst"
 TOKENIZER_NAME="allenai/dolma2-tokenizer"
 
 # ============================================================================
@@ -49,19 +49,46 @@ fi
 # ============================================================================
 
 ALL_SOURCES=(
-    "common-pile_codetextish/v0/common-pile_github_archive_filtered_decon_ngram_filtered"
-    "common-pile_codetextish/v0/common-pile_stackexchange_decon_ngram_filtered"
-    "common-pile_codetextish/v0/common-pile_ubuntu_irc_filtered_decon_ngram_filtered"
-    "common-pile_texbookish/v0/common-pile_biodiversity_heritage_library_filtered_decon_ngram_filtered"
-    "common-pile_texbookish/v0/common-pile_libretexts_filtered_decon_ngram_filtered"
-    "common-pile_texbookish/v0/common-pile_news_filtered_decon_ngram_filtered"
-    "common-pile_texbookish/v0/common-pile_oercommons_filtered_decon_ngram_filtered"
-    "common-pile_texbookish/v0/common-pile_pressbooks_filtered_decon_ngram_filtered"
-    "common-pile_texbookish/v0/common-pile_public_domain_review_filtered_decon_ngram_filtered"
-    "common-pile_texbookish/v0/common-pile_youtube_filtered_decon_ngram_filtered"
-    "common-pile_wikish/v0/common-pile_wikimedia_filtered_decon_ngram_filtered"
-    "common-pile_wikish/v0/common-pile_wikiteam_filtered_decon_ngram_filtered"
-
+    "sponge_211_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p00"
+    "sponge_211_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p05"
+    "sponge_211_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p10"
+    "sponge_211_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p15"
+    "sponge_211_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p20"
+    "sponge_211_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p25"
+    "sponge_211_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p30"
+    "sponge_211_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p35"
+    "sponge_211_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p40"
+    "sponge_211_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p45"
+    "sponge_211_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p50"
+    "sponge_211_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p55"
+    "sponge_211_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p60"
+    "sponge_211_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p65"
+    "sponge_211_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p70"
+    "sponge_211_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p75"
+    "sponge_211_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p80"
+    "sponge_211_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p85"
+    "sponge_211_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p90"
+    "sponge_211_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p95"
+    "sponge_211_non-software-development_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p00"
+    "sponge_211_non-software-development_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p05"
+    "sponge_211_non-software-development_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p10"
+    "sponge_211_non-software-development_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p15"
+    "sponge_211_non-software-development_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p20"
+    "sponge_211_non-software-development_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p25"
+    "sponge_211_non-software-development_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p30"
+    "sponge_211_non-software-development_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p35"
+    "sponge_211_non-software-development_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p40"
+    "sponge_211_non-software-development_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p45"
+    "sponge_211_non-software-development_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p50"
+    "sponge_211_non-software-development_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p55"
+    "sponge_211_non-software-development_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p60"
+    "sponge_211_non-software-development_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p65"
+    "sponge_211_non-software-development_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p70"
+    "sponge_211_non-software-development_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p75"
+    "sponge_211_non-software-development_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p80"
+    "sponge_211_non-software-development_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p85"
+    "sponge_211_non-software-development_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p90"
+    "sponge_211_non-software-development_code_prose_code_prose_tagged_partitioned_decon_ngram_filter/quality_p95"
 )
 
 # Compute which sources this instance should process
@@ -131,7 +158,10 @@ for source in "${SOURCES[@]}"; do
 
     # tokenizing the source
     uv run dolma tokens \
-        --documents "${local_input_dir}/${EXTENSION}" \
+        --documents \
+            "${local_input_dir}/english/${EXTENSION}" \
+            "${local_input_dir}/low_confidence/${EXTENSION}" \
+            "${local_input_dir}/non_english/**/${EXTENSION}" \
         --destination "${local_temp_dir}" \
         --tokenizer.name_or_path ${TOKENIZER_NAME} \
         --tokenizer.eos_token_id 100257 \
