@@ -2950,11 +2950,14 @@ impl DataProcessor for NgramRepetitionFilter {
             .as_str()
             .unwrap()
             .to_string(); 
-        let tokens = self.tokenizer.encode_with_special_tokens(&text);
+        let tokens = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.tokenizer.encode_with_special_tokens(&text))) {
+            Ok(tokens) => tokens,
+            Err(_) => return Ok(None),
+        };
         if self.exceeds_repetition_threshold(&tokens, self.period_lb, self.period_ub, self.rep_count).unwrap() {
             Ok(None)
         } else {
-            Ok(Some(data))            
+            Ok(Some(data))
         }
     }
 }
