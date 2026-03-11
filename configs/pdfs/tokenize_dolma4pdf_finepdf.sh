@@ -53,7 +53,6 @@ ALL_SOURCES=(
     "__label__art_and_design"
     "__label__crime_and_law"
     "__label__education_and_jobs"
-    "__label__electronics_and_hardware"
     "__label__entertainment"
     "__label__fashion_and_beauty"
     "__label__finance_and_business"
@@ -72,7 +71,6 @@ ALL_SOURCES=(
     "__label__software_development"
     "__label__sports_and_fitness"
     "__label__transportation"
-    "__label__travel_and_tourism"
 )
 
 # Compute which sources this instance should process
