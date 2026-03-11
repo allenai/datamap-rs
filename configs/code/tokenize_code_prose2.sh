@@ -6,7 +6,7 @@ REMOTE_DIR="s3://ai2-llm"
 LOCAL_DIR="/mnt/raid0/ai2-llm"
 BASE_DIR="pretraining-data/sources"
 
-EXTENSION="*.zst"
+EXTENSION="*.gz"
 TOKENIZER_NAME="allenai/dolma2-tokenizer"
 
 # ============================================================================
