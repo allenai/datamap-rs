@@ -6,7 +6,7 @@ REMOTE_DIR="s3://ai2-llm"
 LOCAL_DIR="/mnt/raid0/ai2-llm"
 BASE_DIR="pretraining-data/sources/cc_all_dressed/all_dressed_v5/topic_vigintiles_v2_decon"
 
-EXTENSION="*.zst"
+EXTENSION="*.gz"
 TOKENIZER_NAME="allenai/dolma2-tokenizer"
 
 # ============================================================================
