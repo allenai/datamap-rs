@@ -20,7 +20,7 @@ BASE_SOURCES="pretraining-data/sources"
 
 ALL_SOURCES=(
     "finemath/finemath-3plus-decon-sparkle_ngram_filtered"
-    "proof-pile-2/v0/documents/arxiv/train"
+    "proof-pile-2/v0_decon_v1/documents/rpj-proofpile-arxiv/train"
 )
 
 # ============================================================================
