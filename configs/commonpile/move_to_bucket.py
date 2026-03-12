@@ -77,6 +77,18 @@ def read_npy_paths(csv_path: str) -> list[dict]:
     return entries
 
 
+def _src_prefix(pattern: str) -> str:
+    """Return everything up to (and including) the last '/' before the first wildcard."""
+    # Find the first wildcard character (* or ?)
+    first_wild = len(pattern)
+    for ch in ("*", "?"):
+        idx = pattern.find(ch)
+        if idx != -1 and idx < first_wild:
+            first_wild = idx
+    # Walk back to the last '/' before the wildcard
+    return pattern[: pattern.rfind("/", 0, first_wild) + 1]
+
+
 def run_copy(
     entries: list[dict],
     dest_bucket: str,
@@ -117,8 +129,11 @@ def run_copy(
             )
             continue
 
-        # Parse ls output.  Each line looks like:
-        #   2024/01/15 12:34:56       12345  s3://bucket/key
+        # Parse ls output.  s5cmd ls prints relative paths from the first
+        # wildcard position, e.g.:
+        #   2024/01/15 12:34:56       12345  __label__foo/qual_0000/.../0000.npy
+        # We reconstruct the full URI by prepending the prefix (everything
+        # before the first wildcard in the source pattern).
         lines = [l.strip() for l in result.stdout.splitlines() if l.strip()]
         if not lines:
             log.warning("  No files matched pattern — skipping.")
@@ -126,18 +141,18 @@ def run_copy(
 
         log.info("  Found %d files.", len(lines))
 
+        prefix = _src_prefix(src_pattern)
+
         # Step 2: build a command file for `s5cmd run`
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".txt", delete=False, prefix="s5cmd_run_"
         ) as cmd_file:
             for line in lines:
-                # Extract the s3:// URI from the ls output
+                # The relative path is the last whitespace-delimited token
                 parts = line.split()
-                # The URI is the last token
-                src_uri = parts[-1]
-                if not src_uri.startswith("s3://"):
-                    log.warning("  Skipping unparseable line: %s", line)
-                    continue
+                rel_path = parts[-1]
+
+                src_uri = prefix + rel_path
 
                 # Rewrite bucket: s3://ai2-llm/key -> s3://<dest_bucket>/key
                 parsed = urlparse(src_uri)
