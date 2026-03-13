@@ -1,0 +1,103 @@
+name: quality_vigintiles
+text_field: text
+pipeline:
+    - name: float_filter
+      step: vigintile_0000
+      kwargs:
+          float_field: metadata.ultrafineweb.__label__pos
+          lower_bound: 0.0031050974503159523
+    - name: float_filter
+      step: vigintile_0001
+      kwargs:
+          float_field: metadata.ultrafineweb.__label__pos
+          lower_bound: 0.006628283765166998
+    - name: float_filter
+      step: vigintile_0002
+      kwargs:
+          float_field: metadata.ultrafineweb.__label__pos
+          lower_bound: 0.01053068321198225
+    - name: float_filter
+      step: vigintile_0003
+      kwargs:
+          float_field: metadata.ultrafineweb.__label__pos
+          lower_bound: 0.015058377757668495
+    - name: float_filter
+      step: vigintile_0004
+      kwargs:
+          float_field: metadata.ultrafineweb.__label__pos
+          lower_bound: 0.020339258015155792
+    - name: float_filter
+      step: vigintile_0005
+      kwargs:
+          float_field: metadata.ultrafineweb.__label__pos
+          lower_bound: 0.026449259370565414
+    - name: float_filter
+      step: vigintile_0006
+      kwargs:
+          float_field: metadata.ultrafineweb.__label__pos
+          lower_bound: 0.03341564163565636
+    - name: float_filter
+      step: vigintile_0007
+      kwargs:
+          float_field: metadata.ultrafineweb.__label__pos
+          lower_bound: 0.04129672423005104
+    - name: float_filter
+      step: vigintile_0008
+      kwargs:
+          float_field: metadata.ultrafineweb.__label__pos
+          lower_bound: 0.050176262855529785
+    - name: float_filter
+      step: vigintile_0009
+      kwargs:
+          float_field: metadata.ultrafineweb.__label__pos
+          lower_bound: 0.060276664793491364
+    - name: float_filter
+      step: vigintile_0010
+      kwargs:
+          float_field: metadata.ultrafineweb.__label__pos
+          lower_bound: 0.0718790739774704
+    - name: float_filter
+      step: vigintile_0011
+      kwargs:
+          float_field: metadata.ultrafineweb.__label__pos
+          lower_bound: 0.08545061200857162
+    - name: float_filter
+      step: vigintile_0012
+      kwargs:
+          float_field: metadata.ultrafineweb.__label__pos
+          lower_bound: 0.10176291316747665
+    - name: float_filter
+      step: vigintile_0013
+      kwargs:
+          float_field: metadata.ultrafineweb.__label__pos
+          lower_bound: 0.12212525308132172
+    - name: float_filter
+      step: vigintile_0014
+      kwargs:
+          float_field: metadata.ultrafineweb.__label__pos
+          lower_bound: 0.14862796664237976
+    - name: float_filter
+      step: vigintile_0015
+      kwargs:
+          float_field: metadata.ultrafineweb.__label__pos
+          lower_bound: 0.1852482557296753
+    - name: float_filter
+      step: vigintile_0016
+      kwargs:
+          float_field: metadata.ultrafineweb.__label__pos
+          lower_bound: 0.23985300958156586
+    - name: float_filter
+      step: vigintile_0017
+      kwargs:
+          float_field: metadata.ultrafineweb.__label__pos
+          lower_bound: 0.33226728439331055
+    - name: float_filter
+      step: vigintile_0018
+      kwargs:
+          float_field: metadata.ultrafineweb.__label__pos
+          lower_bound: 0.5251753330230713
+    - name: float_filter
+      step: vigintile_0019
+      kwargs:
+          float_field: metadata.ultrafineweb.__label__pos
+          lower_bound: 1000
