@@ -1,0 +1,7 @@
+name: unified_code_prose
+text_field: text
+pipeline:
+    - name: jq_annotator
+      kwargs:
+          expression: '(.metadata.lid | to_entries | max_by(.value) | .key | ltrimstr("__label__"))'
+          output_field: langauge_label
