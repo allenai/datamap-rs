@@ -2700,6 +2700,7 @@ impl DataProcessor for SAByteModifier {
         // Calculate final bytes to remove and update metrics
         let bytes_to_remove_after: usize = sa_intervals.iter().map(|(s, e)| e - s).sum();        
         rules.bytes_to_remove_after = bytes_to_remove_after;
+        rules.remaining_bytes = text_bytes.len() - rules.bytes_to_remove_before;
 
         // Check if the document meets minimum length requirements after removal
         if (original_length - bytes_to_remove_after < self.doc_min_length) || 
