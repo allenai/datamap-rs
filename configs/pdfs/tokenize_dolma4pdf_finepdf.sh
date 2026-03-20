@@ -4,7 +4,7 @@ set -euox pipefail
 
 REMOTE_DIR="s3://ai2-llm"
 LOCAL_DIR="/mnt/raid0/ai2-llm"
-BASE_DIR="pretraining-data/sources/dolma4pdfs/dolma4pdfs_full_deduped_partitioned_resharded_qualitytagged_partitioned_decon/finepdfs_wo_partitioned_qual_ngram_filtered"
+BASE_DIR="pretraining-data/sources/dolma4pdfs/dolma4pdfs_full_deduped_partitioned_resharded_qualitytagged_partitioned_decon_sa10x/finepdfs_wo_partitioned_qual_ngram_filtered"
 
 EXTENSION="*.zst"
 TOKENIZER_NAME="allenai/dolma2-tokenizer"
@@ -53,6 +53,7 @@ ALL_SOURCES=(
     "__label__art_and_design"
     "__label__crime_and_law"
     "__label__education_and_jobs"
+    "__label__electronics_and_hardare"  # typo expected
     "__label__entertainment"
     "__label__fashion_and_beauty"
     "__label__finance_and_business"
@@ -71,6 +72,7 @@ ALL_SOURCES=(
     "__label__software_development"
     "__label__sports_and_fitness"
     "__label__transportation"
+    "__label__travel_and_tourism"
 )
 
 # Compute which sources this instance should process
