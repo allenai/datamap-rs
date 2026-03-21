@@ -53,7 +53,7 @@ ALL_SOURCES=(
     "__label__art_and_design"
     "__label__crime_and_law"
     "__label__education_and_jobs"
-    "__label__electronics_and_hardare"  # typo expected
+    "__label__electronics_and_hardware"
     "__label__entertainment"
     "__label__fashion_and_beauty"
     "__label__finance_and_business"
