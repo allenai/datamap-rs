@@ -779,9 +779,8 @@ impl DataProcessor for StringEqFilter {
 
     fn process(&self, data: Value) -> Result<Option<Value>, Error> {
         let val = json_get(&data, &self.str_field)
-            .unwrap()
-            .as_str()
-            .unwrap()
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
             .to_string();
 
         if (&val == &self.eq) == self.keep_matches {

@@ -14,6 +14,7 @@ pub mod ratio_line_modifier_test;
 pub mod regex_line_modifier_test;
 pub mod regex_text_filter_test;
 pub mod santa_code_pl_filter_test;
+pub mod string_eq_filter_test;
 pub mod stop_word_filter_test;
 pub mod substring_line_modifier_test;
 pub mod symbol_ratio_filter_test;
