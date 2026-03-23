@@ -10,6 +10,7 @@
 
 import argparse
 import os
+import random
 import re
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
@@ -44,34 +45,30 @@ def normalize_license(license_value: str | None) -> str:
     return re.sub(r"[^a-z0-9_]", "", license_value.lower().replace("-", "_").replace(" ", "_"))
 
 
-def process_file(input_path: Path, output_dir: Path) -> int:
-    """Process a single jsonl.zst file, partitioning rows by license.
+def process_batch(input_paths: list[Path], output_dir: Path, batch_idx: int) -> int:
+    """Process a batch of jsonl.zst files, partitioning rows by license.
 
     Returns the number of rows processed.
     """
     encoder = msgspec.json.Encoder()
     decoder = msgspec.json.Decoder()
 
-    # Collect rows by license
+    # Collect rows by license across all files in the batch
     buckets: dict[str, list[bytes]] = {}
 
-    with smart_open.open(str(input_path), "rb") as fin:
-        for line in fin:
-            row = decoder.decode(line)
-            license_value = row.get("license")
-            key = normalize_license(license_value)
-            if key not in buckets:
-                buckets[key] = []
-            buckets[key].append(encoder.encode(row))
+    for input_path in input_paths:
+        with smart_open.open(str(input_path), "rb") as fin:
+            for line in fin:
+                row = decoder.decode(line)
+                license_value = row.get("license")
+                key = normalize_license(license_value)
+                if key not in buckets:
+                    buckets[key] = []
+                buckets[key].append(encoder.encode(row))
 
-    # Write each license bucket to its own file
-    stem = input_path.stem
-    if stem.endswith(".jsonl"):
-        stem = stem[: -len(".jsonl")]
-
+    output_dir.mkdir(parents=True, exist_ok=True)
     for license_key, rows in buckets.items():
-        out_path = output_dir / f"{stem}_{license_key}.jsonl.zst"
-        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path = output_dir / f"shard_{batch_idx:08d}_{license_key}.jsonl.zst"
         with smart_open.open(str(out_path), "wb") as fout:
             for encoded_row in rows:
                 fout.write(encoded_row + b"\n")
@@ -84,40 +81,55 @@ def main():
     parser.add_argument("--input-dir", type=Path, required=True, help="Directory with (nested) jsonl.zst files.")
     parser.add_argument("--output-dir", type=Path, required=True, help="Output directory for partitioned files.")
     parser.add_argument("--workers", type=int, default=os.cpu_count(), help="Number of parallel workers.")
+    parser.add_argument("--estimated-licenses", type=int, default=8, help="Estimated number of distinct licenses; controls batch size.")
     args = parser.parse_args()
 
     input_dir: Path = args.input_dir.resolve()
     output_dir: Path = args.output_dir.resolve()
 
-    # Discover all jsonl.zst files
-    input_paths = sorted(input_dir.rglob("*.jsonl.zst"))
-    if not input_paths:
+    # Walk input directory; for each subdirectory, shuffle jsonl.zst files
+    # then chunk into batches of --estimated-licenses.
+    batch_size = max(1, args.estimated_licenses)
+    tasks: list[tuple[list[Path], Path, int]] = []
+    batch_idx = 0
+    total_files = 0
+    for dirpath, _, filenames in sorted(os.walk(input_dir)):
+        files = [Path(dirpath) / f for f in filenames if f.endswith(".jsonl.zst")]
+        random.shuffle(files)
+        if not files:
+            continue
+        total_files += len(files)
+        rel_parent = Path(dirpath).relative_to(input_dir)
+        out_subdir = output_dir / rel_parent
+        for i in range(0, len(files), batch_size):
+            tasks.append((files[i : i + batch_size], out_subdir, batch_idx))
+            batch_idx += 1
+
+    if not tasks:
         print(f"No .jsonl.zst files found in {input_dir}")
         return
 
-    # Build (input_path, output_subdir) pairs preserving directory structure
-    tasks: list[tuple[Path, Path]] = []
-    for p in input_paths:
-        rel = p.relative_to(input_dir)
-        out_subdir = output_dir / rel.parent
-        tasks.append((p, out_subdir))
+    print(f"Found {total_files} input files, grouped into {len(tasks)} batches of ~{batch_size}")
 
     from tqdm import tqdm
 
     with ProcessPoolExecutor(max_workers=args.workers) as pool:
-        futures = {pool.submit(process_file, inp, out): inp for inp, out in tasks}
+        futures = {
+            pool.submit(process_batch, batch, out, idx): idx
+            for batch, out, idx in tasks
+        }
         total_rows = 0
-        with tqdm(total=len(futures), desc="Processing files", unit="file") as pbar:
+        with tqdm(total=len(futures), desc="Processing batches", unit="batch") as pbar:
             for future in as_completed(futures):
-                inp = futures[future]
+                idx = futures[future]
                 try:
                     n = future.result()
                     total_rows += n
                 except Exception as exc:
-                    print(f"\nError processing {inp}: {exc}")
+                    print(f"\nError processing batch {idx}: {exc}")
                 pbar.update(1)
 
-    print(f"Done. Processed {total_rows:,} rows across {len(tasks)} files.")
+    print(f"Done. Processed {total_rows:,} rows across {total_files} files.")
 
 
 if __name__ == "__main__":
