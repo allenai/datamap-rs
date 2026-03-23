@@ -4,7 +4,7 @@ set -euox pipefail
 
 REMOTE_DIR="s3://ai2-llm"
 LOCAL_DIR="/mnt/raid0/ai2-llm"
-BASE_DIR="pretraining-data/sources/dolma4pdfs/dolma4pdfs_full_deduped_partitioned_resharded_qualitytagged_partitioned_decon/s2orcforolmo_nogpl_ngram_filtered"
+BASE_DIR="pretraining-data/sources/dolma4pdfs/dolma4pdfs_full_deduped_partitioned_resharded_qualitytagged_partitioned_decon_sa10x/s2orcforolmo_nogpl_ngram_filtered_license_partioned"
 
 EXTENSION="*.zst"
 TOKENIZER_NAME="allenai/dolma2-tokenizer"
