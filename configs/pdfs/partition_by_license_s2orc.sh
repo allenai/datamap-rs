@@ -116,30 +116,20 @@ for source in "${SOURCES[@]}"; do
         continue
     fi
 
-    for step_dir in $(ls --color=never "${local_input_dir}"); do
-        if [[ "${step_dir}" != qual_00* ]]; then
-            echo "Skipping ${step_dir} as it does not start with qual_00"
-            continue
-        fi
+    remote_exists=false
+    if s5cmd ls "${remote_output_dir}/*" >/dev/null 2>&1; then
+        remote_exists=true
+    fi
 
-        current_output="${local_output_dir}/${step_dir}"
-        current_remote_output="${remote_output_dir}/${step_dir}"
-        remote_exists=false
+    if [ -d "${local_output_dir}" ] || [ "${remote_exists}" = true ]; then
+        echo "Output already exists at ${local_output_dir} or ${remote_output_dir}... Skipping ${source}"
+        continue
+    fi
 
-        if s5cmd ls "${current_remote_output}/*" >/dev/null 2>&1; then
-            remote_exists=true
-        fi
-
-        if [ -d "${current_output}" ] || [ "${remote_exists}" = true ]; then
-            echo "Output already exists at ${current_output} or ${current_remote_output}... Skipping ${source}/${step_dir}"
-            continue
-        fi
-
-        echo "Partitioning ${source}/${step_dir} by license..."
-        uv run "${PARTITION_SCRIPT}" \
-            --input-dir "${local_input_dir}/${step_dir}" \
-            --output-dir "${current_output}"
-    done
+    echo "Partitioning ${source} by license..."
+    uv run "${PARTITION_SCRIPT}" \
+        --input-dir "${local_input_dir}" \
+        --output-dir "${local_output_dir}"
 
     # Upload results to S3
     if [ -d "${local_output_dir}" ]; then
