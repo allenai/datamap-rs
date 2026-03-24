@@ -1,12 +1,12 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#   "smart_open[zst]",
+#   "smart_open[all]",
 #   "msgspec",
 #   "tqdm",
 # ]
 # ///
-"""Partition jsonl.zst files by the `metadata.license` field, maintaining directory structure."""
+"""Partition json.gz/jsonl.zst files by the `metadata.license` field, maintaining directory structure."""
 
 import argparse
 import os
@@ -46,7 +46,7 @@ def normalize_license(license_value: str | None) -> str:
 
 
 def process_batch(input_paths: list[Path], output_dir: Path, batch_idx: int) -> int:
-    """Process a batch of jsonl.zst files, partitioning rows by license.
+    """Process a batch of json.gz/jsonl.zst files, partitioning rows by license.
 
     Returns the number of rows processed.
     """
@@ -69,7 +69,7 @@ def process_batch(input_paths: list[Path], output_dir: Path, batch_idx: int) -> 
 
     output_dir.mkdir(parents=True, exist_ok=True)
     for license_key, rows in buckets.items():
-        out_path = output_dir / f"shard_{batch_idx:08d}_{license_key}.jsonl.zst"
+        out_path = output_dir / f"shard_{batch_idx:08d}_{license_key}.json.gz"
         with smart_open.open(str(out_path), "wb") as fout:
             for encoded_row in rows:
                 fout.write(encoded_row + b"\n")
@@ -79,7 +79,7 @@ def process_batch(input_paths: list[Path], output_dir: Path, batch_idx: int) -> 
 
 def main():
     parser = argparse.ArgumentParser(description="Partition jsonl.zst files by metadata.license field.")
-    parser.add_argument("--input-dir", type=Path, required=True, help="Directory with (nested) jsonl.zst files.")
+    parser.add_argument("--input-dir", type=Path, required=True, help="Directory with (nested) json.gz or jsonl.zst files.")
     parser.add_argument("--output-dir", type=Path, required=True, help="Output directory for partitioned files.")
     parser.add_argument("--workers", type=int, default=os.cpu_count(), help="Number of parallel workers.")
     parser.add_argument("--estimated-licenses", type=int, default=8, help="Estimated number of distinct licenses; controls batch size.")
@@ -88,14 +88,15 @@ def main():
     input_dir: Path = args.input_dir.resolve()
     output_dir: Path = args.output_dir.resolve()
 
-    # Walk input directory; for each subdirectory, shuffle jsonl.zst files
+    # Walk input directory; for each subdirectory, shuffle json.gz/jsonl.zst files
     # then chunk into batches of --estimated-licenses.
+    supported_extensions = (".json.gz", ".jsonl.zst")
     batch_size = max(1, args.estimated_licenses)
     tasks: list[tuple[list[Path], Path, int]] = []
     batch_idx = 0
     total_files = 0
     for dirpath, _, filenames in sorted(os.walk(input_dir)):
-        files = [Path(dirpath) / f for f in filenames if f.endswith(".jsonl.zst")]
+        files = [Path(dirpath) / f for f in filenames if any(f.endswith(ext) for ext in supported_extensions)]
         random.shuffle(files)
         if not files:
             continue
@@ -107,7 +108,7 @@ def main():
             batch_idx += 1
 
     if not tasks:
-        print(f"No .jsonl.zst files found in {input_dir}")
+        print(f"No json.gz or jsonl.zst files found in {input_dir}")
         return
 
     print(f"Found {total_files} input files, grouped into {len(tasks)} batches of ~{batch_size}")
