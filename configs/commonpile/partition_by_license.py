@@ -90,7 +90,7 @@ def main():
 
     # Walk input directory; for each subdirectory, shuffle json.gz/jsonl.zst files
     # then chunk into batches of --estimated-licenses.
-    supported_extensions = (".json.gz", ".jsonl.zst")
+    supported_extensions = (".json.gz", ".jsonl.gz")
     batch_size = max(1, args.estimated_licenses)
     tasks: list[tuple[list[Path], Path, int]] = []
     batch_idx = 0
