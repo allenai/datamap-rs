@@ -49,18 +49,18 @@ fi
 # ============================================================================
 
 ALL_SOURCES=(
-    "common-pile_codetextish/v0/common-pile_github_archive_filtered_decon_ngram_filtered"
-    "common-pile_codetextish/v0/common-pile_stackexchange_decon_ngram_filtered"
-    "common-pile_codetextish/v0/common-pile_ubuntu_irc_filtered_decon_ngram_filtered"
-    "common-pile_texbookish/v0/common-pile_biodiversity_heritage_library_filtered_decon_ngram_filtered"
-    "common-pile_texbookish/v0/common-pile_libretexts_filtered_decon_ngram_filtered"
-    "common-pile_texbookish/v0/common-pile_news_filtered_decon_ngram_filtered"
-    "common-pile_texbookish/v0/common-pile_oercommons_filtered_decon_ngram_filtered"
-    "common-pile_texbookish/v0/common-pile_pressbooks_filtered_decon_ngram_filtered"
-    "common-pile_texbookish/v0/common-pile_public_domain_review_filtered_decon_ngram_filtered"
-    "common-pile_texbookish/v0/common-pile_youtube_filtered_decon_ngram_filtered"
-    "common-pile_wikish/v0/common-pile_wikimedia_filtered_decon_ngram_filtered"
-    "common-pile_wikish/v0/common-pile_wikiteam_filtered_decon_ngram_filtered"
+    "common-pile_codetextish/v0/common-pile_github_archive_filtered_decon_ngram_filtered_license_partitioned"
+    "common-pile_codetextish/v0/common-pile_stackexchange_decon_ngram_filtered_license_partitioned"
+    "common-pile_codetextish/v0/common-pile_ubuntu_irc_filtered_decon_ngram_filtered_license_partitioned"
+    "common-pile_texbookish/v0/common-pile_biodiversity_heritage_library_filtered_decon_ngram_filtered_license_partitioned"
+    "common-pile_texbookish/v0/common-pile_libretexts_filtered_decon_ngram_filtered_license_partitioned"
+    "common-pile_texbookish/v0/common-pile_news_filtered_decon_ngram_filtered_license_partitioned"
+    "common-pile_texbookish/v0/common-pile_oercommons_filtered_decon_ngram_filtered_license_partitioned"
+    "common-pile_texbookish/v0/common-pile_pressbooks_filtered_decon_ngram_filtered_license_partitioned"
+    "common-pile_texbookish/v0/common-pile_public_domain_review_filtered_decon_ngram_filtered_license_partitioned"
+    "common-pile_texbookish/v0/common-pile_youtube_filtered_decon_ngram_filtered_license_partitioned"
+    "common-pile_wikish/v0/common-pile_wikimedia_filtered_decon_ngram_filtered_license_partitioned"
+    "common-pile_wikish/v0/common-pile_wikiteam_filtered_decon_ngram_filtered_license_partitioned"
 
 )
 
