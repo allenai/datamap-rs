@@ -82,7 +82,7 @@ def main():
     parser.add_argument("--input-dir", type=Path, required=True, help="Directory with (nested) json.gz or jsonl.zst files.")
     parser.add_argument("--output-dir", type=Path, required=True, help="Output directory for partitioned files.")
     parser.add_argument("--workers", type=int, default=os.cpu_count(), help="Number of parallel workers.")
-    parser.add_argument("--estimated-licenses", type=int, default=8, help="Estimated number of distinct licenses; controls batch size.")
+    parser.add_argument("--estimated-licenses", type=int, default=4, help="Estimated number of distinct licenses; controls batch size.")
     args = parser.parse_args()
 
     input_dir: Path = args.input_dir.resolve()
