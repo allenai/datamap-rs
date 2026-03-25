@@ -35,14 +35,15 @@ def list_common_prefixes(bucket: str, prefix: str) -> list[str]:
     return prefixes
 
 
-def calc_size_for_prefix(bucket: str, prefix: str, glob_regex: re.Pattern | None, pattern: str | None) -> int:
-    """Calculate total size of matching files under a prefix (recursive).
+def calc_size_for_prefix(bucket: str, prefix: str, glob_regex: re.Pattern | None, pattern: str | None) -> tuple[int, int]:
+    """Calculate total size and count of matching files under a prefix (recursive).
 
     In glob mode (glob_regex is set), matches files against the glob pattern.
     Otherwise, matches only .npy files. An additional regex filter can be applied via pattern.
     """
     s3 = boto3.client("s3")
     total_size = 0
+    total_count = 0
     paginator = s3.get_paginator("list_objects_v2")
     regex = re.compile(pattern) if pattern else None
 
@@ -58,8 +59,9 @@ def calc_size_for_prefix(bucket: str, prefix: str, glob_regex: re.Pattern | None
             if regex is not None and not regex.search(key):
                 continue
             total_size += obj["Size"]
+            total_count += 1
 
-    return total_size
+    return total_size, total_count
 
 
 def format_size(size_bytes: int) -> str:
@@ -128,6 +130,7 @@ def main():
     print(f"Found {len(top_prefixes)} top-level prefixes to scan")
 
     total_size = 0
+    total_count = 0
     calc_fn = partial(calc_size_for_prefix, bucket, glob_regex=glob_regex, pattern=args.pattern)
 
     with ProcessPoolExecutor(max_workers=args.workers) as executor:
@@ -136,14 +139,15 @@ def main():
         for future in as_completed(futures):
             prefix_path = futures[future]
             try:
-                size = future.result()
+                size, count = future.result()
                 if size > 0:
-                    print(f"  {prefix_path}: {format_size(size)}")
+                    print(f"  {prefix_path}: {format_size(size)} ({count:,} files)")
                 total_size += size
+                total_count += count
             except Exception as e:
                 print(f"  Error processing {prefix_path}: {e}")
 
-    print(f"\nTotal size: {format_size(total_size)} ({total_size:0d} bytes)")
+    print(f"\nTotal size: {format_size(total_size)} ({total_size:d} bytes, {total_count:,} files)")
 
 
 if __name__ == "__main__":
